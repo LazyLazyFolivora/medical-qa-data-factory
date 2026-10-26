@@ -1,0 +1,157 @@
+{
+  "$defs": {
+    "AnswerType": {
+      "enum": [
+        "entity",
+        "short_fact"
+      ],
+      "title": "AnswerType",
+      "type": "string"
+    },
+    "DifficultyTarget": {
+      "enum": [
+        "easy",
+        "medium",
+        "hard"
+      ],
+      "title": "DifficultyTarget",
+      "type": "string"
+    },
+    "EvidenceConstraints": {
+      "additionalProperties": false,
+      "properties": {
+        "literature_policy": {
+          "$ref": "#/$defs/LiteraturePolicy",
+          "default": "when_needed"
+        },
+        "min_kg_evidence": {
+          "default": 1,
+          "minimum": 0,
+          "title": "Min Kg Evidence",
+          "type": "integer"
+        },
+        "min_literature_evidence": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Min Literature Evidence",
+          "type": "integer"
+        },
+        "min_total_evidence": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Min Total Evidence",
+          "type": "integer"
+        }
+      },
+      "title": "EvidenceConstraints",
+      "type": "object"
+    },
+    "EvidenceSource": {
+      "enum": [
+        "knowledge_graph",
+        "literature"
+      ],
+      "title": "EvidenceSource",
+      "type": "string"
+    },
+    "LiteraturePolicy": {
+      "enum": [
+        "forbidden",
+        "when_needed",
+        "required"
+      ],
+      "title": "LiteraturePolicy",
+      "type": "string"
+    },
+    "ReasoningConstraints": {
+      "additionalProperties": false,
+      "properties": {
+        "max_hops": {
+          "default": 2,
+          "maximum": 4,
+          "minimum": 1,
+          "title": "Max Hops",
+          "type": "integer"
+        },
+        "min_hops": {
+          "default": 1,
+          "maximum": 4,
+          "minimum": 1,
+          "title": "Min Hops",
+          "type": "integer"
+        }
+      },
+      "title": "ReasoningConstraints",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "What a data-production batch asks for.\n\nThis is deliberately separate from ``SafetyBudget``. A difficulty target\nmust never become a tool-call budget, and exhausting a budget must never be\nreported as a harder question.",
+  "properties": {
+    "allowed_answer_types": {
+      "items": {
+        "$ref": "#/$defs/AnswerType"
+      },
+      "minItems": 1,
+      "title": "Allowed Answer Types",
+      "type": "array"
+    },
+    "allowed_sources": {
+      "items": {
+        "$ref": "#/$defs/EvidenceSource"
+      },
+      "minItems": 1,
+      "title": "Allowed Sources",
+      "type": "array"
+    },
+    "difficulty_policy_version": {
+      "default": "difficulty-v1",
+      "title": "Difficulty Policy Version",
+      "type": "string"
+    },
+    "difficulty_targets": {
+      "items": {
+        "$ref": "#/$defs/DifficultyTarget"
+      },
+      "minItems": 1,
+      "title": "Difficulty Targets",
+      "type": "array"
+    },
+    "evidence_constraints": {
+      "$ref": "#/$defs/EvidenceConstraints"
+    },
+    "label_policy_version": {
+      "default": "planner-label-v1",
+      "title": "Label Policy Version",
+      "type": "string"
+    },
+    "language": {
+      "default": "zh-CN",
+      "minLength": 2,
+      "title": "Language",
+      "type": "string"
+    },
+    "question_count": {
+      "default": 3,
+      "maximum": 20,
+      "minimum": 1,
+      "title": "Question Count",
+      "type": "integer"
+    },
+    "reasoning_constraints": {
+      "$ref": "#/$defs/ReasoningConstraints"
+    },
+    "schema_version": {
+      "default": "generation-spec-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "spec_version": {
+      "default": "generation-spec-v1",
+      "title": "Spec Version",
+      "type": "string"
+    }
+  },
+  "title": "GenerationSpec",
+  "type": "object"
+}

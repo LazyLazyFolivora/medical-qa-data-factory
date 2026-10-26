@@ -1,0 +1,236 @@
+{
+  "$defs": {
+    "EndpointKind": {
+      "enum": [
+        "python",
+        "http",
+        "mcp",
+        "mock"
+      ],
+      "title": "EndpointKind",
+      "type": "string"
+    },
+    "RequiredEvidenceMode": {
+      "description": "The evidence a run is required to produce.\n\nThis is deliberately not the same field as the ablation-computed\n``verified_route``. The generation requirement cannot be relaxed by what\nablation later discovers: switching mode means a new run.",
+      "enum": [
+        "kg_only",
+        "literature_only",
+        "hybrid",
+        "hybrid_per_hop"
+      ],
+      "title": "RequiredEvidenceMode",
+      "type": "string"
+    },
+    "RunMode": {
+      "enum": [
+        "rule_based",
+        "fake",
+        "structured"
+      ],
+      "title": "RunMode",
+      "type": "string"
+    },
+    "ToolSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "config_hash": {
+          "minLength": 1,
+          "title": "Config Hash",
+          "type": "string"
+        },
+        "data_snapshot_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Data Snapshot Id"
+        },
+        "endpoint_kind": {
+          "$ref": "#/$defs/EndpointKind"
+        },
+        "retrieved_at": {
+          "format": "date-time",
+          "title": "Retrieved At",
+          "type": "string"
+        },
+        "tool_name": {
+          "minLength": 1,
+          "title": "Tool Name",
+          "type": "string"
+        },
+        "tool_version": {
+          "minLength": 1,
+          "title": "Tool Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool_name",
+        "tool_version",
+        "data_snapshot_id",
+        "config_hash",
+        "endpoint_kind",
+        "retrieved_at"
+      ],
+      "title": "ToolSnapshot",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Frozen identity of one real generation run.",
+  "properties": {
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "kg_provider_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Kg Provider Id"
+    },
+    "kg_snapshot_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Kg Snapshot Id"
+    },
+    "model_config_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model Config Id"
+    },
+    "preflight_attempt_refs": {
+      "items": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "title": "Preflight Attempt Refs",
+      "type": "array"
+    },
+    "preparation_id": {
+      "minLength": 1,
+      "title": "Preparation Id",
+      "type": "string"
+    },
+    "prompt_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Prompt Hashes",
+      "type": "object"
+    },
+    "rag_capability_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rag Capability Version"
+    },
+    "rag_provider": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rag Provider"
+    },
+    "rag_snapshot_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rag Snapshot Id"
+    },
+    "request_digest": {
+      "minLength": 1,
+      "title": "Request Digest",
+      "type": "string"
+    },
+    "required_evidence_mode": {
+      "$ref": "#/$defs/RequiredEvidenceMode"
+    },
+    "run_id": {
+      "minLength": 1,
+      "title": "Run Id",
+      "type": "string"
+    },
+    "run_mode": {
+      "$ref": "#/$defs/RunMode"
+    },
+    "run_policy_version": {
+      "minLength": 1,
+      "title": "Run Policy Version",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": "run-identity-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "task_id": {
+      "minLength": 1,
+      "title": "Task Id",
+      "type": "string"
+    },
+    "tool_snapshots": {
+      "items": {
+        "$ref": "#/$defs/ToolSnapshot"
+      },
+      "title": "Tool Snapshots",
+      "type": "array"
+    }
+  },
+  "required": [
+    "run_id",
+    "task_id",
+    "preparation_id",
+    "run_mode",
+    "run_policy_version",
+    "required_evidence_mode",
+    "request_digest",
+    "created_at"
+  ],
+  "title": "GenerationRunManifest",
+  "type": "object"
+}

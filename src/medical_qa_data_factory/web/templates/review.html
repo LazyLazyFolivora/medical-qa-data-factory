@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}审核 {{ question.question_id }} · Data Factory{% endblock %}
+{% block breadcrumb %}<a href="{{ url_for('entities') }}">种子实体</a> / <a href="{{ url_for('entity_detail', entity_ref_id=seed_entity.entity_ref_id) }}">{{ seed_entity.raw_mention }}</a> / 审核{% endblock %}
+{% block content %}
+<header class="review-header">
+  <div><p class="eyebrow">EVIDENCE REVIEW</p><h1>{{ question.question_id }}</h1></div>
+  <div class="review-meta"><span class="status status-draft"><i></i>{{ question.validation_level.value }}</span><span>expected: <strong>{{ question.expected_route.value }}</strong></span><span>verified: <strong>{{ question.verified_route.value }}</strong></span></div>
+</header>
+
+<section class="evidence-workbench">
+  <div class="workbench-legend" aria-hidden="true"><span>SOURCE BUS</span><i></i><span>CLAIM TOPOLOGY</span><i></i><span>TEXT CORPUS</span></div>
+  <div class="evidence-column kg-column">
+    <header><span>KG EVIDENCE</span><strong>{{ bundle.kg_evidence|length }}</strong></header>
+    <div class="column-body">
+      {% for item in bundle.kg_evidence %}
+      <article class="evidence-item" data-evidence-id="{{ item.evidence_id }}">
+        <span class="source-kicker">{{ item.source_database }}</span>
+        <p><strong>{{ item.head.canonical_name }}</strong><span class="relation">{{ item.relation }}</span><strong>{{ item.tail.canonical_name }}</strong></p>
+        <code>{{ item.evidence_id }}</code>
+      </article>
+      {% else %}<p class="empty-copy">没有 KG 证据</p>{% endfor %}
+    </div>
+  </div>
+
+  <div class="claim-column">
+    <header><span>Claim 脊柱</span><strong>{{ bundle.claims|length }}</strong></header>
+    <div class="column-body claim-spine">
+      {% for claim in bundle.claims %}
+      <button class="claim-node" type="button" data-evidence-ids="{{ (claim.supporting_evidence_ids + claim.contradicting_evidence_ids + claim.context_evidence_ids)|join(',') }}" data-claim-id="{{ claim.claim_id }}" aria-pressed="false">
+        <span class="claim-index">C{{ loop.index }}</span><span><strong>{{ claim.claim_text }}</strong><small>{{ claim.status.value }} · confidence {{ claim.confidence if claim.confidence is not none else '—' }}</small></span>
+      </button>
+      {% else %}<p class="empty-copy">没有候选 claim</p>{% endfor %}
+    </div>
+  </div>
+
+  <div class="evidence-column literature-column">
+    <header><span>LITERATURE</span><strong>{{ bundle.literature_evidence|length }}</strong></header>
+    <div class="column-body">
+      {% for item in bundle.literature_evidence %}
+      <article class="evidence-item" data-evidence-id="{{ item.evidence_id }}">
+        <span class="source-kicker">{{ item.publication_type or 'literature' }} · {{ item.year or 'n.d.' }}</span>
+        <h3>{{ item.title }}</h3><p>{{ item.evidence_text }}</p><code>{{ item.evidence_id }}</code>
+      </article>
+      {% else %}<p class="empty-copy">没有文献证据</p>{% endfor %}
+    </div>
+  </div>
+</section>
+
+<section class="question-editor">
+  <div class="section-title"><div><p class="eyebrow">QUESTION SPEC</p><h2>问题与候选答案</h2></div><span class="unsaved-indicator">共 {{ question_versions|length }} 个版本</span></div>
+  <div class="editor-grid">
+    <label class="field wide"><span>标准问题</span><textarea id="canonical-question" data-original="{{ question.canonical_question }}">{{ question.canonical_question }}</textarea></label>
+    {% for variant in question.question_variants %}
+    <label class="field wide"><span>问题变体 {{ loop.index }}（{{ variant.persona }}）</span><textarea data-variant-text data-original="{{ variant.text }}">{{ variant.text }}</textarea></label>
+    {% endfor %}
+    <label class="field"><span>候选答案（Gold short answer）</span><input id="gold-short-answer" data-original="{{ question.gold_answer.short_answer }}" value="{{ question.gold_answer.short_answer }}"></label>
+    <label class="field"><span>答案解释</span><input id="gold-explanation" data-original="{{ question.gold_answer.explanation or '' }}" value="{{ question.gold_answer.explanation or '' }}"></label>
+    <label class="field"><span>答案形式</span><input readonly value="{{ question.gold_answer.answer_mode.value }}"></label>
+    <label class="field"><span>domain_intent</span><input data-taxonomy-field="domain_intent" data-original="{{ question.taxonomy.domain_intent }}" value="{{ question.taxonomy.domain_intent }}"></label>
+    <label class="field"><span>hop_complexity</span><input data-taxonomy-field="hop_complexity" data-original="{{ question.taxonomy.hop_complexity if question.taxonomy.hop_complexity is not none else '' }}" value="{{ question.taxonomy.hop_complexity if question.taxonomy.hop_complexity is not none else '' }}"></label>
+    <label class="field"><span>人工判定路由</span>
+      <select id="verified-route">
+        {% for route in ["unknown", "kg", "literature", "hybrid", "redundant", "unanswerable"] %}
+        <option value="{{ route }}" {% if route == question.verified_route.value %}selected{% endif %}>{{ route }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="field"><span>数据划分</span>
+      <select id="dataset-split">
+        <option value="">不指定</option>
+        {% for split in ["train", "validation", "test"] %}
+        <option value="{{ split }}" {% if split == (question.dataset_split.value if question.dataset_split else '') %}selected{% endif %}>{{ split }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="field wide"><span>审核说明</span><input id="review-summary" placeholder="记录判定依据，将写入版本变更记录"></label>
+    <div class="field wide"><span>必需证据</span><div class="token-row">{% for id in question.evidence_requirements.required_kg_evidence_ids + question.evidence_requirements.required_literature_evidence_ids %}<code>{{ id }}</code>{% else %}<em>未设置</em>{% endfor %}</div></div>
+  </div>
+  <footer class="editor-actions">
+    <p class="review-error" data-review-error hidden></p>
+    <button class="danger-button" type="button" data-review-action="reject">拒绝</button>
+    <button class="secondary-button" type="button" data-review-action="return">退回</button>
+    <button class="primary-button" type="button" data-review-action="confirm">确认并下一条</button>
+  </footer>
+</section>
+
+<section class="check-panel">
+  <div class="section-title"><div><p class="eyebrow">AUTOMATED CHECKS</p><h2>机器校验状态</h2></div><span class="unsaved-indicator">父版本 {{ question.question_version }}</span></div>
+  <table class="check-table">
+    <thead><tr><th>校验项</th><th>状态</th><th>校验器版本</th><th>说明</th></tr></thead>
+    <tbody>
+      {% for check in question.validation_checks %}
+      <tr data-check-status="{{ check.status.value }}"><td><code>{{ check.check_type }}</code></td><td>{{ check.status.value }}</td><td>{{ check.validator_version }}</td><td>{{ check.message }}</td></tr>
+      {% else %}<tr><td colspan="4">尚未运行任何校验，使用 <code>medical-qa-data-factory validate run</code></td></tr>{% endfor %}
+    </tbody>
+  </table>
+  {% if question.changes %}
+  <div class="change-log">
+    <h3>修改记录</h3>
+    <ol>{% for change in question.changes %}<li><strong>{{ change.operation }}</strong> · {{ change.actor_type.value }} · {{ change.summary }}</li>{% endfor %}</ol>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}
+
+

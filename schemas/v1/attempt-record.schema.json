@@ -1,0 +1,404 @@
+{
+  "$defs": {
+    "AttemptOutcome": {
+      "description": "Why an attempt ended, for reconciliation and audit.",
+      "enum": [
+        "success",
+        "empty",
+        "timeout",
+        "auth_error",
+        "rate_limited",
+        "parse_error",
+        "provider_error",
+        "policy_rejected",
+        "unknown"
+      ],
+      "title": "AttemptOutcome",
+      "type": "string"
+    },
+    "AttemptStatus": {
+      "enum": [
+        "reserved",
+        "running",
+        "completed",
+        "failed",
+        "unknown"
+      ],
+      "title": "AttemptStatus",
+      "type": "string"
+    },
+    "MeasurementSource": {
+      "enum": [
+        "provider",
+        "tool",
+        "derived",
+        "estimated"
+      ],
+      "title": "MeasurementSource",
+      "type": "string"
+    },
+    "UsageRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "cached_input_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cached Input Tokens"
+        },
+        "currency": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Currency"
+        },
+        "documents_read": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Documents Read"
+        },
+        "documents_retrieved": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Documents Retrieved"
+        },
+        "elapsed_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Elapsed Ms"
+        },
+        "input_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Tokens"
+        },
+        "invocation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Invocation Id"
+        },
+        "kg_relation_accesses": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kg Relation Accesses"
+        },
+        "measurement_source": {
+          "$ref": "#/$defs/MeasurementSource"
+        },
+        "meter_version": {
+          "minLength": 1,
+          "title": "Meter Version",
+          "type": "string"
+        },
+        "output_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Tokens"
+        },
+        "provider_reported_cost": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider Reported Cost"
+        },
+        "recorded_at": {
+          "format": "date-time",
+          "title": "Recorded At",
+          "type": "string"
+        },
+        "tool_calls": {
+          "minimum": 0,
+          "title": "Tool Calls",
+          "type": "integer"
+        },
+        "tool_name": {
+          "minLength": 1,
+          "title": "Tool Name",
+          "type": "string"
+        },
+        "usage_id": {
+          "minLength": 1,
+          "title": "Usage Id",
+          "type": "string"
+        },
+        "usage_scope": {
+          "$ref": "#/$defs/UsageScope"
+        }
+      },
+      "required": [
+        "usage_id",
+        "usage_scope",
+        "invocation_id",
+        "tool_name",
+        "tool_calls",
+        "measurement_source",
+        "meter_version",
+        "recorded_at"
+      ],
+      "title": "UsageRecord",
+      "type": "object"
+    },
+    "UsageScope": {
+      "enum": [
+        "generation",
+        "episode",
+        "counterfactual"
+      ],
+      "title": "UsageScope",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One physical external attempt, and the budget fact for it.\n\n``attempt_id`` is unique per physical attempt; ``idempotency_key`` is\nstable per canonical request so a retry can be recognised. A retry is a\n*new* attempt with a *new* charge: replaying a completed attempt is a\nno-op, never a free second call.",
+  "properties": {
+    "attempt_id": {
+      "minLength": 1,
+      "title": "Attempt Id",
+      "type": "string"
+    },
+    "attempt_version": {
+      "minLength": 1,
+      "title": "Attempt Version",
+      "type": "string"
+    },
+    "charged_units": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Charged Units"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "episode_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Episode Id"
+    },
+    "error_code": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error Code"
+    },
+    "idempotency_key": {
+      "minLength": 1,
+      "title": "Idempotency Key",
+      "type": "string"
+    },
+    "operation": {
+      "minLength": 1,
+      "title": "Operation",
+      "type": "string"
+    },
+    "outcome": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AttemptOutcome"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "owner_id": {
+      "minLength": 1,
+      "title": "Owner Id",
+      "type": "string"
+    },
+    "provider_request_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Provider Request Id"
+    },
+    "request_digest": {
+      "minLength": 1,
+      "title": "Request Digest",
+      "type": "string"
+    },
+    "reserved_units": {
+      "minimum": 0,
+      "title": "Reserved Units",
+      "type": "number"
+    },
+    "response_digest": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Response Digest"
+    },
+    "retryable": {
+      "default": false,
+      "title": "Retryable",
+      "type": "boolean"
+    },
+    "run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Run Id"
+    },
+    "schema_version": {
+      "default": "run-identity-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "scope": {
+      "pattern": "^(task|run)$",
+      "title": "Scope",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/AttemptStatus",
+      "default": "reserved"
+    },
+    "tool_name": {
+      "minLength": 1,
+      "title": "Tool Name",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    },
+    "usage": {
+      "items": {
+        "$ref": "#/$defs/UsageRecord"
+      },
+      "title": "Usage",
+      "type": "array"
+    }
+  },
+  "required": [
+    "attempt_id",
+    "attempt_version",
+    "idempotency_key",
+    "scope",
+    "owner_id",
+    "tool_name",
+    "operation",
+    "request_digest",
+    "reserved_units",
+    "created_at",
+    "updated_at"
+  ],
+  "title": "AttemptRecord",
+  "type": "object"
+}

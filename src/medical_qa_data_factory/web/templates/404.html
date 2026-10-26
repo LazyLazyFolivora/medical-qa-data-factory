@@ -1,0 +1,4 @@
+{% extends "base.html" %}
+{% block title %}记录不存在 · Data Factory{% endblock %}
+{% block content %}<div class="not-found"><p class="eyebrow">404</p><h1>没有找到这条记录</h1><p>它可能属于另一个工作区，或者版本尚未写入。</p><a class="primary-button link-button" href="{{ url_for('entities') }}">返回种子实体</a></div>{% endblock %}
+

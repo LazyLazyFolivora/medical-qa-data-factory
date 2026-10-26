@@ -1,0 +1,20 @@
+{
+  "cost_model_version": "selector-cost-v0",
+  "budget_unit": "normalized_unit",
+  "action_price_table": {
+    "stop": 0,
+    "entity_lookup": 1,
+    "relation_expand": 1,
+    "bounded_path": 2,
+    "passage_retrieve": 3,
+    "literature_search": 3,
+    "literature_read": 2,
+    "literature_synthesis": 5
+  },
+  "component_weights": {
+    "base_action": 1
+  },
+  "aggregation_rule": "fixed_action_price",
+  "effective_at": "2026-10-15T00:00:00+08:00",
+  "notes": "Initial experimental prices. Calibrate before comparative experiments; never modify this version in place."
+}

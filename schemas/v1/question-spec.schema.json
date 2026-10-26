@@ -1,0 +1,947 @@
+{
+  "$defs": {
+    "AblationMode": {
+      "enum": [
+        "kg_only",
+        "literature_only",
+        "combined"
+      ],
+      "title": "AblationMode",
+      "type": "string"
+    },
+    "AblationResult": {
+      "additionalProperties": false,
+      "description": "One source-ablation run.\n\nThe result records what the question looked like to a solver that could\nonly see one source. The fields that make the run auditable are the\ndependency digest (what was frozen), the gold-hidden flag, the episode\nthat ran it, and the snapshots it used.",
+      "properties": {
+        "ablation_config_version": {
+          "default": "ablation-v1",
+          "title": "Ablation Config Version",
+          "type": "string"
+        },
+        "allowed_tools": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Tools",
+          "type": "array"
+        },
+        "answer_correct": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Answer Correct"
+        },
+        "episode_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Episode Id"
+        },
+        "episode_policy_cost": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Episode Policy Cost"
+        },
+        "evidence_coverage": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Coverage"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "failure_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Failure Reason"
+        },
+        "final_decision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Final Decision"
+        },
+        "gold_answer_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Gold Answer Ids",
+          "type": "array"
+        },
+        "gold_hidden": {
+          "default": true,
+          "title": "Gold Hidden",
+          "type": "boolean"
+        },
+        "mode": {
+          "$ref": "#/$defs/AblationMode"
+        },
+        "predicted_answer": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Predicted Answer"
+        },
+        "predicted_answer_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Predicted Answer Ids",
+          "type": "array"
+        },
+        "question_dependency_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Question Dependency Digest"
+        },
+        "snapshot_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Snapshot Ids",
+          "type": "array"
+        },
+        "status": {
+          "$ref": "#/$defs/AblationStatus"
+        },
+        "trace_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Trace Ids",
+          "type": "array"
+        },
+        "trajectory_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trajectory Id"
+        }
+      },
+      "required": [
+        "mode",
+        "status"
+      ],
+      "title": "AblationResult",
+      "type": "object"
+    },
+    "AblationStatus": {
+      "enum": [
+        "completed",
+        "failed",
+        "not_run"
+      ],
+      "title": "AblationStatus",
+      "type": "string"
+    },
+    "ActorType": {
+      "enum": [
+        "agent",
+        "system",
+        "human"
+      ],
+      "title": "ActorType",
+      "type": "string"
+    },
+    "AnswerForm": {
+      "enum": [
+        "fact",
+        "entity",
+        "set",
+        "boolean",
+        "count",
+        "comparison",
+        "explanation",
+        "summary"
+      ],
+      "title": "AnswerForm",
+      "type": "string"
+    },
+    "Answerability": {
+      "enum": [
+        "answerable",
+        "unanswerable",
+        "uncertain"
+      ],
+      "title": "Answerability",
+      "type": "string"
+    },
+    "ChangeRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_type": {
+          "$ref": "#/$defs/ActorType"
+        },
+        "change_id": {
+          "minLength": 1,
+          "title": "Change Id",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "new_version": {
+          "minLength": 1,
+          "title": "New Version",
+          "type": "string"
+        },
+        "operation": {
+          "minLength": 1,
+          "title": "Operation",
+          "type": "string"
+        },
+        "parent_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Version"
+        },
+        "summary": {
+          "minLength": 1,
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "change_id",
+        "actor_type",
+        "operation",
+        "summary",
+        "created_at",
+        "new_version"
+      ],
+      "title": "ChangeRecord",
+      "type": "object"
+    },
+    "DatasetSplit": {
+      "enum": [
+        "train",
+        "validation",
+        "test"
+      ],
+      "title": "DatasetSplit",
+      "type": "string"
+    },
+    "EvidenceRequirements": {
+      "additionalProperties": false,
+      "properties": {
+        "checks": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Checks",
+          "type": "array"
+        },
+        "optional_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Optional Evidence Ids",
+          "type": "array"
+        },
+        "required_claim_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Claim Ids",
+          "type": "array"
+        },
+        "required_kg_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Kg Evidence Ids",
+          "type": "array"
+        },
+        "required_literature_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Literature Evidence Ids",
+          "type": "array"
+        },
+        "required_path_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Path Ids",
+          "type": "array"
+        },
+        "sufficiency_rule_version": {
+          "minLength": 1,
+          "title": "Sufficiency Rule Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sufficiency_rule_version"
+      ],
+      "title": "EvidenceRequirements",
+      "type": "object"
+    },
+    "GenerationMode": {
+      "enum": [
+        "automatic",
+        "manual",
+        "hybrid"
+      ],
+      "title": "GenerationMode",
+      "type": "string"
+    },
+    "GoldAnswer": {
+      "additionalProperties": false,
+      "properties": {
+        "acceptable_variants": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Acceptable Variants",
+          "type": "array"
+        },
+        "answer_mode": {
+          "$ref": "#/$defs/AnswerForm"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "explanation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Explanation"
+        },
+        "short_answer": {
+          "title": "Short Answer",
+          "type": "string"
+        },
+        "values": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Values",
+          "type": "array"
+        }
+      },
+      "required": [
+        "answer_mode",
+        "short_answer"
+      ],
+      "title": "GoldAnswer",
+      "type": "object"
+    },
+    "QuestionTaxonomy": {
+      "additionalProperties": false,
+      "properties": {
+        "answer_form": {
+          "$ref": "#/$defs/AnswerForm"
+        },
+        "difficulty_tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Difficulty Tags",
+          "type": "array"
+        },
+        "domain_intent": {
+          "minLength": 1,
+          "title": "Domain Intent",
+          "type": "string"
+        },
+        "hop_complexity": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hop Complexity"
+        },
+        "reasoning_pattern": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Reasoning Pattern",
+          "type": "array"
+        }
+      },
+      "required": [
+        "domain_intent",
+        "answer_form",
+        "reasoning_pattern"
+      ],
+      "title": "QuestionTaxonomy",
+      "type": "object"
+    },
+    "QuestionVariant": {
+      "additionalProperties": false,
+      "properties": {
+        "generation_source": {
+          "pattern": "^(agent|manual|imported)$",
+          "title": "Generation Source",
+          "type": "string"
+        },
+        "language": {
+          "minLength": 1,
+          "title": "Language",
+          "type": "string"
+        },
+        "persona": {
+          "minLength": 1,
+          "title": "Persona",
+          "type": "string"
+        },
+        "semantic_check_status": {
+          "pattern": "^(passed|warning|failed)$",
+          "title": "Semantic Check Status",
+          "type": "string"
+        },
+        "style": {
+          "minLength": 1,
+          "title": "Style",
+          "type": "string"
+        },
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "variant_id": {
+          "minLength": 1,
+          "title": "Variant Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "variant_id",
+        "text",
+        "language",
+        "persona",
+        "style",
+        "generation_source",
+        "semantic_check_status"
+      ],
+      "title": "QuestionVariant",
+      "type": "object"
+    },
+    "RankingAssessment": {
+      "additionalProperties": false,
+      "description": "A candidate's ranking within its review group.\n\nThe score changes the order candidates are shown in. It is not a quality\nverdict: it never changes a validation level, a review disposition or an\nexport decision.",
+      "properties": {
+        "computed_at": {
+          "format": "date-time",
+          "title": "Computed At",
+          "type": "string"
+        },
+        "factors": {
+          "items": {
+            "$ref": "#/$defs/RankingFactor"
+          },
+          "title": "Factors",
+          "type": "array"
+        },
+        "ranking_version": {
+          "minLength": 1,
+          "title": "Ranking Version",
+          "type": "string"
+        },
+        "total_score": {
+          "default": 0.0,
+          "title": "Total Score",
+          "type": "number"
+        }
+      },
+      "required": [
+        "ranking_version",
+        "computed_at"
+      ],
+      "title": "RankingAssessment",
+      "type": "object"
+    },
+    "RankingFactor": {
+      "additionalProperties": false,
+      "description": "One explainable contribution to a candidate's ranking score.",
+      "properties": {
+        "code": {
+          "minLength": 1,
+          "title": "Code",
+          "type": "string"
+        },
+        "contribution": {
+          "default": 0.0,
+          "title": "Contribution",
+          "type": "number"
+        },
+        "explanation": {
+          "default": "",
+          "title": "Explanation",
+          "type": "string"
+        },
+        "value": {
+          "default": 0.0,
+          "title": "Value",
+          "type": "number"
+        },
+        "weight": {
+          "default": 0.0,
+          "title": "Weight",
+          "type": "number"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "title": "RankingFactor",
+      "type": "object"
+    },
+    "ReviewDisposition": {
+      "description": "What a reviewer decided about a candidate within its review group.\n\nThe disposition is a persistent state. The commands a reviewer issues\n(``keep_both``, ``revise``, ``return``) are not dispositions: they\nresolve into one of these.",
+      "enum": [
+        "pending",
+        "keep_independent",
+        "variant_of",
+        "rejected"
+      ],
+      "title": "ReviewDisposition",
+      "type": "string"
+    },
+    "Route": {
+      "enum": [
+        "kg",
+        "literature",
+        "hybrid",
+        "redundant",
+        "unanswerable",
+        "unknown"
+      ],
+      "title": "Route",
+      "type": "string"
+    },
+    "ValidationCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Artifact Ids",
+          "type": "array"
+        },
+        "check_id": {
+          "minLength": 1,
+          "title": "Check Id",
+          "type": "string"
+        },
+        "check_type": {
+          "minLength": 1,
+          "title": "Check Type",
+          "type": "string"
+        },
+        "evaluated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evaluated At"
+        },
+        "evaluated_question_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evaluated Question Version"
+        },
+        "input_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Digest"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "question_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Question Id"
+        },
+        "schema_version": {
+          "default": "0.1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/ValidationSeverity"
+        },
+        "status": {
+          "$ref": "#/$defs/ValidationStatus"
+        },
+        "validator_version": {
+          "minLength": 1,
+          "title": "Validator Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "check_id",
+        "check_type",
+        "status",
+        "severity",
+        "message",
+        "validator_version"
+      ],
+      "title": "ValidationCheck",
+      "type": "object"
+    },
+    "ValidationLevel": {
+      "enum": [
+        "draft",
+        "machine_validated",
+        "human_confirmed",
+        "rejected"
+      ],
+      "title": "ValidationLevel",
+      "type": "string"
+    },
+    "ValidationSeverity": {
+      "enum": [
+        "info",
+        "warning",
+        "blocking"
+      ],
+      "title": "ValidationSeverity",
+      "type": "string"
+    },
+    "ValidationStatus": {
+      "enum": [
+        "passed",
+        "warning",
+        "failed",
+        "not_run"
+      ],
+      "title": "ValidationStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "ablation_results": {
+      "items": {
+        "$ref": "#/$defs/AblationResult"
+      },
+      "title": "Ablation Results",
+      "type": "array"
+    },
+    "answerability": {
+      "$ref": "#/$defs/Answerability"
+    },
+    "bundle_ids": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Bundle Ids",
+      "type": "array"
+    },
+    "canonical_question": {
+      "minLength": 1,
+      "title": "Canonical Question",
+      "type": "string"
+    },
+    "changes": {
+      "items": {
+        "$ref": "#/$defs/ChangeRecord"
+      },
+      "title": "Changes",
+      "type": "array"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "dataset_split": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DatasetSplit"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "evidence_requirements": {
+      "$ref": "#/$defs/EvidenceRequirements"
+    },
+    "expected_route": {
+      "$ref": "#/$defs/Route"
+    },
+    "generation_episode_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Generation Episode Id"
+    },
+    "generation_mode": {
+      "$ref": "#/$defs/GenerationMode"
+    },
+    "gold_answer": {
+      "$ref": "#/$defs/GoldAnswer"
+    },
+    "logical_question_id": {
+      "minLength": 1,
+      "title": "Logical Question Id",
+      "type": "string"
+    },
+    "query_intent": {
+      "additionalProperties": true,
+      "title": "Query Intent",
+      "type": "object"
+    },
+    "question_id": {
+      "minLength": 1,
+      "title": "Question Id",
+      "type": "string"
+    },
+    "question_variants": {
+      "items": {
+        "$ref": "#/$defs/QuestionVariant"
+      },
+      "minItems": 1,
+      "title": "Question Variants",
+      "type": "array"
+    },
+    "question_version": {
+      "minLength": 1,
+      "title": "Question Version",
+      "type": "string"
+    },
+    "ranking_assessment": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RankingAssessment"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "review_disposition": {
+      "$ref": "#/$defs/ReviewDisposition",
+      "default": "pending"
+    },
+    "review_group_key": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Review Group Key"
+    },
+    "review_group_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Review Group Version"
+    },
+    "schema_version": {
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "split_group_id": {
+      "minLength": 1,
+      "title": "Split Group Id",
+      "type": "string"
+    },
+    "taxonomy": {
+      "$ref": "#/$defs/QuestionTaxonomy"
+    },
+    "validation_checks": {
+      "items": {
+        "$ref": "#/$defs/ValidationCheck"
+      },
+      "title": "Validation Checks",
+      "type": "array"
+    },
+    "validation_level": {
+      "$ref": "#/$defs/ValidationLevel",
+      "default": "draft"
+    },
+    "variant_of_question_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Variant Of Question Id"
+    },
+    "verified_route": {
+      "$ref": "#/$defs/Route",
+      "default": "unknown"
+    }
+  },
+  "required": [
+    "question_id",
+    "logical_question_id",
+    "question_version",
+    "bundle_ids",
+    "generation_mode",
+    "canonical_question",
+    "question_variants",
+    "taxonomy",
+    "query_intent",
+    "answerability",
+    "gold_answer",
+    "evidence_requirements",
+    "expected_route",
+    "split_group_id",
+    "created_at"
+  ],
+  "title": "QuestionSpec",
+  "type": "object"
+}

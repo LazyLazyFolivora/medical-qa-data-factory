@@ -1,0 +1,12 @@
+{"blueprint":"Aspirin exposure_disease -> disease","question":"阿司匹林暴露和哪种疾病有关？","profile":"short_search"}
+{"blueprint":"drug protein association","question":"阿司匹林和哪个蛋白存在关联记录？","profile":"conversational"}
+{"blueprint":"two-hop disease relation","question":"沿着这组医学记录继续查，最终会指向哪种疾病？","profile":"contextual"}
+{"blueprint":"drug disease exposure","question":"阿司匹林暴露相关的疾病是哪一种？","profile":"short_search"}
+{"blueprint":"drug protein association","question":"这种药和哪个蛋白有联系？","profile":"conversational"}
+{"blueprint":"disease phenotype","question":"这种病一般会表现为什么症状？","profile":"short_search"}
+{"blueprint":"protein biological process","question":"这个蛋白参与哪项生物过程？","profile":"conversational"}
+{"blueprint":"drug indication","question":"这个药被记录用于哪种情况？","profile":"short_search"}
+{"blueprint":"two-hop drug disease","question":"从药物继续往下查，会关联到哪种疾病？","profile":"contextual"}
+{"blueprint":"disease anatomy","question":"这种疾病和哪个解剖部位有关？","profile":"conversational"}
+{"blueprint":"gene pathway","question":"这个基因与哪条通路相关？","profile":"short_search"}
+{"blueprint":"drug contraindication","question":"这种药和哪种情况存在禁忌关系？","profile":"conversational"}

@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}{{ record.entity.raw_mention }} · Data Factory{% endblock %}
+{% block breadcrumb %}<a href="{{ url_for('entities') }}">种子实体</a> / {{ record.entity.raw_mention }}{% endblock %}
+{% block content %}
+<header class="page-heading compact entity-heading">
+  <div><p class="eyebrow">SEED ENTITY</p><h1>{{ record.entity.raw_mention }}</h1><p>{{ record.entity.canonical_name or '尚未规范化' }} · <code>{{ record.entity.canonical_id or record.entity.entity_ref_id }}</code></p></div>
+  <div class="heading-actions"><span class="entity-type">{{ record.entity.entity_type or 'unknown' }}</span><span class="status status-{{ record.entity.link_status.value }}"><i></i>{{ record.entity.link_status.value }}</span><button class="primary-button" disabled title="下一阶段接入">基于此实体生成</button></div>
+</header>
+
+<section class="task-summary entity-detail-summary" aria-label="实体产出">
+  <div><span>关联运行</span><strong>{{ record.tasks|length }}</strong></div>
+  <div><span>KG 证据</span><strong>{{ record.kg_count }}</strong></div>
+  <div><span>文献证据</span><strong>{{ record.literature_count }}</strong></div>
+  <div><span>Claims</span><strong>{{ record.claim_count }}</strong></div>
+  <div><span>生成问题</span><strong>{{ record.questions|length }}</strong></div>
+</section>
+
+<section class="section-block entity-output">
+  <div class="section-title"><div><p class="eyebrow">QUESTIONS</p><h2>生成的问题</h2></div><span>{{ record.questions|length }}</span></div>
+  <div class="question-list">
+    {% for question in record.questions %}
+    <a class="question-row" href="{{ url_for('review', question_id=question.question_id) }}">
+      <div><strong>{{ question.canonical_question }}</strong><small><code>{{ question.question_id }}</code></small></div>
+      <span class="route-chip route-{{ question.expected_route.value }}">{{ question.expected_route.value }}</span>
+      <span class="status status-{{ question.validation_level.value }}"><i></i>{{ question.validation_level.value }}</span>
+      <span class="row-action">查看证据与答案 →</span>
+    </a>
+    {% else %}<p class="empty-copy">这个实体还没有生成问题。</p>{% endfor %}
+  </div>
+</section>
+
+<div class="detail-grid entity-detail-grid">
+  <section class="section-block">
+    <div class="section-title"><div><p class="eyebrow">EVIDENCE & CLAIMS</p><h2>证据包</h2></div><span>{{ record.bundles|length }}</span></div>
+    <div class="bundle-list">
+      {% for bundle in record.bundles %}
+      <article class="bundle-card">
+        <div class="bundle-card-head"><code>{{ bundle.bundle_id }}</code><span class="status status-{{ bundle.status.value }}"><i></i>{{ bundle.status.value }}</span></div>
+        <div class="bundle-metrics"><span>KG <strong>{{ bundle.kg_evidence|length }}</strong></span><span>文献 <strong>{{ bundle.literature_evidence|length }}</strong></span><span>Claims <strong>{{ bundle.claims|length }}</strong></span><span>缺口 <strong>{{ bundle.evidence_gaps|length }}</strong></span></div>
+        <div class="claim-preview">{% for claim in bundle.claims[:3] %}<p><span>C{{ loop.index }}</span>{{ claim.claim_text }}</p>{% else %}<p class="quiet">没有候选 claim</p>{% endfor %}</div>
+      </article>
+      {% else %}<p class="empty-copy">这个实体还没有证据包。</p>{% endfor %}
+    </div>
+  </section>
+
+  <section class="section-block">
+    <div class="section-title"><div><p class="eyebrow">RUN HISTORY</p><h2>关联运行</h2></div><a class="section-link" href="{{ url_for('runs') }}">全部运行</a></div>
+    <div class="run-list">
+      {% for task in record.tasks %}
+      <a class="run-row" href="{{ url_for('task_detail', task_id=task.task_id) }}"><span class="status status-{{ task.status.value }}"><i></i>{{ task.status.value }}</span><div><strong>{{ task.task_id }}</strong><small>{{ task.current_stage }} · {{ task.generation_mode.value }}</small></div><time>{{ task.updated_at.strftime('%m-%d %H:%M') }}</time></a>
+      {% else %}<p class="empty-copy">没有关联运行。</p>{% endfor %}
+    </div>
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,328 @@
+{
+  "$defs": {
+    "AnswerProjection": {
+      "additionalProperties": false,
+      "properties": {
+        "aliases": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Aliases",
+          "type": "array"
+        },
+        "answer_type": {
+          "default": "entity",
+          "enum": [
+            "entity",
+            "short_fact"
+          ],
+          "title": "Answer Type",
+          "type": "string"
+        },
+        "canonical_entity_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Canonical Entity Id"
+        },
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "AnswerProjection",
+      "type": "object"
+    },
+    "QAEvidenceProjection": {
+      "additionalProperties": false,
+      "properties": {
+        "provider_snapshot_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Provider Snapshot Ids",
+          "type": "array"
+        },
+        "required_kg_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Kg Evidence Ids",
+          "type": "array"
+        },
+        "required_literature_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Literature Evidence Ids",
+          "type": "array"
+        }
+      },
+      "title": "QAEvidenceProjection",
+      "type": "object"
+    },
+    "QAReasoningProjection": {
+      "additionalProperties": false,
+      "properties": {
+        "answer_candidate_count": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Answer Candidate Count",
+          "type": "integer"
+        },
+        "constraint_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Constraint Count",
+          "type": "integer"
+        },
+        "difficulty_label": {
+          "enum": [
+            "easy",
+            "medium",
+            "hard"
+          ],
+          "title": "Difficulty Label",
+          "type": "string"
+        },
+        "difficulty_policy_version": {
+          "minLength": 1,
+          "title": "Difficulty Policy Version",
+          "type": "string"
+        },
+        "evidence_path_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Path Id"
+        },
+        "hop_count": {
+          "minimum": 1,
+          "title": "Hop Count",
+          "type": "integer"
+        },
+        "intermediate_entity_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Intermediate Entity Ids",
+          "type": "array"
+        },
+        "ordered_relation_chain": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Ordered Relation Chain",
+          "type": "array"
+        },
+        "required_kg_evidence_count": {
+          "minimum": 0,
+          "title": "Required Kg Evidence Count",
+          "type": "integer"
+        },
+        "required_literature_evidence_count": {
+          "minimum": 0,
+          "title": "Required Literature Evidence Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "hop_count",
+        "required_kg_evidence_count",
+        "required_literature_evidence_count",
+        "difficulty_label",
+        "difficulty_policy_version"
+      ],
+      "title": "QAReasoningProjection",
+      "type": "object"
+    },
+    "QASourceProjection": {
+      "additionalProperties": false,
+      "properties": {
+        "discovered_entity_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Discovered Entity Ids",
+          "type": "array"
+        },
+        "generation_episode_id": {
+          "minLength": 1,
+          "title": "Generation Episode Id",
+          "type": "string"
+        },
+        "planner_trajectory_id": {
+          "minLength": 1,
+          "title": "Planner Trajectory Id",
+          "type": "string"
+        },
+        "seed_entity_id": {
+          "minLength": 1,
+          "title": "Seed Entity Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "seed_entity_id",
+        "generation_episode_id",
+        "planner_trajectory_id"
+      ],
+      "title": "QASourceProjection",
+      "type": "object"
+    },
+    "QAValidationProjection": {
+      "additionalProperties": false,
+      "properties": {
+        "ambiguity_check": {
+          "default": "not_run",
+          "enum": [
+            "passed",
+            "failed",
+            "not_run"
+          ],
+          "title": "Ambiguity Check",
+          "type": "string"
+        },
+        "answer_recomputed": {
+          "default": false,
+          "title": "Answer Recomputed",
+          "type": "boolean"
+        },
+        "evidence_satisfied": {
+          "default": false,
+          "title": "Evidence Satisfied",
+          "type": "boolean"
+        },
+        "leakage_check": {
+          "default": "not_run",
+          "enum": [
+            "passed",
+            "failed",
+            "not_run"
+          ],
+          "title": "Leakage Check",
+          "type": "string"
+        },
+        "validation_level": {
+          "default": "candidate",
+          "enum": [
+            "candidate",
+            "machine_validated",
+            "human_confirmed"
+          ],
+          "title": "Validation Level",
+          "type": "string"
+        }
+      },
+      "title": "QAValidationProjection",
+      "type": "object"
+    },
+    "QuestionType": {
+      "enum": [
+        "single_fact",
+        "constrained_entity",
+        "relation_chain"
+      ],
+      "title": "QuestionType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "answer": {
+      "$ref": "#/$defs/AnswerProjection"
+    },
+    "dataset_split_group_id": {
+      "minLength": 1,
+      "title": "Dataset Split Group Id",
+      "type": "string"
+    },
+    "difficulty": {
+      "enum": [
+        "easy",
+        "medium",
+        "hard"
+      ],
+      "title": "Difficulty",
+      "type": "string"
+    },
+    "evidence": {
+      "$ref": "#/$defs/QAEvidenceProjection"
+    },
+    "language": {
+      "minLength": 2,
+      "title": "Language",
+      "type": "string"
+    },
+    "logical_question_id": {
+      "minLength": 1,
+      "title": "Logical Question Id",
+      "type": "string"
+    },
+    "question_id": {
+      "minLength": 1,
+      "title": "Question Id",
+      "type": "string"
+    },
+    "question_text": {
+      "minLength": 1,
+      "title": "Question Text",
+      "type": "string"
+    },
+    "question_type": {
+      "$ref": "#/$defs/QuestionType"
+    },
+    "question_version": {
+      "minLength": 1,
+      "title": "Question Version",
+      "type": "string"
+    },
+    "reasoning": {
+      "$ref": "#/$defs/QAReasoningProjection"
+    },
+    "schema_version": {
+      "default": "qa-item-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/QASourceProjection"
+    },
+    "validation": {
+      "$ref": "#/$defs/QAValidationProjection"
+    }
+  },
+  "required": [
+    "question_id",
+    "question_version",
+    "logical_question_id",
+    "language",
+    "question_text",
+    "question_type",
+    "difficulty",
+    "answer",
+    "source",
+    "reasoning",
+    "evidence",
+    "validation",
+    "dataset_split_group_id"
+  ],
+  "title": "QAItem",
+  "type": "object"
+}

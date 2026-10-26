@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}分组审核 · Medical QA Data Factory{% endblock %}
+{% block breadcrumb %}分组审核{% endblock %}
+{% block content %}
+<section class="page-head page-heading">
+  <div>
+    <h1>同实体—关系组</h1>
+    <p class="muted">同一结构问题下的候选并列比较。排序只改变展示顺序，是否重复由人工判断。</p>
+  </div>
+  <dl class="stat-row task-summary">
+    <div data-tone="cyan"><dt>组</dt><dd>{{ counts.groups }}</dd></div>
+    <div data-tone="blue"><dt>候选</dt><dd>{{ counts.candidates }}</dd></div>
+    <div data-tone="amber"><dt>待处置组</dt><dd>{{ counts.pending_groups }}</dd></div>
+    <div data-tone="coral"><dt>阻塞失败</dt><dd>{{ counts.issues }}</dd></div>
+  </dl>
+</section>
+
+{% if not group_records %}
+  <p class="empty-state">还没有带分组的候选。分组键在生成时由种子实体与有序关系链计算。</p>
+{% endif %}
+
+{% for group in group_records %}
+<section class="group" data-group-key="{{ group.review_group_key }}">
+  <header class="group-head">
+    <div>
+      <h2>{{ group.seed_entity_name or group.seed_entity_id or '未命名种子' }}</h2>
+      <p class="muted">
+        {% if group.relations %}{{ group.relations|join(' → ') }}{% else %}关系链未知{% endif %}
+        · {{ group.size }} 个候选
+        {% if group.has_pending %}<span class="badge badge-warn">待处置</span>{% endif %}
+      </p>
+    </div>
+    <code class="group-key">{{ group.review_group_key }}</code>
+  </header>
+
+  <div class="candidate-grid">
+    {% for candidate in group.candidates %}
+    <article class="candidate{% if candidate.has_blocking_failure %} candidate-blocked{% endif %}">
+      <header class="candidate-head">
+        <span class="rank">#{{ loop.index }}</span>
+        <span class="score" title="排序分数，只影响展示顺序">{{ candidate.ranking_score }}</span>
+        <span class="disposition disposition-{{ candidate.disposition.value }}">{{ candidate.disposition.value }}</span>
+      </header>
+
+      <p class="question-text">{{ candidate.question.canonical_question }}</p>
+
+      <dl class="candidate-facts">
+        <div><dt>答案</dt><dd>{{ candidate.question.gold_answer.short_answer }}</dd></div>
+        <div><dt>问题类型</dt><dd>{{ candidate.question.taxonomy.domain_intent }}</dd></div>
+        <div><dt>期望路线</dt><dd>{{ candidate.question.expected_route.value }}</dd></div>
+        <div><dt>已验证路线</dt><dd>{{ candidate.question.verified_route.value }}</dd></div>
+        <div><dt>校验等级</dt><dd>{{ candidate.question.validation_level.value }}</dd></div>
+        <div><dt>版本</dt><dd><code>{{ candidate.question.question_version }}</code></dd></div>
+      </dl>
+
+      {% if candidate.kg_edges %}
+      <div class="evidence-block">
+        <h3>知识图谱边</h3>
+        <ul class="edge-list">
+          {% for edge in candidate.kg_edges %}
+          <li><span class="relation">{{ edge.relation }}</span> {{ edge.head }} → {{ edge.tail }} <code>{{ edge.source_database }}</code></li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      {% if candidate.hop_passages %}
+      <div class="evidence-block">
+        <h3>逐跳文本证据</h3>
+        <ul class="passage-list">
+          {% for passage in candidate.hop_passages %}
+          <li>
+            <p class="passage-text">{{ passage.text }}</p>
+            <p class="muted"><code>{{ passage.evidence_id }}</code> · {{ passage.title }}</p>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      {% if candidate.failed_checks %}
+      <div class="check-block check-failed">
+        <h3>阻塞失败</h3>
+        <ul>
+          {% for check in candidate.failed_checks %}
+          <li><strong>{{ check.check_type }}</strong> — {{ check.message }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      {% if candidate.advisory_checks %}
+      <div class="check-block check-advisory">
+        <h3>提示（不阻塞）</h3>
+        <ul>
+          {% for check in candidate.advisory_checks %}
+          <li><strong>{{ check.check_type }}</strong> — {{ check.message }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      {% if candidate.ranking_factors %}
+      <details class="ranking">
+        <summary>排序因素</summary>
+        <ul>
+          {% for factor in candidate.ranking_factors %}
+          <li>
+            <code>{{ factor.code }}</code>
+            {{ factor.contribution }} / {{ factor.weight }}
+            — {{ factor.explanation }}
+          </li>
+          {% endfor %}
+        </ul>
+      </details>
+      {% endif %}
+
+      <div class="candidate-actions" data-question-id="{{ candidate.question.question_id }}">
+        <button type="button" data-action="keep_independent" data-question-id="{{ candidate.question.question_id }}">保留为独立问题</button>
+        {% if candidate.disposition.value == 'pending' %}
+        <button type="button" data-action="return" data-question-id="{{ candidate.question.question_id }}">退回</button>
+        <button type="button" data-action="revise" data-question-id="{{ candidate.question.question_id }}">修改</button>
+        {% endif %}
+        <button type="button" data-action="reject" data-question-id="{{ candidate.question.question_id }}">拒绝</button>
+        {% if group.size > 1 and candidate.disposition.value != 'pending' %}
+        <label class="variant-target">
+          设为变体
+          <select data-variant-for="{{ candidate.question.question_id }}">
+            {% for other in group.candidates %}
+            {% if other.question.question_id != candidate.question.question_id %}
+            <option value="{{ other.question.question_id }}">{{ other.question.question_id }}</option>
+            {% endif %}
+            {% endfor %}
+          </select>
+        </label>
+        {% endif %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endfor %}
+{% endblock %}

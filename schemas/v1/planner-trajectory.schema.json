@@ -1,0 +1,379 @@
+{
+  "$defs": {
+    "DifficultyTarget": {
+      "enum": [
+        "easy",
+        "medium",
+        "hard"
+      ],
+      "title": "DifficultyTarget",
+      "type": "string"
+    },
+    "PlannerExecution": {
+      "additionalProperties": false,
+      "properties": {
+        "observation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observation Id"
+        },
+        "policy_result": {
+          "default": "rejected",
+          "enum": [
+            "accepted",
+            "rejected"
+          ],
+          "title": "Policy Result",
+          "type": "string"
+        },
+        "rejection_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rejection Code"
+        },
+        "sealed_action_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sealed Action Id"
+        },
+        "status": {
+          "default": "rejected",
+          "enum": [
+            "success",
+            "empty",
+            "error",
+            "rejected",
+            "finish"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "title": "PlannerExecution",
+      "type": "object"
+    },
+    "PlannerKnownEntity": {
+      "additionalProperties": false,
+      "properties": {
+        "canonical_id": {
+          "minLength": 1,
+          "title": "Canonical Id",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        }
+      },
+      "required": [
+        "canonical_id"
+      ],
+      "title": "PlannerKnownEntity",
+      "type": "object"
+    },
+    "PlannerOutcome": {
+      "additionalProperties": false,
+      "properties": {
+        "discovered_entity_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Discovered Entity Ids",
+          "type": "array"
+        },
+        "evidence_gain": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Evidence Gain",
+          "type": "integer"
+        },
+        "new_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "New Evidence Ids",
+          "type": "array"
+        },
+        "satisfied_constraints": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Satisfied Constraints",
+          "type": "array"
+        },
+        "useful": {
+          "default": false,
+          "title": "Useful",
+          "type": "boolean"
+        }
+      },
+      "title": "PlannerOutcome",
+      "type": "object"
+    },
+    "PlannerSelectedAction": {
+      "additionalProperties": false,
+      "properties": {
+        "action_type": {
+          "minLength": 1,
+          "title": "Action Type",
+          "type": "string"
+        },
+        "evidence_gap": {
+          "minLength": 1,
+          "title": "Evidence Gap",
+          "type": "string"
+        },
+        "expected_information": {
+          "minLength": 1,
+          "title": "Expected Information",
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        }
+      },
+      "required": [
+        "action_type",
+        "expected_information",
+        "evidence_gap"
+      ],
+      "title": "PlannerSelectedAction",
+      "type": "object"
+    },
+    "PlannerState": {
+      "additionalProperties": false,
+      "properties": {
+        "available_actions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Available Actions",
+          "type": "array"
+        },
+        "evidence_gaps": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Gaps",
+          "type": "array"
+        },
+        "evidence_summary": {
+          "additionalProperties": true,
+          "title": "Evidence Summary",
+          "type": "object"
+        },
+        "known_entities": {
+          "items": {
+            "$ref": "#/$defs/PlannerKnownEntity"
+          },
+          "title": "Known Entities",
+          "type": "array"
+        },
+        "observation_summaries": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Observation Summaries",
+          "type": "array"
+        },
+        "target_difficulty": {
+          "items": {
+            "$ref": "#/$defs/DifficultyTarget"
+          },
+          "title": "Target Difficulty",
+          "type": "array"
+        },
+        "unsatisfied_constraints": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unsatisfied Constraints",
+          "type": "array"
+        }
+      },
+      "title": "PlannerState",
+      "type": "object"
+    },
+    "PlannerStep": {
+      "additionalProperties": false,
+      "properties": {
+        "episode_id": {
+          "minLength": 1,
+          "title": "Episode Id",
+          "type": "string"
+        },
+        "execution": {
+          "$ref": "#/$defs/PlannerExecution"
+        },
+        "outcome": {
+          "$ref": "#/$defs/PlannerOutcome"
+        },
+        "schema_version": {
+          "default": "planner-step-v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "selected_action": {
+          "$ref": "#/$defs/PlannerSelectedAction"
+        },
+        "state": {
+          "$ref": "#/$defs/PlannerState"
+        },
+        "step_id": {
+          "minLength": 1,
+          "title": "Step Id",
+          "type": "string"
+        },
+        "trajectory_id": {
+          "minLength": 1,
+          "title": "Trajectory Id",
+          "type": "string"
+        },
+        "turn": {
+          "minimum": 1,
+          "title": "Turn",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "step_id",
+        "trajectory_id",
+        "episode_id",
+        "turn",
+        "state",
+        "selected_action",
+        "execution",
+        "outcome"
+      ],
+      "title": "PlannerStep",
+      "type": "object"
+    },
+    "TrajectoryQuality": {
+      "enum": [
+        "accepted",
+        "rejected",
+        "incomplete",
+        "failed"
+      ],
+      "title": "TrajectoryQuality",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "episode_id": {
+      "minLength": 1,
+      "title": "Episode Id",
+      "type": "string"
+    },
+    "generated_question_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Generated Question Ids",
+      "type": "array"
+    },
+    "generation_spec_id": {
+      "minLength": 1,
+      "title": "Generation Spec Id",
+      "type": "string"
+    },
+    "label_policy_version": {
+      "minLength": 1,
+      "title": "Label Policy Version",
+      "type": "string"
+    },
+    "model_config_id": {
+      "minLength": 1,
+      "title": "Model Config Id",
+      "type": "string"
+    },
+    "prompt_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Prompt Hashes",
+      "type": "object"
+    },
+    "schema_version": {
+      "default": "planner-trajectory-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "seed_entity_id": {
+      "minLength": 1,
+      "title": "Seed Entity Id",
+      "type": "string"
+    },
+    "steps": {
+      "items": {
+        "$ref": "#/$defs/PlannerStep"
+      },
+      "title": "Steps",
+      "type": "array"
+    },
+    "terminal_reason": {
+      "minLength": 1,
+      "title": "Terminal Reason",
+      "type": "string"
+    },
+    "trajectory_id": {
+      "minLength": 1,
+      "title": "Trajectory Id",
+      "type": "string"
+    },
+    "trajectory_quality": {
+      "$ref": "#/$defs/TrajectoryQuality"
+    }
+  },
+  "required": [
+    "trajectory_id",
+    "episode_id",
+    "seed_entity_id",
+    "generation_spec_id",
+    "model_config_id",
+    "terminal_reason",
+    "trajectory_quality",
+    "label_policy_version",
+    "created_at"
+  ],
+  "title": "PlannerTrajectory",
+  "type": "object"
+}

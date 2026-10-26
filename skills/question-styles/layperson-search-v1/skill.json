@@ -1,0 +1,39 @@
+{
+  "skill_id": "layperson-search-v1",
+  "version": "1.2.0",
+  "display_name": "普通用户搜索",
+  "language": "zh-CN",
+  "question_types": ["single_fact", "constrained_entity", "relation_chain"],
+  "style_profiles": ["short_search", "conversational", "contextual"],
+  "profile_guides": {
+    "short_search": "Use a very short search-box query. Keep only the essential subject and target; no narrative setup.",
+    "conversational": "Use a direct everyday conversational question with a complete sentence.",
+    "contextual": "Add one brief neutral user motivation, but no new medical facts, symptoms, history, or answer hints."
+  },
+  "variants_per_blueprint": 3,
+  "min_length": 4,
+  "max_length": 60,
+  "forbidden_phrases": ["应该吃什么药", "怎么治疗", "能治好吗"],
+  "forbidden_terms": [
+    "PrimeKG",
+    "知识图谱",
+    "知识库",
+    "暴露因素",
+    "关联记录",
+    "关系类型",
+    "哪种实体",
+    "关系记录",
+    "数据库",
+    "head",
+    "tail",
+    "action_type",
+    "exposure_disease",
+    "drug_protein"
+  ],
+  "validator_ids": [
+    "answer_leak_v1",
+    "technical_jargon_v1",
+    "intent_consistency_v1",
+    "style_persona_v1"
+  ]
+}

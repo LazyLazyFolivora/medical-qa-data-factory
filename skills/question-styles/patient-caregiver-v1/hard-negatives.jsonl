@@ -1,0 +1,6 @@
+{"question":"阿司匹林能不能治疗前列腺癌？","reason":"treatment_overreach_and_answer_leak"}
+{"question":"根据我的化验结果，接下来应该吃什么药？","reason":"medical_advice_and_unsupported_context"}
+{"question":"服用阿司匹林后发烧三天，可能是什么病？","reason":"adds_unsupported_symptoms"}
+{"question":"这个检查结果说明应该怎么治疗？","reason":"medical_advice_and_unsupported_context"}
+{"question":"阿司匹林会不会导致前列腺癌？","reason":"causal_overreach_and_answer_leak"}
+{"question":"阿司匹林这种暴露因素与哪种疾病有关？","reason":"node_type_jargon_and_database_style"}

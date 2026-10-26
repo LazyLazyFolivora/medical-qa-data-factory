@@ -1,0 +1,938 @@
+{
+  "$defs": {
+    "ActorType": {
+      "enum": [
+        "agent",
+        "system",
+        "human"
+      ],
+      "title": "ActorType",
+      "type": "string"
+    },
+    "ChangeRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_type": {
+          "$ref": "#/$defs/ActorType"
+        },
+        "change_id": {
+          "minLength": 1,
+          "title": "Change Id",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "new_version": {
+          "minLength": 1,
+          "title": "New Version",
+          "type": "string"
+        },
+        "operation": {
+          "minLength": 1,
+          "title": "Operation",
+          "type": "string"
+        },
+        "parent_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Version"
+        },
+        "summary": {
+          "minLength": 1,
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "change_id",
+        "actor_type",
+        "operation",
+        "summary",
+        "created_at",
+        "new_version"
+      ],
+      "title": "ChangeRecord",
+      "type": "object"
+    },
+    "Claim": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_id": {
+          "minLength": 1,
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "claim_text": {
+          "minLength": 1,
+          "title": "Claim Text",
+          "type": "string"
+        },
+        "claim_type": {
+          "$ref": "#/$defs/ClaimType"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "context_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Context Evidence Ids",
+          "type": "array"
+        },
+        "contradicting_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Contradicting Evidence Ids",
+          "type": "array"
+        },
+        "object": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EntityRef"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Object"
+        },
+        "predicate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Predicate"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/ClaimStatus"
+        },
+        "subject": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EntityRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "supporting_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Supporting Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "claim_id",
+        "claim_text",
+        "claim_type",
+        "status",
+        "rationale"
+      ],
+      "title": "Claim",
+      "type": "object"
+    },
+    "ClaimStatus": {
+      "enum": [
+        "proposed",
+        "supported",
+        "conflicted",
+        "insufficient",
+        "rejected"
+      ],
+      "title": "ClaimStatus",
+      "type": "string"
+    },
+    "ClaimType": {
+      "enum": [
+        "fact",
+        "association",
+        "causal",
+        "mechanism",
+        "comparative",
+        "uncertainty"
+      ],
+      "title": "ClaimType",
+      "type": "string"
+    },
+    "EndpointKind": {
+      "enum": [
+        "python",
+        "http",
+        "mcp",
+        "mock"
+      ],
+      "title": "EndpointKind",
+      "type": "string"
+    },
+    "EntityRef": {
+      "additionalProperties": false,
+      "properties": {
+        "aliases": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Aliases",
+          "type": "array"
+        },
+        "canonical_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Canonical Id"
+        },
+        "canonical_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Canonical Name"
+        },
+        "entity_ref_id": {
+          "minLength": 1,
+          "title": "Entity Ref Id",
+          "type": "string"
+        },
+        "entity_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Entity Type"
+        },
+        "link_score": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Link Score"
+        },
+        "link_status": {
+          "$ref": "#/$defs/LinkStatus"
+        },
+        "namespace": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Namespace"
+        },
+        "raw_mention": {
+          "minLength": 1,
+          "title": "Raw Mention",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "entity_ref_id",
+        "raw_mention",
+        "canonical_name",
+        "canonical_id",
+        "namespace",
+        "entity_type",
+        "link_status",
+        "source"
+      ],
+      "title": "EntityRef",
+      "type": "object"
+    },
+    "EvidenceConflict": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_id": {
+          "minLength": 1,
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "conflict_id": {
+          "minLength": 1,
+          "title": "Conflict Id",
+          "type": "string"
+        },
+        "conflict_type": {
+          "minLength": 1,
+          "title": "Conflict Type",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "summary": {
+          "minLength": 1,
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "conflict_id",
+        "claim_id",
+        "evidence_ids",
+        "conflict_type",
+        "summary"
+      ],
+      "title": "EvidenceConflict",
+      "type": "object"
+    },
+    "EvidenceDirection": {
+      "enum": [
+        "forward",
+        "backward",
+        "bidirectional",
+        "unknown"
+      ],
+      "title": "EvidenceDirection",
+      "type": "string"
+    },
+    "EvidenceGap": {
+      "additionalProperties": false,
+      "properties": {
+        "blocking": {
+          "title": "Blocking",
+          "type": "boolean"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "gap_id": {
+          "minLength": 1,
+          "title": "Gap Id",
+          "type": "string"
+        },
+        "gap_type": {
+          "minLength": 1,
+          "title": "Gap Type",
+          "type": "string"
+        },
+        "suggested_source": {
+          "$ref": "#/$defs/SuggestedSource"
+        }
+      },
+      "required": [
+        "gap_id",
+        "gap_type",
+        "description",
+        "suggested_source",
+        "blocking"
+      ],
+      "title": "EvidenceGap",
+      "type": "object"
+    },
+    "KGEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "direction": {
+          "$ref": "#/$defs/EvidenceDirection"
+        },
+        "evidence_id": {
+          "minLength": 1,
+          "title": "Evidence Id",
+          "type": "string"
+        },
+        "head": {
+          "$ref": "#/$defs/EntityRef"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "relation": {
+          "minLength": 1,
+          "title": "Relation",
+          "type": "string"
+        },
+        "retrieval_action": {
+          "additionalProperties": true,
+          "title": "Retrieval Action",
+          "type": "object"
+        },
+        "retrieved_at": {
+          "format": "date-time",
+          "title": "Retrieved At",
+          "type": "string"
+        },
+        "source_database": {
+          "minLength": 1,
+          "title": "Source Database",
+          "type": "string"
+        },
+        "source_record_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Record Id"
+        },
+        "tail": {
+          "$ref": "#/$defs/EntityRef"
+        }
+      },
+      "required": [
+        "evidence_id",
+        "head",
+        "relation",
+        "tail",
+        "direction",
+        "source_database",
+        "retrieval_action",
+        "retrieved_at"
+      ],
+      "title": "KGEvidence",
+      "type": "object"
+    },
+    "LinkStatus": {
+      "enum": [
+        "exact",
+        "alias",
+        "fuzzy",
+        "manual",
+        "unlinked"
+      ],
+      "title": "LinkStatus",
+      "type": "string"
+    },
+    "LiteratureEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "document_id": {
+          "minLength": 1,
+          "title": "Document Id",
+          "type": "string"
+        },
+        "doi": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Doi"
+        },
+        "entities": {
+          "items": {
+            "$ref": "#/$defs/EntityRef"
+          },
+          "title": "Entities",
+          "type": "array"
+        },
+        "evidence_id": {
+          "minLength": 1,
+          "title": "Evidence Id",
+          "type": "string"
+        },
+        "evidence_text": {
+          "minLength": 1,
+          "title": "Evidence Text",
+          "type": "string"
+        },
+        "license_note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "License Note"
+        },
+        "location": {
+          "additionalProperties": true,
+          "title": "Location",
+          "type": "object"
+        },
+        "pmid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pmid"
+        },
+        "publication_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Publication Type"
+        },
+        "retrieval_query": {
+          "minLength": 1,
+          "title": "Retrieval Query",
+          "type": "string"
+        },
+        "retrieval_rank": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retrieval Rank"
+        },
+        "retrieved_at": {
+          "format": "date-time",
+          "title": "Retrieved At",
+          "type": "string"
+        },
+        "title": {
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        },
+        "year": {
+          "anyOf": [
+            {
+              "minimum": 1800,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Year"
+        }
+      },
+      "required": [
+        "evidence_id",
+        "document_id",
+        "title",
+        "evidence_text",
+        "retrieval_query",
+        "retrieved_at"
+      ],
+      "title": "LiteratureEvidence",
+      "type": "object"
+    },
+    "SuggestedSource": {
+      "enum": [
+        "kg",
+        "literature",
+        "either",
+        "unknown"
+      ],
+      "title": "SuggestedSource",
+      "type": "string"
+    },
+    "ToolSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "config_hash": {
+          "minLength": 1,
+          "title": "Config Hash",
+          "type": "string"
+        },
+        "data_snapshot_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Data Snapshot Id"
+        },
+        "endpoint_kind": {
+          "$ref": "#/$defs/EndpointKind"
+        },
+        "retrieved_at": {
+          "format": "date-time",
+          "title": "Retrieved At",
+          "type": "string"
+        },
+        "tool_name": {
+          "minLength": 1,
+          "title": "Tool Name",
+          "type": "string"
+        },
+        "tool_version": {
+          "minLength": 1,
+          "title": "Tool Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool_name",
+        "tool_version",
+        "data_snapshot_id",
+        "config_hash",
+        "endpoint_kind",
+        "retrieved_at"
+      ],
+      "title": "ToolSnapshot",
+      "type": "object"
+    },
+    "ValidationCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Artifact Ids",
+          "type": "array"
+        },
+        "check_id": {
+          "minLength": 1,
+          "title": "Check Id",
+          "type": "string"
+        },
+        "check_type": {
+          "minLength": 1,
+          "title": "Check Type",
+          "type": "string"
+        },
+        "evaluated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evaluated At"
+        },
+        "evaluated_question_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evaluated Question Version"
+        },
+        "input_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Digest"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "question_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Question Id"
+        },
+        "schema_version": {
+          "default": "0.1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/ValidationSeverity"
+        },
+        "status": {
+          "$ref": "#/$defs/ValidationStatus"
+        },
+        "validator_version": {
+          "minLength": 1,
+          "title": "Validator Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "check_id",
+        "check_type",
+        "status",
+        "severity",
+        "message",
+        "validator_version"
+      ],
+      "title": "ValidationCheck",
+      "type": "object"
+    },
+    "ValidationLevel": {
+      "enum": [
+        "draft",
+        "machine_validated",
+        "human_confirmed",
+        "rejected"
+      ],
+      "title": "ValidationLevel",
+      "type": "string"
+    },
+    "ValidationSeverity": {
+      "enum": [
+        "info",
+        "warning",
+        "blocking"
+      ],
+      "title": "ValidationSeverity",
+      "type": "string"
+    },
+    "ValidationStatus": {
+      "enum": [
+        "passed",
+        "warning",
+        "failed",
+        "not_run"
+      ],
+      "title": "ValidationStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "bundle_id": {
+      "minLength": 1,
+      "title": "Bundle Id",
+      "type": "string"
+    },
+    "bundle_version": {
+      "minLength": 1,
+      "title": "Bundle Version",
+      "type": "string"
+    },
+    "changes": {
+      "items": {
+        "$ref": "#/$defs/ChangeRecord"
+      },
+      "title": "Changes",
+      "type": "array"
+    },
+    "claims": {
+      "items": {
+        "$ref": "#/$defs/Claim"
+      },
+      "title": "Claims",
+      "type": "array"
+    },
+    "conflicts": {
+      "items": {
+        "$ref": "#/$defs/EvidenceConflict"
+      },
+      "title": "Conflicts",
+      "type": "array"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "evidence_gaps": {
+      "items": {
+        "$ref": "#/$defs/EvidenceGap"
+      },
+      "title": "Evidence Gaps",
+      "type": "array"
+    },
+    "generation_usage_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Generation Usage Ids",
+      "type": "array"
+    },
+    "kg_evidence": {
+      "items": {
+        "$ref": "#/$defs/KGEvidence"
+      },
+      "title": "Kg Evidence",
+      "type": "array"
+    },
+    "literature_evidence": {
+      "items": {
+        "$ref": "#/$defs/LiteratureEvidence"
+      },
+      "title": "Literature Evidence",
+      "type": "array"
+    },
+    "paths": {
+      "items": {},
+      "title": "Paths",
+      "type": "array"
+    },
+    "schema_version": {
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "seed_entities": {
+      "items": {
+        "$ref": "#/$defs/EntityRef"
+      },
+      "minItems": 1,
+      "title": "Seed Entities",
+      "type": "array"
+    },
+    "status": {
+      "$ref": "#/$defs/ValidationLevel",
+      "default": "draft"
+    },
+    "task_id": {
+      "minLength": 1,
+      "title": "Task Id",
+      "type": "string"
+    },
+    "tool_snapshots": {
+      "items": {
+        "$ref": "#/$defs/ToolSnapshot"
+      },
+      "title": "Tool Snapshots",
+      "type": "array"
+    },
+    "validation_checks": {
+      "items": {
+        "$ref": "#/$defs/ValidationCheck"
+      },
+      "title": "Validation Checks",
+      "type": "array"
+    }
+  },
+  "required": [
+    "bundle_id",
+    "bundle_version",
+    "task_id",
+    "seed_entities",
+    "created_at"
+  ],
+  "title": "EvidenceBundle",
+  "type": "object"
+}

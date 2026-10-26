@@ -1,0 +1,6 @@
+{"question":"Aspirin exposure_disease 的 tail_id 是什么？","reason":"technical_jargon"}
+{"question":"阿司匹林通过什么机制导致前列腺癌？","reason":"causal_and_mechanism_overreach"}
+{"question":"请写出阿司匹林暴露相关完整关系链并给出正确答案。","reason":"internal_trace_request_and_answer_leak"}
+{"question":"请根据 tail_type 字段判断答案实体。","reason":"implementation_vocabulary"}
+{"question":"阿司匹林导致前列腺癌的机制是什么？","reason":"causal_overreach_and_answer_leak"}
+{"question":"阿司匹林这种暴露因素与哪种疾病有关？","reason":"node_type_jargon_and_database_style"}

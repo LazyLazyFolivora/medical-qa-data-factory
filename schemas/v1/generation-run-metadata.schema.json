@@ -1,0 +1,276 @@
+{
+  "$defs": {
+    "AnswerType": {
+      "enum": [
+        "entity",
+        "short_fact"
+      ],
+      "title": "AnswerType",
+      "type": "string"
+    },
+    "DifficultyTarget": {
+      "enum": [
+        "easy",
+        "medium",
+        "hard"
+      ],
+      "title": "DifficultyTarget",
+      "type": "string"
+    },
+    "EvidenceConstraints": {
+      "additionalProperties": false,
+      "properties": {
+        "literature_policy": {
+          "$ref": "#/$defs/LiteraturePolicy",
+          "default": "when_needed"
+        },
+        "min_kg_evidence": {
+          "default": 1,
+          "minimum": 0,
+          "title": "Min Kg Evidence",
+          "type": "integer"
+        },
+        "min_literature_evidence": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Min Literature Evidence",
+          "type": "integer"
+        },
+        "min_total_evidence": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Min Total Evidence",
+          "type": "integer"
+        }
+      },
+      "title": "EvidenceConstraints",
+      "type": "object"
+    },
+    "EvidenceSource": {
+      "enum": [
+        "knowledge_graph",
+        "literature"
+      ],
+      "title": "EvidenceSource",
+      "type": "string"
+    },
+    "GenerationSpec": {
+      "additionalProperties": false,
+      "description": "What a data-production batch asks for.\n\nThis is deliberately separate from ``SafetyBudget``. A difficulty target\nmust never become a tool-call budget, and exhausting a budget must never be\nreported as a harder question.",
+      "properties": {
+        "allowed_answer_types": {
+          "items": {
+            "$ref": "#/$defs/AnswerType"
+          },
+          "minItems": 1,
+          "title": "Allowed Answer Types",
+          "type": "array"
+        },
+        "allowed_sources": {
+          "items": {
+            "$ref": "#/$defs/EvidenceSource"
+          },
+          "minItems": 1,
+          "title": "Allowed Sources",
+          "type": "array"
+        },
+        "difficulty_policy_version": {
+          "default": "difficulty-v1",
+          "title": "Difficulty Policy Version",
+          "type": "string"
+        },
+        "difficulty_targets": {
+          "items": {
+            "$ref": "#/$defs/DifficultyTarget"
+          },
+          "minItems": 1,
+          "title": "Difficulty Targets",
+          "type": "array"
+        },
+        "evidence_constraints": {
+          "$ref": "#/$defs/EvidenceConstraints"
+        },
+        "label_policy_version": {
+          "default": "planner-label-v1",
+          "title": "Label Policy Version",
+          "type": "string"
+        },
+        "language": {
+          "default": "zh-CN",
+          "minLength": 2,
+          "title": "Language",
+          "type": "string"
+        },
+        "question_count": {
+          "default": 3,
+          "maximum": 20,
+          "minimum": 1,
+          "title": "Question Count",
+          "type": "integer"
+        },
+        "reasoning_constraints": {
+          "$ref": "#/$defs/ReasoningConstraints"
+        },
+        "schema_version": {
+          "default": "generation-spec-v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "spec_version": {
+          "default": "generation-spec-v1",
+          "title": "Spec Version",
+          "type": "string"
+        }
+      },
+      "title": "GenerationSpec",
+      "type": "object"
+    },
+    "LiteraturePolicy": {
+      "enum": [
+        "forbidden",
+        "when_needed",
+        "required"
+      ],
+      "title": "LiteraturePolicy",
+      "type": "string"
+    },
+    "ReasoningConstraints": {
+      "additionalProperties": false,
+      "properties": {
+        "max_hops": {
+          "default": 2,
+          "maximum": 4,
+          "minimum": 1,
+          "title": "Max Hops",
+          "type": "integer"
+        },
+        "min_hops": {
+          "default": 1,
+          "maximum": 4,
+          "minimum": 1,
+          "title": "Min Hops",
+          "type": "integer"
+        }
+      },
+      "title": "ReasoningConstraints",
+      "type": "object"
+    },
+    "SafetyBudget": {
+      "additionalProperties": false,
+      "description": "Run protection only. It carries no notion of question difficulty.",
+      "properties": {
+        "max_edges_observed": {
+          "default": 500,
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Max Edges Observed",
+          "type": "integer"
+        },
+        "max_model_attempts": {
+          "default": 30,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Max Model Attempts",
+          "type": "integer"
+        },
+        "max_tool_calls": {
+          "default": 20,
+          "maximum": 50,
+          "minimum": 1,
+          "title": "Max Tool Calls",
+          "type": "integer"
+        },
+        "max_wall_time_seconds": {
+          "default": 180,
+          "maximum": 1800,
+          "minimum": 1,
+          "title": "Max Wall Time Seconds",
+          "type": "integer"
+        }
+      },
+      "title": "SafetyBudget",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "generation_spec": {
+      "$ref": "#/$defs/GenerationSpec"
+    },
+    "generation_spec_id": {
+      "minLength": 1,
+      "title": "Generation Spec Id",
+      "type": "string"
+    },
+    "kg_provider_id": {
+      "minLength": 1,
+      "title": "Kg Provider Id",
+      "type": "string"
+    },
+    "kg_snapshot_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Kg Snapshot Id"
+    },
+    "literature_provider_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Literature Provider Id"
+    },
+    "literature_snapshot_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Literature Snapshot Id"
+    },
+    "model_config_id": {
+      "minLength": 1,
+      "title": "Model Config Id",
+      "type": "string"
+    },
+    "prompt_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Prompt Hashes",
+      "type": "object"
+    },
+    "safety_budget": {
+      "$ref": "#/$defs/SafetyBudget"
+    },
+    "schema_version": {
+      "default": "generation-run-metadata-v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "generation_spec_id",
+    "generation_spec",
+    "safety_budget",
+    "model_config_id",
+    "kg_provider_id"
+  ],
+  "title": "GenerationRunMetadata",
+  "type": "object"
+}

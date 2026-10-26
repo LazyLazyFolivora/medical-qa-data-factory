@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#ffffff">
+  <title>{% block title %}Medical QA Data Factory{% endblock %}</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='5' fill='%231f6feb'/%3E%3Cpath d='M9 10h14M9 16h14M9 22h9' stroke='white' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=research-v1">
+  <link rel="stylesheet" href="{{ url_for('static', path='/workspace.css') }}?v=views-v1">
+  <script src="{{ url_for('static', path='/app.js') }}?v=views-v1" defer></script>
+</head>
+<body data-page="{{ active_nav or 'home' }}">
+  <a class="skip-link" href="#main">跳到主要内容</a>
+  <header class="global-header">
+    <a class="wordmark" href="{{ url_for('questions') }}">Medical QA</a>
+    <nav class="global-nav" aria-label="主导航">
+      <a href="{{ url_for('questions') }}" class="{{ 'active' if active_nav == 'questions' else '' }}">题目</a>
+      <a href="{{ url_for('runs') }}" class="{{ 'active' if active_nav == 'tasks' else '' }}">任务</a>
+      <a href="{{ url_for('dataset') }}" class="{{ 'active' if active_nav == 'dataset' else '' }}">数据集</a>
+      <a href="{{ url_for('groups') }}" class="{{ 'active' if active_nav == 'review' else '' }}">审核</a>
+      <span aria-disabled="true">设置</span>
+    </nav>
+    <div class="header-context">
+      <span class="environment {{ environment|lower }}">{{ environment }}</span>
+    </div>
+  </header>
+  <div class="context-bar">
+    <div class="breadcrumb">{% block breadcrumb %}工作台{% endblock %}</div>
+    <span class="workspace-path" title="{{ workspace }}">{{ workspace }}</span>
+  </div>
+  {% if environment == 'DEMO' %}
+  <div class="demo-strip" role="status">开发假工具已启用 · 当前产物只能保持 draft，不能导出为 gold</div>
+  {% endif %}
+  <main id="main" class="main-content">{% block content %}{% endblock %}</main>
+</body>
+</html>
+

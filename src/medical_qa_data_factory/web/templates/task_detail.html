@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}{{ task.task_id }} · Data Factory{% endblock %}
+{% block breadcrumb %}<a href="{{ url_for('runs') }}">任务视图</a> / {{ task.task_id }}{% endblock %}
+{% block content %}
+<header class="page-heading compact">
+  <div><p class="eyebrow">GENERATION TASK</p><h1>{{ task.task_id }}</h1><p>{{ task.seed_entities|map(attribute='raw_mention')|join(' · ') }}</p></div>
+  <div class="heading-actions"><span class="status status-{{ task.status.value }}"><i></i>{{ task.status.value }}</span><button class="secondary-button" disabled>重试失败步骤</button></div>
+</header>
+
+<section class="task-summary">
+  <div><span>目标题目</span><strong>{{ task.target_question_count or 0 }}</strong></div>
+  <div><span>已生成题目</span><strong>{{ question_rows|length }}</strong></div>
+  <div><span>证据</span><strong>{{ evidence_count }}</strong></div>
+  <div><span>停止原因</span><strong>{% if stop_reason %}<code>{{ stop_reason }}</code>{% else %}—{% endif %}</strong></div>
+  <div><span>版本</span><strong>{{ version_count }}</strong></div>
+</section>
+
+<section class="section-block artifacts task-questions">
+  <div class="section-title">
+    <div><p class="eyebrow">QUESTIONS</p><h2>对应生成的题目</h2></div>
+    <span>{{ question_rows|length }}</span>
+  </div>
+  <div class="artifact-list">
+    {% for row in question_rows %}
+    <a class="artifact-row clickable" href="{{ url_for('review', question_id=row.question.question_id) }}">
+      <span class="status status-{{ row.question.validation_level.value }}"><i></i>{{ row.validation_label }}</span>
+      <strong>{{ row.question.canonical_question }}</strong>
+      <span>答案：{{ row.question.gold_answer.short_answer }}</span>
+      <span>{{ row.difficulty_label }} · {{ row.source_label }}</span>
+      <span>进入审核 →</span>
+    </a>
+    {% else %}
+    <p class="empty-copy">该任务没有生成题目。可在下方执行详情中查看终止原因。</p>
+    {% endfor %}
+  </div>
+</section>
+
+<div class="detail-grid">
+  <section class="section-block">
+    <div class="section-title"><div><p class="eyebrow">PIPELINE</p><h2>流水线状态</h2></div><code>{{ task.record_version }}</code></div>
+    {% set stages = ['seed_selected','evidence_collection','evidence_collected','claims_proposed','question_drafted','machine_validated'] %}
+    <ol class="timeline">
+      {% for stage in stages %}
+      <li class="{{ 'current' if stage == task.current_stage else '' }}"><span class="timeline-dot"></span><div><strong>{{ stage }}</strong>{% if stage == task.current_stage %}<small>当前阶段</small>{% endif %}</div></li>
+      {% endfor %}
+    </ol>
+  </section>
+
+  <section class="section-block">
+    <div class="section-title"><div><p class="eyebrow">ISSUES</p><h2>错误与提示</h2></div><span>{{ task.errors|length }}</span></div>
+    <div class="issue-list">
+      {% for error in task.errors %}
+      <article class="issue"><strong>{{ error.source }} · {{ error.error_type }}</strong><p>{{ error.message }}</p><small>{{ '可重试' if error.retryable else '不可重试' }}</small></article>
+      {% else %}<p class="empty-copy">没有记录到工具故障或阻塞错误。</p>{% endfor %}
+    </div>
+  </section>
+</div>
+
+{% if activity %}
+<section class="section-block">
+  <div class="section-title">
+    <div><p class="eyebrow">EXECUTION</p><h2>任务执行详情</h2></div>
+    <code>{{ activity.episode_id }}</code>
+  </div>
+  <ol class="execution-trace">
+    {% for operation in activity.operations %}
+    <li class="trace-step {{ operation.status }}">
+      <span class="trace-marker">{{ '✓' if operation.status == 'completed' else operation.sequence }}</span>
+      <div class="trace-copy">
+        <div class="trace-title"><strong>{{ operation.label }}</strong><span>{{ operation.status_label }}</span></div>
+        <p>{{ operation.description }}</p>
+        <div class="trace-metrics">
+          {% if operation.tool_call_count %}<span>{{ operation.tool_call_count }} 次查询</span>{% endif %}
+          {% if operation.records_returned %}<span>{{ operation.records_returned }} 条返回</span>{% endif %}
+          <span>{{ operation.elapsed_label }}</span>
+        </div>
+        <code>{{ operation.node }}</code>
+      </div>
+    </li>
+    {% endfor %}
+  </ol>
+</section>
+{% endif %}
+
+<section class="section-block artifacts">
+  <div class="section-title"><div><p class="eyebrow">ARTIFACTS</p><h2>证据产物</h2></div></div>
+  <div class="artifact-list">
+    {% for bundle in bundles %}<div class="artifact-row"><span class="artifact-kind kg">EvidenceBundle</span><code>{{ bundle.bundle_id }}</code><span>{{ bundle.claims|length }} claims</span><span>{{ bundle.status.value }}</span></div>{% endfor %}
+    {% if not bundles %}<p class="empty-copy">该任务没有保存证据产物。</p>{% endif %}
+  </div>
+</section>
+{% endblock %}
+

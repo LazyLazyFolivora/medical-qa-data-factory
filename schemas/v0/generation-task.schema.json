@@ -1,0 +1,709 @@
+{
+  "$defs": {
+    "ActorType": {
+      "enum": [
+        "agent",
+        "system",
+        "human"
+      ],
+      "title": "ActorType",
+      "type": "string"
+    },
+    "ChangeRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_type": {
+          "$ref": "#/$defs/ActorType"
+        },
+        "change_id": {
+          "minLength": 1,
+          "title": "Change Id",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "new_version": {
+          "minLength": 1,
+          "title": "New Version",
+          "type": "string"
+        },
+        "operation": {
+          "minLength": 1,
+          "title": "Operation",
+          "type": "string"
+        },
+        "parent_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Version"
+        },
+        "summary": {
+          "minLength": 1,
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "change_id",
+        "actor_type",
+        "operation",
+        "summary",
+        "created_at",
+        "new_version"
+      ],
+      "title": "ChangeRecord",
+      "type": "object"
+    },
+    "EndpointKind": {
+      "enum": [
+        "python",
+        "http",
+        "mcp",
+        "mock"
+      ],
+      "title": "EndpointKind",
+      "type": "string"
+    },
+    "EntityRef": {
+      "additionalProperties": false,
+      "properties": {
+        "aliases": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Aliases",
+          "type": "array"
+        },
+        "canonical_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Canonical Id"
+        },
+        "canonical_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Canonical Name"
+        },
+        "entity_ref_id": {
+          "minLength": 1,
+          "title": "Entity Ref Id",
+          "type": "string"
+        },
+        "entity_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Entity Type"
+        },
+        "link_score": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Link Score"
+        },
+        "link_status": {
+          "$ref": "#/$defs/LinkStatus"
+        },
+        "namespace": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Namespace"
+        },
+        "raw_mention": {
+          "minLength": 1,
+          "title": "Raw Mention",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "entity_ref_id",
+        "raw_mention",
+        "canonical_name",
+        "canonical_id",
+        "namespace",
+        "entity_type",
+        "link_status",
+        "source"
+      ],
+      "title": "EntityRef",
+      "type": "object"
+    },
+    "GenerationMode": {
+      "enum": [
+        "automatic",
+        "manual",
+        "hybrid"
+      ],
+      "title": "GenerationMode",
+      "type": "string"
+    },
+    "InvocationConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "config_hash": {
+          "minLength": 1,
+          "title": "Config Hash",
+          "type": "string"
+        },
+        "invocation_id": {
+          "minLength": 1,
+          "title": "Invocation Id",
+          "type": "string"
+        },
+        "max_output_tokens": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Output Tokens"
+        },
+        "model_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Model Id"
+        },
+        "model_revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Revision"
+        },
+        "prompt_template_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt Template Version"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Provider"
+        },
+        "reasoning_effort": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reasoning Effort"
+        },
+        "request_parameters": {
+          "additionalProperties": true,
+          "title": "Request Parameters",
+          "type": "object"
+        },
+        "temperature": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temperature"
+        },
+        "top_p": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Top P"
+        }
+      },
+      "required": [
+        "invocation_id",
+        "provider",
+        "model_id",
+        "config_hash"
+      ],
+      "title": "InvocationConfig",
+      "type": "object"
+    },
+    "LinkStatus": {
+      "enum": [
+        "exact",
+        "alias",
+        "fuzzy",
+        "manual",
+        "unlinked"
+      ],
+      "title": "LinkStatus",
+      "type": "string"
+    },
+    "MeasurementSource": {
+      "enum": [
+        "provider",
+        "tool",
+        "derived",
+        "estimated"
+      ],
+      "title": "MeasurementSource",
+      "type": "string"
+    },
+    "TaskStatus": {
+      "enum": [
+        "pending",
+        "running",
+        "needs_input",
+        "completed",
+        "partial",
+        "failed",
+        "cancelled"
+      ],
+      "title": "TaskStatus",
+      "type": "string"
+    },
+    "ToolSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "config_hash": {
+          "minLength": 1,
+          "title": "Config Hash",
+          "type": "string"
+        },
+        "data_snapshot_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Data Snapshot Id"
+        },
+        "endpoint_kind": {
+          "$ref": "#/$defs/EndpointKind"
+        },
+        "retrieved_at": {
+          "format": "date-time",
+          "title": "Retrieved At",
+          "type": "string"
+        },
+        "tool_name": {
+          "minLength": 1,
+          "title": "Tool Name",
+          "type": "string"
+        },
+        "tool_version": {
+          "minLength": 1,
+          "title": "Tool Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool_name",
+        "tool_version",
+        "data_snapshot_id",
+        "config_hash",
+        "endpoint_kind",
+        "retrieved_at"
+      ],
+      "title": "ToolSnapshot",
+      "type": "object"
+    },
+    "UsageRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "cached_input_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cached Input Tokens"
+        },
+        "currency": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Currency"
+        },
+        "documents_read": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Documents Read"
+        },
+        "documents_retrieved": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Documents Retrieved"
+        },
+        "elapsed_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Elapsed Ms"
+        },
+        "input_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Tokens"
+        },
+        "invocation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Invocation Id"
+        },
+        "kg_relation_accesses": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kg Relation Accesses"
+        },
+        "measurement_source": {
+          "$ref": "#/$defs/MeasurementSource"
+        },
+        "meter_version": {
+          "minLength": 1,
+          "title": "Meter Version",
+          "type": "string"
+        },
+        "output_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Tokens"
+        },
+        "provider_reported_cost": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider Reported Cost"
+        },
+        "recorded_at": {
+          "format": "date-time",
+          "title": "Recorded At",
+          "type": "string"
+        },
+        "tool_calls": {
+          "minimum": 0,
+          "title": "Tool Calls",
+          "type": "integer"
+        },
+        "tool_name": {
+          "minLength": 1,
+          "title": "Tool Name",
+          "type": "string"
+        },
+        "usage_id": {
+          "minLength": 1,
+          "title": "Usage Id",
+          "type": "string"
+        },
+        "usage_scope": {
+          "$ref": "#/$defs/UsageScope"
+        }
+      },
+      "required": [
+        "usage_id",
+        "usage_scope",
+        "invocation_id",
+        "tool_name",
+        "tool_calls",
+        "measurement_source",
+        "meter_version",
+        "recorded_at"
+      ],
+      "title": "UsageRecord",
+      "type": "object"
+    },
+    "UsageScope": {
+      "enum": [
+        "generation",
+        "episode",
+        "counterfactual"
+      ],
+      "title": "UsageScope",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "artifact_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Artifact Ids",
+      "type": "array"
+    },
+    "changes": {
+      "items": {
+        "$ref": "#/$defs/ChangeRecord"
+      },
+      "title": "Changes",
+      "type": "array"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "current_stage": {
+      "default": "seed_selected",
+      "title": "Current Stage",
+      "type": "string"
+    },
+    "errors": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Errors",
+      "type": "array"
+    },
+    "generation_limits": {
+      "additionalProperties": true,
+      "title": "Generation Limits",
+      "type": "object"
+    },
+    "generation_mode": {
+      "$ref": "#/$defs/GenerationMode"
+    },
+    "generation_usage": {
+      "items": {
+        "$ref": "#/$defs/UsageRecord"
+      },
+      "title": "Generation Usage",
+      "type": "array"
+    },
+    "invocation_configs": {
+      "items": {
+        "$ref": "#/$defs/InvocationConfig"
+      },
+      "title": "Invocation Configs",
+      "type": "array"
+    },
+    "record_version": {
+      "minLength": 1,
+      "title": "Record Version",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "seed_entities": {
+      "items": {
+        "$ref": "#/$defs/EntityRef"
+      },
+      "minItems": 1,
+      "title": "Seed Entities",
+      "type": "array"
+    },
+    "source_policy": {
+      "additionalProperties": true,
+      "title": "Source Policy",
+      "type": "object"
+    },
+    "status": {
+      "$ref": "#/$defs/TaskStatus"
+    },
+    "target_question_count": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Target Question Count"
+    },
+    "task_id": {
+      "minLength": 1,
+      "title": "Task Id",
+      "type": "string"
+    },
+    "taxonomy_targets": {
+      "additionalProperties": true,
+      "title": "Taxonomy Targets",
+      "type": "object"
+    },
+    "tool_snapshots": {
+      "items": {
+        "$ref": "#/$defs/ToolSnapshot"
+      },
+      "title": "Tool Snapshots",
+      "type": "array"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "task_id",
+    "record_version",
+    "generation_mode",
+    "status",
+    "seed_entities",
+    "created_at",
+    "updated_at"
+  ],
+  "title": "GenerationTask",
+  "type": "object"
+}

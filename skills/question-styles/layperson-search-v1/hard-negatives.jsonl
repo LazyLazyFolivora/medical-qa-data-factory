@@ -1,0 +1,6 @@
+{"question":"PrimeKG 中 Aspirin 的 exposure_disease tail 是谁？","reason":"technical_jargon"}
+{"question":"阿司匹林暴露是否会导致前列腺癌？","reason":"causal_overreach_and_answer_leak"}
+{"question":"我父亲今年 72 岁且服用阿司匹林，应警惕哪种疾病？","reason":"adds_unsupported_patient_facts"}
+{"question":"帮我诊断一下这是不是癌症。","reason":"medical_advice_and_unsupported_context"}
+{"question":"阿司匹林和这个前列腺问题的完整内部关系是什么？","reason":"answer_leak_and_internal_vocabulary"}
+{"question":"阿司匹林这种暴露因素与哪种疾病有关？","reason":"node_type_jargon_and_database_style"}

@@ -1,0 +1,78 @@
+{
+  "graph": {
+    "sha256": "7a0c995be7232bd3ae22b56545ec8ead518ba38a699a6c2416544f48fa7fb0bb",
+    "provider_id": "primekg",
+    "size_bytes": 1754337280,
+    "data_snapshot_id": "bd22ae20ed3037e2d4bb518904406143"
+  },
+  "component_versions": {
+    "ablation": "ablation-v1",
+    "validators": "validators.v2",
+    "review-group": "review-group-v1",
+    "generation-contracts": "entity-generation-v1",
+    "run-identity": "run-identity-v1",
+    "ranking": "ranking.v1"
+  },
+  "seeds": [
+    {
+      "provider_id": "primekg",
+      "required_evidence_mode": "kg_only",
+      "native_id": "DB01050",
+      "canonical_name": "Ibuprofen",
+      "max_hops": 3,
+      "target_question_count": 3,
+      "entity_type": "drug",
+      "seed_id": "ibuprofen"
+    },
+    {
+      "provider_id": "primekg",
+      "required_evidence_mode": "kg_only",
+      "native_id": "DB00682",
+      "canonical_name": "Warfarin",
+      "max_hops": 3,
+      "target_question_count": 3,
+      "entity_type": "drug",
+      "seed_id": "warfarin"
+    },
+    {
+      "provider_id": "primekg",
+      "required_evidence_mode": "kg_only",
+      "native_id": "DB00331",
+      "canonical_name": "Metformin",
+      "max_hops": 3,
+      "target_question_count": 3,
+      "entity_type": "drug",
+      "seed_id": "metformin"
+    },
+    {
+      "provider_id": "primekg",
+      "required_evidence_mode": "kg_only",
+      "native_id": "D001241",
+      "canonical_name": "Aspirin",
+      "max_hops": 2,
+      "target_question_count": 2,
+      "entity_type": "exposure",
+      "seed_id": "aspirin"
+    }
+  ],
+  "policy_version": "entity-generation-v1",
+  "schema_version": "eval-manifest-v1",
+  "notes": "基线验收清单：4 个真实 PrimeKG 种子。文献 provider 未固定快照，因此本次验收只覆盖 KG 路线。",
+  "manifest_id": "baseline-v1",
+  "rag": {
+    "exclusion_reason": "本地 WeKnora 服务未运行，未做实机联调；文献证据不进入本次正式验收",
+    "snapshot_id": null,
+    "provider_id": "none",
+    "supports_read_chunk": false,
+    "pinned": false,
+    "knowledge_base_ids": []
+  },
+  "model": {
+    "prompt_hashes": {},
+    "model_id": "rule-based",
+    "provider_id": "none",
+    "config_hash": "n/a"
+  },
+  "target_question_count": 11,
+  "created_at": "2026-10-20T15:40:00Z"
+}

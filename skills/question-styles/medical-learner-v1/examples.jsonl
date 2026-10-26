@@ -1,0 +1,12 @@
+{"blueprint":"Aspirin exposure_disease -> disease","question":"阿司匹林暴露对应哪种疾病实体？","profile":"definition_lookup"}
+{"blueprint":"drug protein association","question":"阿司匹林在知识记录中与哪种蛋白相关？","profile":"relation_learning"}
+{"blueprint":"two-hop relation","question":"沿两条连续关系从阿司匹林出发，最终对应哪种疾病？","profile":"exam_neutral"}
+{"blueprint":"drug disease exposure","question":"阿司匹林暴露关联到哪种疾病？","profile":"relation_learning"}
+{"blueprint":"drug protein association","question":"阿司匹林与哪种蛋白存在关联记录？","profile":"definition_lookup"}
+{"blueprint":"disease phenotype","question":"这种疾病对应哪些表型？","profile":"exam_neutral"}
+{"blueprint":"disease protein","question":"这种疾病与哪种蛋白相关？","profile":"relation_learning"}
+{"blueprint":"gene biological process","question":"这个基因参与哪个生物过程？","profile":"definition_lookup"}
+{"blueprint":"drug indication","question":"该药物被记录用于哪种适应情况？","profile":"exam_neutral"}
+{"blueprint":"drug contraindication","question":"该药物的禁忌关系指向哪种情况？","profile":"relation_learning"}
+{"blueprint":"two-hop drug disease","question":"从该药物经两层关联可到达哪种疾病？","profile":"exam_neutral"}
+{"blueprint":"pathway protein","question":"这条通路涉及哪种蛋白？","profile":"definition_lookup"}

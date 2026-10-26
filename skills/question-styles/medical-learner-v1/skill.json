@@ -1,0 +1,39 @@
+{
+  "skill_id": "medical-learner-v1",
+  "version": "1.2.0",
+  "display_name": "医学学习者",
+  "language": "zh-CN",
+  "question_types": ["single_fact", "constrained_entity", "relation_chain"],
+  "style_profiles": ["definition_lookup", "relation_learning", "exam_neutral"],
+  "profile_guides": {
+    "definition_lookup": "Ask for a precise entity or definition while sounding like a learner, not a database query.",
+    "relation_learning": "Ask what the evidence connects, using correct biomedical terminology but no implementation vocabulary.",
+    "exam_neutral": "Use a concise neutral question suitable for self-testing, without exam instructions around it."
+  },
+  "variants_per_blueprint": 3,
+  "min_length": 6,
+  "max_length": 80,
+  "forbidden_phrases": ["开具处方", "应该怎么治"],
+  "forbidden_terms": [
+    "PrimeKG",
+    "知识图谱",
+    "知识库",
+    "暴露因素",
+    "关联记录",
+    "关系类型",
+    "哪种实体",
+    "关系记录",
+    "数据库",
+    "head",
+    "tail",
+    "action_type",
+    "exposure_disease",
+    "drug_protein"
+  ],
+  "validator_ids": [
+    "answer_leak_v1",
+    "technical_jargon_v1",
+    "intent_consistency_v1",
+    "style_persona_v1"
+  ]
+}

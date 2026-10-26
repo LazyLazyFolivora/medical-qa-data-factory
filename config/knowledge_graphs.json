@@ -1,0 +1,15 @@
+{
+  "default_provider": "primekg",
+  "providers": {
+    "primekg": {
+      "driver": "primekg_sqlite",
+      "database_path": "../../datasets/PrimeKG/primekg.sqlite",
+      "entity_catalog_path": "data/cache/primekg-entities.sqlite",
+      "read_only": true,
+      "default_limit": 100,
+      "max_limit": 1000,
+      "max_hops": 2,
+      "query_timeout_ms": 10000
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "default_provider": "local",
+  "providers": {
+    "local": {
+      "driver": "openai_compatible",
+      "base_url": "http://127.0.0.1:8000/v1/chat/completions",
+      "model_id": "your-structured-model",
+      "api_key_env": "MEDICAL_QA_MODEL_API_KEY",
+      "supports_strict_json_schema": true,
+      "timeout_seconds": 120,
+      "max_retries": 1
+    }
+  }
+}

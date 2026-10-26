@@ -1,0 +1,12 @@
+{"blueprint":"Aspirin exposure_disease -> disease","question":"家人正在用阿司匹林，这可能和哪种疾病相关？","profile":"caregiver_lookup"}
+{"blueprint":"drug protein association","question":"阿司匹林在医学记录里和哪种蛋白有关？","profile":"patient_confusion"}
+{"blueprint":"disease phenotype relation","question":"这种疾病通常会对应什么表现？","profile":"plain_explanation"}
+{"blueprint":"drug disease exposure","question":"家里人在用的这个药，医学资料里和哪种疾病有关？","profile":"caregiver_lookup"}
+{"blueprint":"drug protein association","question":"这个药在资料里和哪种蛋白有关系？","profile":"patient_confusion"}
+{"blueprint":"disease phenotype","question":"这种病一般会有哪些常见表现？","profile":"plain_explanation"}
+{"blueprint":"disease complication","question":"这种疾病还可能关联到哪种疾病？","profile":"caregiver_lookup"}
+{"blueprint":"drug indication","question":"这个药通常用于哪种情况？","profile":"patient_confusion"}
+{"blueprint":"drug contraindication","question":"哪些情况被记录为这种药的禁忌？","profile":"caregiver_lookup"}
+{"blueprint":"gene disease association","question":"这个基因和哪种疾病有关系？","profile":"plain_explanation"}
+{"blueprint":"two-hop relation","question":"顺着这组资料继续看，最后会对应哪种疾病？","profile":"caregiver_lookup"}
+{"blueprint":"protein pathway","question":"这个蛋白参与哪条生物学通路？","profile":"plain_explanation"}

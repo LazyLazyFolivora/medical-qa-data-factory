@@ -1,0 +1,383 @@
+{
+  "$defs": {
+    "EndpointKind": {
+      "enum": [
+        "python",
+        "http",
+        "mcp",
+        "mock"
+      ],
+      "title": "EndpointKind",
+      "type": "string"
+    },
+    "MeasurementSource": {
+      "enum": [
+        "provider",
+        "tool",
+        "derived",
+        "estimated"
+      ],
+      "title": "MeasurementSource",
+      "type": "string"
+    },
+    "PreparationStatus": {
+      "enum": [
+        "preparing",
+        "ready",
+        "failed",
+        "unknown"
+      ],
+      "title": "PreparationStatus",
+      "type": "string"
+    },
+    "RequiredEvidenceMode": {
+      "description": "The evidence a run is required to produce.\n\nThis is deliberately not the same field as the ablation-computed\n``verified_route``. The generation requirement cannot be relaxed by what\nablation later discovers: switching mode means a new run.",
+      "enum": [
+        "kg_only",
+        "literature_only",
+        "hybrid",
+        "hybrid_per_hop"
+      ],
+      "title": "RequiredEvidenceMode",
+      "type": "string"
+    },
+    "RunMode": {
+      "enum": [
+        "rule_based",
+        "fake",
+        "structured"
+      ],
+      "title": "RunMode",
+      "type": "string"
+    },
+    "ToolSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "config_hash": {
+          "minLength": 1,
+          "title": "Config Hash",
+          "type": "string"
+        },
+        "data_snapshot_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Data Snapshot Id"
+        },
+        "endpoint_kind": {
+          "$ref": "#/$defs/EndpointKind"
+        },
+        "retrieved_at": {
+          "format": "date-time",
+          "title": "Retrieved At",
+          "type": "string"
+        },
+        "tool_name": {
+          "minLength": 1,
+          "title": "Tool Name",
+          "type": "string"
+        },
+        "tool_version": {
+          "minLength": 1,
+          "title": "Tool Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool_name",
+        "tool_version",
+        "data_snapshot_id",
+        "config_hash",
+        "endpoint_kind",
+        "retrieved_at"
+      ],
+      "title": "ToolSnapshot",
+      "type": "object"
+    },
+    "UsageRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "cached_input_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cached Input Tokens"
+        },
+        "currency": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Currency"
+        },
+        "documents_read": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Documents Read"
+        },
+        "documents_retrieved": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Documents Retrieved"
+        },
+        "elapsed_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Elapsed Ms"
+        },
+        "input_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Tokens"
+        },
+        "invocation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Invocation Id"
+        },
+        "kg_relation_accesses": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kg Relation Accesses"
+        },
+        "measurement_source": {
+          "$ref": "#/$defs/MeasurementSource"
+        },
+        "meter_version": {
+          "minLength": 1,
+          "title": "Meter Version",
+          "type": "string"
+        },
+        "output_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Tokens"
+        },
+        "provider_reported_cost": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider Reported Cost"
+        },
+        "recorded_at": {
+          "format": "date-time",
+          "title": "Recorded At",
+          "type": "string"
+        },
+        "tool_calls": {
+          "minimum": 0,
+          "title": "Tool Calls",
+          "type": "integer"
+        },
+        "tool_name": {
+          "minLength": 1,
+          "title": "Tool Name",
+          "type": "string"
+        },
+        "usage_id": {
+          "minLength": 1,
+          "title": "Usage Id",
+          "type": "string"
+        },
+        "usage_scope": {
+          "$ref": "#/$defs/UsageScope"
+        }
+      },
+      "required": [
+        "usage_id",
+        "usage_scope",
+        "invocation_id",
+        "tool_name",
+        "tool_calls",
+        "measurement_source",
+        "meter_version",
+        "recorded_at"
+      ],
+      "title": "UsageRecord",
+      "type": "object"
+    },
+    "UsageScope": {
+      "enum": [
+        "generation",
+        "episode",
+        "counterfactual"
+      ],
+      "title": "UsageScope",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Task-scoped preflight that must succeed before a run may be frozen.\n\nProvider preflight is an external call like any other: it reserves budget,\nruns, and reconciles. Only a ``ready`` preparation may produce a manifest.",
+  "properties": {
+    "attempt_refs": {
+      "items": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "title": "Attempt Refs",
+      "type": "array"
+    },
+    "budget": {
+      "additionalProperties": true,
+      "title": "Budget",
+      "type": "object"
+    },
+    "capability_snapshots": {
+      "items": {
+        "$ref": "#/$defs/ToolSnapshot"
+      },
+      "title": "Capability Snapshots",
+      "type": "array"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "failure_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Failure Reason"
+    },
+    "preparation_id": {
+      "minLength": 1,
+      "title": "Preparation Id",
+      "type": "string"
+    },
+    "request_digest": {
+      "minLength": 1,
+      "title": "Request Digest",
+      "type": "string"
+    },
+    "required_evidence_mode": {
+      "$ref": "#/$defs/RequiredEvidenceMode"
+    },
+    "run_mode": {
+      "$ref": "#/$defs/RunMode"
+    },
+    "schema_version": {
+      "default": "run-identity-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/PreparationStatus",
+      "default": "preparing"
+    },
+    "task_id": {
+      "minLength": 1,
+      "title": "Task Id",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    },
+    "usage": {
+      "items": {
+        "$ref": "#/$defs/UsageRecord"
+      },
+      "title": "Usage",
+      "type": "array"
+    }
+  },
+  "required": [
+    "preparation_id",
+    "task_id",
+    "run_mode",
+    "request_digest",
+    "required_evidence_mode",
+    "created_at",
+    "updated_at"
+  ],
+  "title": "GenerationPreparationRun",
+  "type": "object"
+}

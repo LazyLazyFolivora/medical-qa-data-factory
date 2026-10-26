@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}数据集 · Data Factory{% endblock %}
+{% block breadcrumb %}数据集 / 导出与覆盖{% endblock %}
+{% block content %}
+<header class="review-header">
+  <div><p class="eyebrow"><span class="eyebrow-signal"></span>DATASET / EXPORT GATE</p><h1>导出与覆盖</h1></div>
+  <div class="review-meta"><span class="status {{ 'status-human_confirmed' if plan.is_formal_exportable else 'status-draft' }}"><i></i>{{ '可正式导出' if plan.is_formal_exportable else '存在阻塞项' }}</span></div>
+</header>
+
+{% set blocked_count = plan.blockers|map(attribute='question_ids')|map('length')|sum %}
+{% set total_count = exportable_count + blocked_count %}
+{% set readiness = ((exportable_count / total_count * 100) if total_count else 100)|round|int %}
+<section class="export-overview">
+  <div class="readiness-dial" style="--readiness: {{ readiness }}%">
+    <div><strong>{{ readiness }}%</strong><small>READY</small></div>
+  </div>
+  <div class="export-readout">
+    <p class="eyebrow">FORMAL READINESS</p>
+    <h2>{{ '数据门禁已通过' if plan.is_formal_exportable else '导出信号尚未锁定' }}</h2>
+    <p>正式导出要求问题、证据、校验等级与人工处置状态同时满足门禁。</p>
+  </div>
+  <dl class="export-stats">
+    <div><dt>可导出</dt><dd>{{ exportable_count }}</dd></div>
+    <div><dt>阻塞候选</dt><dd>{{ blocked_count }}</dd></div>
+    <div><dt>阻塞类型</dt><dd>{{ plan.blockers|length }}</dd></div>
+  </dl>
+</section>
+
+<section class="question-editor gate-panel">
+  <div class="section-title"><div><p class="eyebrow">EXPORT GATE</p><h2>导出阻塞清单</h2></div><span class="unsaved-indicator">可导出 {{ exportable_count }}</span></div>
+  <div class="editor-grid">
+    {% for blocker in plan.blockers %}
+    <div class="field wide">
+      <span>{{ blocker.label }} · {{ blocker.question_ids|length }}</span>
+      <div class="token-row">{% for qid in blocker.question_ids[:8] %}<code>{{ qid }}</code>{% endfor %}{% if blocker.question_ids|length > 8 %}<em>等 {{ blocker.question_ids|length }} 条</em>{% endif %}</div>
+    </div>
+    {% else %}
+    <div class="field wide"><span>无阻塞项</span><div class="token-row"><em>当前没有阻止正式导出的问题</em></div></div>
+    {% endfor %}
+  </div>
+  <footer class="editor-actions">
+    <p class="review-error" data-review-error hidden></p>
+    <button class="secondary-button" type="button" data-export-mode="development">导出开发快照</button>
+    <button class="primary-button" type="button" data-export-mode="formal" {% if not plan.is_formal_exportable %}disabled{% endif %}>导出正式数据集</button>
+  </footer>
+</section>
+{% endblock %}

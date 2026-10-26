@@ -1,0 +1,114 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "Medical QA Data Factory: Question Generation Architecture",
+  "description": "Architect-level walkthrough of how evidence exploration becomes questions and planner-training artifacts, including the current integration gaps.",
+  "steps": [
+    {
+      "directory": "projects/medical-qa-data-factory",
+      "title": "Service Boundary",
+      "description": "This project is an independent data-production service, not the downstream query planner. It owns generation runs, evidence bundles, questions, reviews, and training projections; that separation is useful, but the export contract must match the consumer explicitly."
+    },
+    {
+      "file": "projects/medical-qa-data-factory/src/medical_qa_data_factory/generation/contracts.py",
+      "line": 154,
+      "title": "Batch Intent",
+      "description": "GenerationSpec declares requested count, difficulty, answer types, evidence sources, reasoning constraints, styles, and enrichment. The mechanism separates production goals from SafetyBudget, but several declared targets are not yet enforced by the question-planning implementation."
+    },
+    {
+      "file": "projects/medical-qa-data-factory/src/medical_qa_data_factory/generation/service.py",
+      "line": 222,
+      "title": "Episode Orchestrator",
+      "description": "EntityGenerationService owns provider assembly, immutable repositories, LangGraph checkpoints, resume behavior, and lifecycle cleanup. CLI and Web requests converge here, making this the correct application boundary for a generation run."
+    },
+    {
+      "file": "projects/medical-qa-data-factory/src/medical_qa_data_factory/generation/service.py",
+      "line": 135,
+      "title": "Mode Assembly",
+      "description": "build_model_components selects rule-based versus structured components. Structured mode enables agentic evidence exploration plus an LLM writer/verifier, but the QuestionPlanner remains the same deterministic planner unless evidence enrichment swaps in EnrichedEntityQuestionPlanner."
+    },
+    {
+      "file": "projects/medical-qa-data-factory/src/medical_qa_data_factory/generation/graph.py",
+      "line": 116,
+      "title": "Dependency Container",
+      "description": "GenerationContext injects providers, planner, writer, verifier, model, literature port, and budget without serializing live objects into graph state. This is a clean seam for replacing question-planning policy independently of evidence acquisition and persistence."
+    },
+    {
+      "file": "projects/medical-qa-data-factory/src/medical_qa_data_factory/generation/graph.py",
+      "line": 1796,
+      "title": "Outer Generation State Machine",
+      "description": "The outer graph runs seed verification, evidence collection or agent exploration, curation, claims, question planning, writing, verification, machine validation, and final projection. The explicit rewrite edge allows one question rewrite before hard rejection."
+    },
+    {
+      "file": "projects/medical-qa-data-factory/src/medical_qa_data_factory/generation/graph.py",
+      "line": 877,
+      "title": "Agentic Evidence Exploration",
+      "description": "agent_explore gives StructuredModelPlanner bounded KG and optional literature tools. Its output is discovered evidence and planner steps; it does not itself propose the final question semantics. This distinction is the central architectural gotcha behind the phrase 'Agent mode'."
+    },
+    {
+      "file": "projects/medical-qa-data-factory/src/medical_qa_data_factory/generation/react_graph.py",
+      "line": 98,
+      "title": "Inner ReAct Loop",
+      "description": "The inner graph implements observe → decide → policy gate → act → persist → assess. The model submits proposals, the gate seals permitted actions, and the executor only runs sealed actions, providing strong audit and safety boundaries for evidence search."
+    },
+    {
+      "file": "projects/medical-qa-data-factory/src/medical_qa_data_factory/generation/planning.py",
+      "line": 19,
+      "title": "Actual Question Planner",
+      "description": "QuestionPlanner simply turns each curated edge into one single-answer blueprint until question_count is reached. It does not optimize structural diversity, construct multi-hop queries, compare candidate questions, or ask whether a question will generate useful downstream planning decisions."
+    },
+    {
+      "file": "projects/medical-qa-data-factory/src/medical_qa_data_factory/generation/planning.py",
+      "line": 82,
+      "title": "Enriched Planner Is Still Single-Fact",
+      "description": "EnrichedEntityQuestionPlanner groups supported enrichment claims and keeps groups with exactly one answer. It improves evidence grounding and natural intent, but it explicitly emits question_type=single_fact and one KG evidence id, so it does not solve multi-hop task generation."
+    },
+    {
+      "file": "projects/medical-qa-data-factory/src/medical_qa_data_factory/generation/contracts.py",
+      "line": 478,
+      "title": "Blueprint Contract Exceeds Its Producers",
+      "description": "QuestionBlueprint already models two-hop paths, intermediate entities, leakage constraints, and logical-query metadata. The contract is capable of richer questions, but the two production planners above never populate the multi-hop fields; this is an implementation-to-contract gap rather than a missing schema."
+    },
+    {
+      "file": "projects/medical-qa-data-factory/src/medical_qa_data_factory/generation/writing.py",
+      "line": 148,
+      "title": "LLM as Constrained Surface Writer",
+      "description": "StructuredQuestionWriter receives frozen blueprints and evidence, then emits typed candidates with explicit answer and evidence identities. It is deliberately prevented from inventing the underlying query, so current question diversity is linguistic rather than structural."
+    },
+    {
+      "file": "projects/medical-qa-data-factory/src/medical_qa_data_factory/generation/graph.py",
+      "line": 1944,
+      "title": "QuestionSpec Projection",
+      "description": "question_spec_from_draft turns a draft into the durable business record, group identity, split identity, taxonomy, answer, and evidence requirements. It estimates hop_count from the number of evidence ids and records only one relation in query_intent; independent edges can therefore look multi-hop even without an ordered path."
+    },
+    {
+      "file": "projects/medical-qa-data-factory/src/medical_qa_data_factory/generation/graph.py",
+      "line": 1506,
+      "title": "Main-Chain Verification",
+      "description": "The active graph verifier checks each draft against its blueprint and frozen bundle, records rejections, and permits one revision. It is a real gate, but it calls the AnswerVerifier path rather than the newer LogicalQuery, shortcut, and blind-verification pipeline."
+    },
+    {
+      "file": "projects/medical-qa-data-factory/src/medical_qa_data_factory/generation/logical_query.py",
+      "line": 63,
+      "title": "Formal Query Subsystem",
+      "description": "LogicalQuery represents ordered typed hops, cardinality, aggregation, filters, negation, temporal scope, and snapshot identity. This is the correct semantic core for generating planner-training questions, but the outer generation graph currently neither imports nor persists it in the active question path."
+    },
+    {
+      "file": "projects/medical-qa-data-factory/src/medical_qa_data_factory/generation/shortcuts.py",
+      "line": 87,
+      "title": "Unwired Shortcut Checks",
+      "description": "check_shortcuts can test leave-one-hop-out and shorter-path alternatives, exactly what is needed to prove a purported multi-hop question is nontrivial. Tests exercise it in isolation, but the production graph does not call it before machine validation."
+    },
+    {
+      "file": "projects/medical-qa-data-factory/src/medical_qa_data_factory/generation/graph.py",
+      "line": 491,
+      "title": "Training Projection",
+      "description": "Finalization projects accepted QuestionSpecs and recorded ReAct steps into QAItems, PlannerTrajectory, and per-step training samples. This preserves unsuccessful trajectories too, but its labels describe the evidence-discovery agent that generated questions, not yet the downstream query-planner execution loop."
+    },
+    {
+      "file": "projects/query-planner/src/pipeline/runner.py",
+      "line": 53,
+      "title": "Downstream Consumer Reality",
+      "description": "The downstream planner parses a finished question, builds PolicyState, decides three-state stopping, chooses an action, executes it, charges cost, and updates evidence. Its training transitions contain encoded state and action features, so the upstream PlannerTrainingSample contract is conceptually related but not directly consumable without an adapter or redesign."
+    }
+  ]
+}

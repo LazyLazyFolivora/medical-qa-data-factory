@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "ctd_index_path": "data/cache/ctd-evidence.sqlite",
+  "pubmed": {
+    "enabled": true,
+    "max_abstracts": 5
+  }
+}

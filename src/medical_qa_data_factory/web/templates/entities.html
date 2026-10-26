@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}种子实体 · Data Factory{% endblock %}
+{% block breadcrumb %}种子实体 / 全部{% endblock %}
+{% block content %}
+<header class="page-heading">
+  <div><p class="eyebrow"><span class="eyebrow-signal"></span>DATASET STARTING POINT</p><h1>种子实体工作台</h1><p>选择一个实体，查看围绕它生成了哪些证据、claims 和问题。</p></div>
+  <div class="heading-actions"><button class="secondary-button" type="button" disabled title="下一阶段接入">批量导入</button><button class="primary-button" type="button" disabled title="下一阶段接入">添加实体</button></div>
+</header>
+
+<section class="research-tape" aria-label="数据生成管线">
+  <span class="tape-label">PIPELINE</span>
+  <div class="tape-flow"><strong>PrimeKG</strong><i></i><strong>Evidence Need</strong><i></i><strong>RAG Read-back</strong><i></i><strong>QA + Planner</strong></div>
+  <span class="tape-status">TRACEABLE / VERSIONED</span>
+</section>
+
+<section class="task-summary entity-summary" aria-label="实体产出概览">
+  <div data-tone="cyan"><span>种子实体</span><strong>{{ counts.entities }}</strong><small>SEED NODES</small></div>
+  <div data-tone="blue"><span>已生成问题</span><strong>{{ counts.questions }}</strong><small>QA CANDIDATES</small></div>
+  <div data-tone="amber"><span>待人工审核</span><strong>{{ counts.review }}</strong><small>REVIEW LOAD</small></div>
+  <div data-tone="coral"><span>阻塞与缺口</span><strong class="{{ 'metric-warning' if counts.issues else '' }}">{{ counts.issues }}</strong><small>OPEN SIGNALS</small></div>
+</section>
+
+<div class="filter-bar">
+  <label><span class="sr-only">搜索实体</span><input type="search" placeholder="搜索实体名称、ID 或类型…" autocomplete="off" data-filter-table="entity-table"></label>
+  <span class="filter-note">点击实体进入它的完整产出空间</span>
+</div>
+
+<div class="table-wrap">
+  <table class="data-table entity-table" id="entity-table">
+    <thead><tr><th>种子实体</th><th>类型 / 命名空间</th><th>运行</th><th>证据覆盖</th><th>Claims</th><th>问题</th><th>预期路线</th><th>异常</th><th>最近更新</th></tr></thead>
+    <tbody>
+      {% for record in entity_records %}
+      <tr data-search="{{ record.entity.raw_mention }} {{ record.entity.canonical_name or '' }} {{ record.entity.canonical_id or '' }} {{ record.entity.entity_type or '' }}">
+        <td><a class="record-link entity-name" href="{{ url_for('entity_detail', entity_ref_id=record.entity.entity_ref_id) }}">{{ record.entity.raw_mention }}</a><small>{{ record.entity.canonical_name or '尚未规范化' }} · {{ record.entity.canonical_id or record.entity.entity_ref_id }}</small></td>
+        <td><span class="entity-type">{{ record.entity.entity_type or 'unknown' }}</span><small>{{ record.entity.namespace or '无命名空间' }} · {{ record.entity.link_status.value }}</small></td>
+        <td>{{ record.tasks|length }}</td>
+        <td><span class="coverage kg-dot">KG {{ record.kg_count }}</span><span class="coverage literature-dot">文献 {{ record.literature_count }}</span></td>
+        <td>{{ record.claim_count }}</td>
+        <td><strong>{{ record.questions|length }}</strong></td>
+        <td><div class="route-row">{% for route, count in record.route_counts.items() %}<span class="route-chip route-{{ route }}">{{ route }} {{ count }}</span>{% else %}<span class="quiet">—</span>{% endfor %}</div></td>
+        <td>{% if record.issue_count %}<span class="error-count">{{ record.issue_count }}</span>{% else %}<span class="quiet">0</span>{% endif %}</td>
+        <td>{% if record.last_updated %}<time datetime="{{ record.last_updated.isoformat() }}">{{ record.last_updated.strftime('%m-%d %H:%M') }}</time>{% else %}—{% endif %}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="9" class="empty-state"><strong>还没有种子实体</strong><br>运行 demo 或导入实体后，它们会在这里成为数据生成的入口。</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

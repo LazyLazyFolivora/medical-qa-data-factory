@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "medical-qa-data-factory"
+version = "0.1.0"
+description = "Independent service for constructing versioned multi-source medical QA datasets."
+requires-python = ">=3.10"
+
+# Runtime dependencies. The pinned transitive closure lives in constraints.txt
+# so an editable install is reproducible.
+dependencies = [
+    "pydantic>=2.11,<3",
+    "jinja2>=3.1,<4",
+    "starlette>=1,<2",
+    "uvicorn>=0.42,<1",
+    "langgraph>=1.2.16,<2",
+    "langgraph-checkpoint-sqlite>=3.1.2,<4",
+    "requests>=2.31,<3",
+    "tenacity>=8.5,<9",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9"]
+
+[project.scripts]
+medical-qa-data-factory = "medical_qa_data_factory.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = ["primekg_integration: read-only tests against the real PrimeKG database"]
+addopts = "-m 'not primekg_integration'"
+

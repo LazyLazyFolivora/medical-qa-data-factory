@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}题目视图 · Medical QA{% endblock %}
+{% block breadcrumb %}题目视图{% endblock %}
+{% block content %}
+<header class="page-heading">
+  <div>
+    <p class="eyebrow">QUESTION LIBRARY</p>
+    <h1>题目视图</h1>
+    <p>查看已经生成并持久化的候选题目，按校验状态筛选后进入审核。</p>
+  </div>
+  <a class="primary-button button-link" href="{{ url_for('runs') }}">查看任务</a>
+</header>
+
+<section class="task-summary question-summary" aria-label="题目状态概览">
+  <div><span>全部</span><strong>{{ counts.all }}</strong><small>QUESTIONS</small></div>
+  <div><span>候选待校验</span><strong>{{ counts.draft }}</strong><small>DRAFT</small></div>
+  <div><span>机器校验通过</span><strong>{{ counts.machine_validated }}</strong><small>VALIDATED</small></div>
+  <div><span>人工确认</span><strong>{{ counts.human_confirmed }}</strong><small>CONFIRMED</small></div>
+  <div><span>已拒绝</span><strong>{{ counts.rejected }}</strong><small>REJECTED</small></div>
+</section>
+
+<div class="filter-bar question-filter-bar">
+  <label>
+    <span class="sr-only">搜索题目</span>
+    <input type="search" placeholder="搜索题目、答案、实体或任务…" autocomplete="off" data-filter-table="question-table">
+  </label>
+  <label class="status-filter">
+    <span>状态</span>
+    <select aria-label="按题目状态筛选" data-table-status-target="question-table">
+      <option value="all">全部状态</option>
+      <option value="draft">候选待校验</option>
+      <option value="machine_validated">机器校验通过</option>
+      <option value="human_confirmed">人工确认</option>
+      <option value="rejected">已拒绝</option>
+    </select>
+  </label>
+  <span class="filter-note">点击题目进入证据与审核详情</span>
+</div>
+
+<div class="table-wrap">
+  <table class="data-table" id="question-table">
+    <thead>
+      <tr>
+        <th>状态</th>
+        <th>题目</th>
+        <th>答案</th>
+        <th>难度</th>
+        <th>来源</th>
+        <th>审核处置</th>
+        <th>所属任务</th>
+        <th>更新时间</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% set disposition_labels = {
+        'pending': '待审核',
+        'keep_independent': '保留独立',
+        'variant_of': '题目变体',
+        'rejected': '已拒绝'
+      } %}
+      {% for row in question_rows %}
+      <tr
+        data-search="{{ row.question.canonical_question }} {{ row.question.gold_answer.short_answer }} {{ row.question.question_id }} {{ row.task_id or '' }}"
+        data-filter-status="{{ row.question.validation_level.value }}"
+      >
+        <td>
+          <span class="status status-{{ row.question.validation_level.value }}">
+            <i></i>{{ row.validation_label }}
+          </span>
+        </td>
+        <td>
+          <a class="record-link" href="{{ url_for('review', question_id=row.question.question_id) }}">{{ row.question.canonical_question }}</a>
+          <small><code>{{ row.question.question_id }}</code></small>
+        </td>
+        <td>{{ row.question.gold_answer.short_answer }}</td>
+        <td>{{ row.difficulty_label }}</td>
+        <td>{{ row.source_label }}</td>
+        <td>{{ disposition_labels.get(row.question.review_disposition.value, row.question.review_disposition.value) }}</td>
+        <td>
+          {% if row.task_id %}
+          <a class="record-link" href="{{ url_for('task_detail', task_id=row.task_id) }}">{{ row.task_id }}</a>
+          {% else %}
+          <span class="quiet">未关联</span>
+          {% endif %}
+        </td>
+        <td><time datetime="{{ row.question.created_at.isoformat() }}">{{ row.question.created_at.strftime('%m-%d %H:%M') }}</time></td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="8" class="empty-state">当前工作区还没有生成通过的题目。请到“任务”视图新建生成任务。</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

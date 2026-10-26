@@ -1,0 +1,6 @@
+{
+  "max_tool_calls": 20,
+  "max_wall_time_seconds": 180,
+  "max_edges_observed": 500,
+  "max_model_attempts": 30
+}

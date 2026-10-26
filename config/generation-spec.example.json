@@ -1,0 +1,34 @@
+{
+  "schema_version": "generation-spec-v1",
+  "spec_version": "generation-spec-v1",
+  "question_count": 2,
+  "difficulty_targets": [
+    "easy",
+    "medium"
+  ],
+  "allowed_answer_types": [
+    "entity"
+  ],
+  "allowed_sources": [
+    "knowledge_graph",
+    "literature"
+  ],
+  "reasoning_constraints": {
+    "min_hops": 1,
+    "max_hops": 2
+  },
+  "evidence_constraints": {
+    "min_total_evidence": 1,
+    "min_kg_evidence": 1,
+    "min_literature_evidence": 0,
+    "literature_policy": "when_needed"
+  },
+  "language": "zh-CN",
+  "question_style_ids": [
+    "layperson-search-v1"
+  ],
+  "variants_per_blueprint": 3,
+  "minimum_style_score": 0.65,
+  "difficulty_policy_version": "difficulty-v1",
+  "label_policy_version": "planner-label-v1"
+}

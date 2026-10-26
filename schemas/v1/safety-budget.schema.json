@@ -1,0 +1,36 @@
+{
+  "additionalProperties": false,
+  "description": "Run protection only. It carries no notion of question difficulty.",
+  "properties": {
+    "max_edges_observed": {
+      "default": 500,
+      "maximum": 1000,
+      "minimum": 1,
+      "title": "Max Edges Observed",
+      "type": "integer"
+    },
+    "max_model_attempts": {
+      "default": 30,
+      "maximum": 100,
+      "minimum": 1,
+      "title": "Max Model Attempts",
+      "type": "integer"
+    },
+    "max_tool_calls": {
+      "default": 20,
+      "maximum": 50,
+      "minimum": 1,
+      "title": "Max Tool Calls",
+      "type": "integer"
+    },
+    "max_wall_time_seconds": {
+      "default": 180,
+      "maximum": 1800,
+      "minimum": 1,
+      "title": "Max Wall Time Seconds",
+      "type": "integer"
+    }
+  },
+  "title": "SafetyBudget",
+  "type": "object"
+}

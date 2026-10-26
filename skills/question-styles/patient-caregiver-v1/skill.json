@@ -1,0 +1,40 @@
+{
+  "skill_id": "patient-caregiver-v1",
+  "version": "1.2.0",
+  "display_name": "患者或家属提问",
+  "language": "zh-CN",
+  "question_types": ["single_fact", "constrained_entity"],
+  "style_profiles": ["caregiver_lookup", "patient_confusion", "plain_explanation"],
+  "profile_guides": {
+    "caregiver_lookup": "Ask on behalf of a family member using the seed medicine or condition. Do not invent age, symptoms, duration, or other patient facts.",
+    "patient_confusion": "Sound slightly uncertain or confused, but ask for one specific evidence-grounded fact.",
+    "plain_explanation": "Use calm, simple wording suitable for a patient seeking a plain-language explanation without medical advice."
+  },
+  "variants_per_blueprint": 3,
+  "min_length": 8,
+  "max_length": 80,
+  "forbidden_phrases": ["应该吃什么药", "怎么治疗", "能治好吗", "还能活多久"],
+  "forbidden_terms": [
+    "PrimeKG",
+    "知识图谱",
+    "知识库",
+    "暴露因素",
+    "关联记录",
+    "关系类型",
+    "哪种实体",
+    "关系记录",
+    "数据库",
+    "head",
+    "tail",
+    "action_type",
+    "exposure_disease",
+    "drug_protein"
+  ],
+  "validator_ids": [
+    "answer_leak_v1",
+    "technical_jargon_v1",
+    "intent_consistency_v1",
+    "no_medical_advice_v1",
+    "style_persona_v1"
+  ]
+}

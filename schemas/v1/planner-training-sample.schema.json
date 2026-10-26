@@ -1,0 +1,171 @@
+{
+  "$defs": {
+    "DifficultyTarget": {
+      "enum": [
+        "easy",
+        "medium",
+        "hard"
+      ],
+      "title": "DifficultyTarget",
+      "type": "string"
+    },
+    "PlannerKnownEntity": {
+      "additionalProperties": false,
+      "properties": {
+        "canonical_id": {
+          "minLength": 1,
+          "title": "Canonical Id",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        }
+      },
+      "required": [
+        "canonical_id"
+      ],
+      "title": "PlannerKnownEntity",
+      "type": "object"
+    },
+    "PlannerState": {
+      "additionalProperties": false,
+      "properties": {
+        "available_actions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Available Actions",
+          "type": "array"
+        },
+        "evidence_gaps": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Gaps",
+          "type": "array"
+        },
+        "evidence_summary": {
+          "additionalProperties": true,
+          "title": "Evidence Summary",
+          "type": "object"
+        },
+        "known_entities": {
+          "items": {
+            "$ref": "#/$defs/PlannerKnownEntity"
+          },
+          "title": "Known Entities",
+          "type": "array"
+        },
+        "observation_summaries": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Observation Summaries",
+          "type": "array"
+        },
+        "target_difficulty": {
+          "items": {
+            "$ref": "#/$defs/DifficultyTarget"
+          },
+          "title": "Target Difficulty",
+          "type": "array"
+        },
+        "unsatisfied_constraints": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unsatisfied Constraints",
+          "type": "array"
+        }
+      },
+      "title": "PlannerState",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "available_actions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Available Actions",
+      "type": "array"
+    },
+    "feedback": {
+      "additionalProperties": true,
+      "title": "Feedback",
+      "type": "object"
+    },
+    "input_state": {
+      "$ref": "#/$defs/PlannerState"
+    },
+    "label_action_type": {
+      "minLength": 1,
+      "title": "Label Action Type",
+      "type": "string"
+    },
+    "label_parameters": {
+      "additionalProperties": true,
+      "title": "Label Parameters",
+      "type": "object"
+    },
+    "label_policy_version": {
+      "minLength": 1,
+      "title": "Label Policy Version",
+      "type": "string"
+    },
+    "quality": {
+      "enum": [
+        "positive",
+        "negative_policy",
+        "negative_low_gain",
+        "negative_terminal"
+      ],
+      "title": "Quality",
+      "type": "string"
+    },
+    "sample_id": {
+      "minLength": 1,
+      "title": "Sample Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": "planner-training-sample-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "step_id": {
+      "minLength": 1,
+      "title": "Step Id",
+      "type": "string"
+    },
+    "trajectory_id": {
+      "minLength": 1,
+      "title": "Trajectory Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "sample_id",
+    "trajectory_id",
+    "step_id",
+    "input_state",
+    "label_action_type",
+    "label_parameters",
+    "feedback",
+    "quality",
+    "label_policy_version"
+  ],
+  "title": "PlannerTrainingSample",
+  "type": "object"
+}
