@@ -14,6 +14,10 @@ from .evidence_enrichment.pubmed_evidence import (
     PubMedCorpusManifest,
     PubMedEvidenceSpan,
 )
+from .generation.evidence_fusion import (
+    CtdEvidenceExtraction,
+    CtdEvidenceFusion,
+)
 from .generation.run_identity import (
     AttemptRecord,
     GenerationPreparationRun,
@@ -45,6 +49,8 @@ SCHEMA_MODELS = {
     "normalized-claim.schema.json": NormalizedClaim,
     "pubmed-corpus-manifest.schema.json": PubMedCorpusManifest,
     "pubmed-evidence-span.schema.json": PubMedEvidenceSpan,
+    "ctd-evidence-extraction.schema.json": CtdEvidenceExtraction,
+    "ctd-evidence-fusion.schema.json": CtdEvidenceFusion,
     "question-spec.schema.json": QuestionSpec,
     "generation-preparation-run.schema.json": GenerationPreparationRun,
     "generation-run-manifest.schema.json": GenerationRunManifest,

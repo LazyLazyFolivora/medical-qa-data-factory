@@ -9,6 +9,14 @@ from pydantic import Field, model_validator
 
 from ..domain import KGEvidence, LiteratureEvidence
 from ..domain.common import ContractModel
+from ..generation.evidence_fusion import (
+    CtdEvidenceExtraction,
+    CtdEvidenceFusion,
+    CtdEvidenceFusionStatus,
+    PubMedFindingVerdict,
+    StudyContextIntent,
+    fuse_ctd_pubmed_evidence,
+)
 from ..llm.contracts import StructuredGenerationRequest
 from .ctd import CtdEvidenceIndex
 from .contracts import (
@@ -17,14 +25,10 @@ from .contracts import (
     NormalizedClaim,
     evidence_from_ctd,
     evidence_from_kg,
-    evidence_from_pubmed,
-    migrate_legacy_claim,
 )
 from .models import (
     CtdEvidenceRecord,
     EnrichmentStatus,
-    EvidencePolarity,
-    EvidenceSupportLevel,
     NormalizedEvidenceClaim,
     QuestionIntent,
     PubMedEvidenceRecord,
@@ -33,36 +37,8 @@ from .pubmed import PubMedClient, PubMedProviderStatus
 from .pubmed_evidence import (
     PubMedCorpusManifest,
     PubMedEvidenceSpan,
-    PubMedSpanCitation,
-    PubMedSpanError,
     build_corpus_manifest,
-    evidence_from_verified_span,
-    verify_span_citation,
 )
-
-
-class EvidenceAssessment(ContractModel):
-    status: EnrichmentStatus
-    question_intent: QuestionIntent
-    support_level: EvidenceSupportLevel
-    polarity: EvidencePolarity = EvidencePolarity.UNKNOWN
-    claim_text: str = ""
-    study_type: str | None = None
-    population: str | None = None
-    supported_pmid_ids: list[str] = Field(default_factory=list)
-    support_spans: list[PubMedSpanCitation] = Field(default_factory=list)
-    reason_codes: list[str] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def terminal_intents_are_not_supported(self) -> "EvidenceAssessment":
-        if self.status is EnrichmentStatus.SUPPORTED and self.question_intent in {
-            QuestionIntent.INSUFFICIENT,
-            QuestionIntent.CONFLICTING,
-        }:
-            raise ValueError("unsupported intent cannot have supported status")
-        if len(self.supported_pmid_ids) != len(set(self.supported_pmid_ids)):
-            raise ValueError("supported PMID references must be unique")
-        return self
 
 
 class EvidenceEnrichmentResult(ContractModel):
@@ -74,6 +50,7 @@ class EvidenceEnrichmentResult(ContractModel):
     literature_evidence: list[LiteratureEvidence] = Field(default_factory=list)
     pubmed_spans: list[PubMedEvidenceSpan] = Field(default_factory=list)
     pubmed_corpus_manifest: PubMedCorpusManifest | None = None
+    fusion: CtdEvidenceFusion | None = None
     evidence_records: list[EvidenceRecord] = Field(default_factory=list)
     normalized_claim: NormalizedClaim | None = None
     reason_codes: list[str] = Field(default_factory=list)
@@ -256,7 +233,7 @@ class EvidenceEnrichmentService:
         request = StructuredGenerationRequest(
             invocation_id=f"enrich.{edge.evidence_id}",
             role="evidence_curator",
-            system_prompt_version="curator-v1",
+            system_prompt_version="curator-v2",
             payload={
                 "kg_edge": {
                     "seed_entity_id": seed_entity_id,
@@ -285,13 +262,17 @@ class EvidenceEnrichmentService:
                     }
                     for item in readable_pubmed
                 ],
-                "allowed_intents": [item.value for item in QuestionIntent],
+                "allowed_intents": [
+                    item.value for item in StudyContextIntent
+                ],
                 "rules": [
                     "the answer entity and seed entity are fixed",
+                    "assess every supplied PMID exactly once",
+                    "use supports, contradicts, context_only or uncertain",
                     "do not infer a risk direction unless the abstract states it",
-                    "mark conflicting evidence as conflicting",
-                    "cite only supplied PMIDs",
-                    "cite exact abstract character spans and verbatim quotes",
+                    "preserve population, study type, exposure and time qualifiers",
+                    "do not upgrade association into causation or efficacy",
+                    "cite an exact abstract character span and verbatim quote",
                 ],
             },
             idempotency_key=(
@@ -299,91 +280,80 @@ class EvidenceEnrichmentService:
                 f"{','.join(item.pmid for item in pubmed_records)}"
             ),
         )
-        response = self.model.generate_structured(request, EvidenceAssessment)
-        assessment = EvidenceAssessment.model_validate(response.parsed)
-        known_pmids = {item.pmid for item in readable_pubmed}
-        unknown_pmids = sorted(set(assessment.supported_pmid_ids) - known_pmids)
-        if unknown_pmids:
-            return EvidenceEnrichmentResult(
-                edge_id=edge.evidence_id,
-                status=EnrichmentStatus.INSUFFICIENT,
-                ctd_records=ctd_records,
-                pubmed_records=pubmed_records,
-                reason_codes=["unknown_pmid_reference", *unknown_pmids],
-            )
-        if assessment.status is not EnrichmentStatus.SUPPORTED:
-            return EvidenceEnrichmentResult(
-                edge_id=edge.evidence_id,
-                status=assessment.status,
-                ctd_records=ctd_records,
-                pubmed_records=pubmed_records,
-                reason_codes=assessment.reason_codes,
-            )
-        if not assessment.supported_pmid_ids:
-            return EvidenceEnrichmentResult(
-                edge_id=edge.evidence_id,
-                status=EnrichmentStatus.INSUFFICIENT,
-                ctd_records=ctd_records,
-                pubmed_records=pubmed_records,
-                reason_codes=["supported_claim_without_pmid"],
-            )
-        cited_pmids = {item.pmid for item in assessment.support_spans}
-        if cited_pmids != set(assessment.supported_pmid_ids):
-            return EvidenceEnrichmentResult(
-                edge_id=edge.evidence_id,
-                status=EnrichmentStatus.INSUFFICIENT,
-                ctd_records=ctd_records,
-                pubmed_records=pubmed_records,
-                pubmed_corpus_manifest=corpus_manifest,
-                reason_codes=["support_span_coverage_mismatch"],
-            )
-        try:
-            pubmed_spans = [
-                verify_span_citation(
-                    citation,
-                    records=readable_pubmed,
-                )
-                for citation in assessment.support_spans
-            ]
-        except PubMedSpanError as exc:
-            return EvidenceEnrichmentResult(
-                edge_id=edge.evidence_id,
-                status=EnrichmentStatus.INSUFFICIENT,
-                ctd_records=ctd_records,
-                pubmed_records=pubmed_records,
-                pubmed_corpus_manifest=corpus_manifest,
-                reason_codes=[exc.code],
-            )
-        pubmed_spans = list(
-            {item.span_id: item for item in pubmed_spans}.values()
+        response = self.model.generate_structured(
+            request,
+            CtdEvidenceExtraction,
         )
+        extraction = CtdEvidenceExtraction.model_validate(response.parsed)
+        fusion = fuse_ctd_pubmed_evidence(
+            ctd_records=ctd_records,
+            pubmed_records=pubmed_records,
+            extraction=extraction,
+            seed_entity_id=seed_entity_id,
+            answer_entity_id=answer_entity_id,
+            ctd_retrieved_at=edge.retrieved_at,
+        )
+        pubmed_spans = [item.span for item in fusion.pubmed_assessments]
+        if fusion.status is not CtdEvidenceFusionStatus.ELIGIBLE:
+            status = (
+                EnrichmentStatus.CONFLICTING
+                if fusion.status is CtdEvidenceFusionStatus.CONFLICTING
+                else EnrichmentStatus.INSUFFICIENT
+            )
+            return EvidenceEnrichmentResult(
+                edge_id=edge.evidence_id,
+                status=status,
+                ctd_records=ctd_records,
+                pubmed_records=pubmed_records,
+                pubmed_spans=pubmed_spans,
+                pubmed_corpus_manifest=corpus_manifest,
+                fusion=fusion,
+                evidence_records=fusion.evidence_records,
+                reason_codes=fusion.reason_codes,
+            )
+
+        assert fusion.claim is not None
+        support_assessments = sorted(
+            (
+                item
+                for item in fusion.pubmed_assessments
+                if item.verdict is PubMedFindingVerdict.SUPPORTS
+            ),
+            key=lambda item: item.pmid,
+        )
+        primary = support_assessments[0]
+        assert primary.intent is not None
+        question_intent = QuestionIntent(primary.intent.value)
+        records_by_pmid = {item.pmid: item for item in readable_pubmed}
         literature_by_pmid: dict[str, LiteratureEvidence] = {}
-        for item in readable_pubmed:
-            if item.pmid not in assessment.supported_pmid_ids:
-                continue
-            text = item.abstract or item.title
-            evidence_id = _stable_literature_id(item.pmid, item.content_hash)
+        for assessment in support_assessments:
+            item = records_by_pmid[assessment.pmid]
+            evidence_id = _stable_literature_id(
+                item.pmid,
+                assessment.span.quote_hash,
+            )
             literature_by_pmid[item.pmid] = LiteratureEvidence(
                 evidence_id=evidence_id,
                 document_id=f"pmid:{item.pmid}",
                 pmid=item.pmid,
                 doi=item.doi,
                 title=item.title or f"PubMed article {item.pmid}",
-                evidence_text=text,
+                evidence_text=assessment.span.quote,
                 location={
-                    "start": 0,
-                    "end": len(text),
-                    "content_hash": item.content_hash,
+                    "start": assessment.span.start,
+                    "end": assessment.span.end,
+                    "content_hash": assessment.span.quote_hash,
                     "provider_snapshot_id": item.snapshot_id,
-                    "support_verdict": "supports",
+                    "support_verdict": assessment.verdict.value,
                     "kg_evidence_id": edge.evidence_id,
                 },
                 entities=[seed, answer],
-                retrieval_query=(
-                    query
-                ),
+                retrieval_query=query,
                 retrieval_rank=(
-                    assessment.supported_pmid_ids.index(item.pmid) + 1
+                    [item.pmid for item in support_assessments].index(
+                        assessment.pmid
+                    )
+                    + 1
                 ),
                 retrieved_at=item.retrieved_at,
             )
@@ -396,52 +366,32 @@ class EvidenceEnrichmentService:
         claim = NormalizedEvidenceClaim(
             claim_id=_stable_claim_id(
                 edge.evidence_id,
-                assessment.question_intent.value,
-                *assessment.supported_pmid_ids,
+                question_intent.value,
+                *[item.pmid for item in support_assessments],
             ),
             kg_edge_id=edge.evidence_id,
             seed_entity_id=seed_entity_id,
             answer_entity_id=answer_entity_id,
             answer_entity_type=answer.entity_type,
             relation=edge.relation,
-            question_intent=assessment.question_intent,
-            support_level=assessment.support_level,
-            polarity=assessment.polarity,
-            claim_text=assessment.claim_text,
+            question_intent=question_intent,
+            support_level=primary.support_level,
+            polarity=primary.polarity,
+            claim_text=primary.claim_text,
             source_snapshot_ids=snapshots,
-            ctd_source_id=(
-                ctd_records[0].content_hash if ctd_records else None
-            ),
-            pubmed_ids=list(assessment.supported_pmid_ids),
+            ctd_source_id=hashlib.sha256(
+                "\n".join(
+                    sorted(item.content_hash for item in ctd_records)
+                ).encode("utf-8")
+            ).hexdigest(),
+            pubmed_ids=[item.pmid for item in support_assessments],
             literature_evidence_ids=[
-                literature_by_pmid[pmid].evidence_id
-                for pmid in assessment.supported_pmid_ids
-                if pmid in literature_by_pmid
+                literature_by_pmid[item.pmid].evidence_id
+                for item in support_assessments
             ],
-            reason_codes=list(assessment.reason_codes),
+            reason_codes=list(fusion.reason_codes),
         )
-        source_neutral_records = [
-            evidence_from_ctd(
-                item,
-                subject_entity_id=seed_entity_id,
-                object_entity_id=answer_entity_id,
-                retrieved_at=edge.retrieved_at,
-            )
-            for item in ctd_records
-        ]
-        pubmed_evidence_by_pmid = {
-            item.pmid: evidence_from_pubmed(item) for item in readable_pubmed
-        }
-        source_neutral_records.extend(pubmed_evidence_by_pmid.values())
-        records_by_pmid = {item.pmid: item for item in readable_pubmed}
-        span_evidence_records = [
-            evidence_from_verified_span(
-                span,
-                record=records_by_pmid[span.pmid],
-            )
-            for span in pubmed_spans
-        ]
-        source_neutral_records.extend(span_evidence_records)
+        source_neutral_records = list(fusion.evidence_records)
         kg_snapshot_id = str(
             edge.retrieval_action.get("snapshot_id")
             or edge.metadata.get("provider_snapshot_id")
@@ -459,32 +409,28 @@ class EvidenceEnrichmentService:
                 item.evidence_id: item for item in source_neutral_records
             }.values()
         )
-        normalized_claim = migrate_legacy_claim(
-            claim,
-            qualifiers={
-                key: value
-                for key, value in {
-                    "study_type": assessment.study_type,
-                    "population": assessment.population,
-                }.items()
-                if value is not None
-            },
-            supporting_evidence_ids=[
-                item.evidence_id for item in span_evidence_records
-            ],
-            context_evidence_ids=[
-                *[
-                    item.evidence_id
-                    for item in source_neutral_records
-                    if item.provider_id == "ctd"
+        normalized_claim = fusion.claim
+        if kg_record is not None:
+            normalized_claim = NormalizedClaim.create(
+                subject_id=normalized_claim.subject_id,
+                predicate_family=normalized_claim.predicate_family,
+                object_id=normalized_claim.object_id,
+                qualifiers=normalized_claim.qualifiers,
+                polarity=normalized_claim.polarity,
+                normalizer_version=normalized_claim.normalizer_version,
+                supporting_evidence_ids=(
+                    normalized_claim.supporting_evidence_ids
+                ),
+                contradicting_evidence_ids=(
+                    normalized_claim.contradicting_evidence_ids
+                ),
+                context_evidence_ids=[
+                    *normalized_claim.context_evidence_ids,
+                    kg_record.evidence_id,
                 ],
-                *[
-                    item.evidence_id
-                    for item in pubmed_evidence_by_pmid.values()
-                ],
-                *([kg_record.evidence_id] if kg_record is not None else []),
-            ],
-        )
+                claim_text=normalized_claim.claim_text,
+                legacy_claim_id=normalized_claim.legacy_claim_id,
+            )
         return EvidenceEnrichmentResult(
             edge_id=edge.evidence_id,
             status=EnrichmentStatus.SUPPORTED,
@@ -494,6 +440,7 @@ class EvidenceEnrichmentService:
             literature_evidence=list(literature_by_pmid.values()),
             pubmed_spans=pubmed_spans,
             pubmed_corpus_manifest=corpus_manifest,
+            fusion=fusion,
             evidence_records=source_neutral_records,
             normalized_claim=normalized_claim,
         )

@@ -45,11 +45,16 @@ TEMPLATES: dict[str, PromptTemplate] = {
     ),
     "evidence_curator": PromptTemplate(
         role="evidence_curator",
-        version="curator-v1",
+        version="curator-v2",
         body=(
-            "You judge whether the supplied evidence supports, contradicts or "
-            "merely contextualises a claim. You may not introduce facts that "
-            "are not in the supplied evidence."
+            "You assess every supplied PMID exactly once against the fixed "
+            "claim target, choosing supports, contradicts, context_only or "
+            "uncertain. Use only the supplied intent and polarity allow-lists. "
+            "Every finding must cite a verbatim abstract span with exact "
+            "offsets. Preserve population, study type, exposure and time "
+            "qualifiers that limit the conclusion. Never introduce facts that "
+            "are not in the supplied evidence, and never upgrade association "
+            "into causation, prevention or demonstrated efficacy."
         ),
     ),
     "sufficiency_judge": PromptTemplate(

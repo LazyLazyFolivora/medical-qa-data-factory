@@ -6,9 +6,67 @@ ever allowed to upgrade an association into a causal or therapeutic claim.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from .contracts import RelationSemantics
 
 POLICY_VERSION = "relation-semantics-v1"
+STUDY_CLAIM_POLICY_VERSION = "study-claim-semantics-v1"
+
+
+FORMAL_STUDY_INTENTS: frozenset[str] = frozenset(
+    {
+        "association_research",
+        "biomarker_research",
+        "therapeutic_research",
+        "risk_increase",
+        "risk_decrease",
+        "safety",
+    }
+)
+
+ASSOCIATION_UPGRADE_TERMS: frozenset[str] = frozenset(
+    {
+        "cause",
+        "causes",
+        "caused",
+        "leads to",
+        "results in",
+        "prevent",
+        "prevents",
+        "prevention",
+        "treat",
+        "treats",
+        "treated",
+        "cure",
+        "cures",
+        "effective",
+        "efficacy",
+        "导致",
+        "引起",
+        "预防",
+        "治疗",
+        "治愈",
+        "有效",
+    }
+)
+
+THERAPEUTIC_EFFICACY_TERMS: frozenset[str] = frozenset(
+    {
+        "effective",
+        "efficacy",
+        "cure",
+        "cures",
+        "prevent",
+        "prevents",
+        "proven treatment",
+        "established treatment",
+        "治疗有效",
+        "能够治疗",
+        "可治愈",
+        "预防效果",
+    }
+)
 
 
 #: Relations that genuinely assert a directed fact. Phrasing may keep
@@ -141,3 +199,42 @@ class RelationSemanticsPolicy:
         if self.classify(relation) is RelationSemantics.DIRECTIONAL_FACT:
             return frozenset()
         return FORBIDDEN_FOR_ASSOCIATION
+
+
+def study_claim_rejection_codes(
+    *,
+    intent: str,
+    polarity: str,
+    claim_text: str,
+    direct_evidence: Sequence[str],
+) -> list[str]:
+    """Reject unsupported semantic upgrades before a claim can be built."""
+    reasons: list[str] = []
+    if intent not in FORMAL_STUDY_INTENTS:
+        reasons.append("study_intent_not_allowed")
+    expected_polarity = {
+        "risk_increase": "increase",
+        "risk_decrease": "decrease",
+    }.get(intent)
+    if expected_polarity is not None and polarity != expected_polarity:
+        reasons.append("intent_polarity_mismatch")
+    if expected_polarity is None and polarity == "mixed":
+        reasons.append("mixed_polarity_not_allowed")
+
+    direct = {item.casefold() for item in direct_evidence}
+    if intent == "therapeutic_research" and "therapeutic" not in direct:
+        reasons.append("ctd_intent_evidence_mismatch")
+    if intent == "biomarker_research" and "marker/mechanism" not in direct:
+        reasons.append("ctd_intent_evidence_mismatch")
+
+    lowered = claim_text.casefold()
+    forbidden = (
+        ASSOCIATION_UPGRADE_TERMS
+        if intent == "association_research"
+        else THERAPEUTIC_EFFICACY_TERMS
+        if intent == "therapeutic_research"
+        else frozenset()
+    )
+    if any(term.casefold() in lowered for term in forbidden):
+        reasons.append("claim_strength_exaggerated")
+    return reasons

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gzip
+import hashlib
 from pathlib import Path
 
 from medical_qa_data_factory.domain import (
@@ -18,12 +19,20 @@ from medical_qa_data_factory.evidence_enrichment.models import (
     EvidencePolarity,
     EvidenceSupportLevel,
     NormalizedEvidenceClaim,
+    PubMedEvidenceRecord,
     QuestionIntent,
 )
-from medical_qa_data_factory.evidence_enrichment.pubmed import PubMedClient
+from medical_qa_data_factory.evidence_enrichment.pubmed import (
+    PubMedClient,
+    PubMedFetchResult,
+    PubMedProviderStatus,
+)
 from medical_qa_data_factory.evidence_enrichment.service import (
     EvidenceEnrichmentResult,
     EvidenceEnrichmentService,
+)
+from medical_qa_data_factory.generation.evidence_fusion import (
+    CtdEvidenceFusionStatus,
 )
 from medical_qa_data_factory.generation.contracts import RelationSemantics
 from medical_qa_data_factory.generation.curation import (
@@ -118,6 +127,47 @@ class _PubMed:
         ).fetch_result(["12345678"], limit=limit)
 
 
+class _StaticPubMed:
+    def __init__(self, result: PubMedFetchResult) -> None:
+        self.result = result
+
+    def fetch_result(self, pmids: list[str], *, limit: int | None = None):
+        return self.result
+
+
+def _pubmed_record(
+    pmid: str,
+    abstract: str,
+) -> PubMedEvidenceRecord:
+    title = "Aspirin exposure and prostate cancer"
+    return PubMedEvidenceRecord(
+        pmid=pmid,
+        title=title,
+        abstract=abstract,
+        snapshot_id="pubmed:test",
+        content_hash=hashlib.sha256(
+            f"{title}\n{abstract}".encode()
+        ).hexdigest(),
+        retrieved_at=NOW,
+    )
+
+
+def _pubmed_result(
+    records: list[PubMedEvidenceRecord],
+    *,
+    status: PubMedProviderStatus = PubMedProviderStatus.SUCCESS,
+    truncated: bool = False,
+) -> PubMedFetchResult:
+    return PubMedFetchResult(
+        status=status,
+        snapshot_id="pubmed:test",
+        input_pmids=[item.pmid for item in records],
+        requested_pmids=[item.pmid for item in records],
+        records=records,
+        truncated=truncated,
+    )
+
+
 def test_ctd_index_builds_and_maps_exact_pair(tmp_path: Path) -> None:
     source = _ctd_fixture(tmp_path)
     index_path = tmp_path / "ctd.sqlite"
@@ -167,24 +217,30 @@ def test_enrichment_extracts_supported_claim_and_literature(
     model = FakeStructuredModel(
         responses={
             "evidence_curator": {
-                "status": "supported",
-                "question_intent": "risk_decrease",
-                "support_level": "literature_supported",
-                "polarity": "decrease",
-                "claim_text": "Aspirin exposure was associated with lower prostate cancer risk.",
-                "study_type": "observational",
-                "population": None,
-                "supported_pmid_ids": ["12345678"],
-                "support_spans": [
+                "findings": [
                     {
                         "pmid": "12345678",
-                        "text_field": "abstract",
-                        "start": 37,
-                        "end": 63,
-                        "quote": "lower prostate cancer risk",
+                        "verdict": "supports",
+                        "intent": "risk_decrease",
+                        "support_level": "literature_supported",
+                        "polarity": "decrease",
+                        "claim_text": "Aspirin exposure was associated with lower prostate cancer risk.",
+                        "qualifiers": {
+                            "study_type": "observational",
+                            "population": None,
+                            "dose_exposure": None,
+                            "temporal_scope": None,
+                            "disease_category": None,
+                        },
+                        "citation": {
+                            "pmid": "12345678",
+                            "text_field": "abstract",
+                            "start": 37,
+                            "end": 63,
+                            "quote": "lower prostate cancer risk",
+                        },
                     }
                 ],
-                "reason_codes": [],
             }
         }
     )
@@ -209,6 +265,13 @@ def test_enrichment_extracts_supported_claim_and_literature(
     assert result.normalized_claim is not None
     assert result.normalized_claim.predicate_family == "disease_risk"
     assert result.normalized_claim.polarity == "decrease"
+    assert (
+        result.normalized_claim.normalizer_version
+        == "ctd-pubmed-fusion-v1"
+    )
+    assert result.normalized_claim.qualifiers["study_type"] == "observational"
+    assert result.fusion is not None
+    assert result.fusion.status.value == "eligible"
     assert {
         item.provider_id for item in result.evidence_records
     } == {"ctd", "pubmed"}
@@ -233,21 +296,22 @@ def test_enrichment_rejects_a_fabricated_pubmed_quote(tmp_path: Path) -> None:
     model = FakeStructuredModel(
         responses={
             "evidence_curator": {
-                "status": "supported",
-                "question_intent": "risk_decrease",
-                "support_level": "literature_supported",
-                "polarity": "decrease",
-                "claim_text": "lower prostate cancer risk",
-                "supported_pmid_ids": ["12345678"],
-                "support_spans": [
+                "findings": [
                     {
                         "pmid": "12345678",
-                        "start": 37,
-                        "end": 63,
-                        "quote": "fabricated prostate claim",
+                        "verdict": "supports",
+                        "intent": "risk_decrease",
+                        "support_level": "literature_supported",
+                        "polarity": "decrease",
+                        "claim_text": "lower prostate cancer risk",
+                        "citation": {
+                            "pmid": "12345678",
+                            "start": 37,
+                            "end": 63,
+                            "quote": "fabricated prostate claim",
+                        },
                     }
                 ],
-                "reason_codes": [],
             }
         }
     )
@@ -266,6 +330,157 @@ def test_enrichment_rejects_a_fabricated_pubmed_quote(tmp_path: Path) -> None:
     assert result.status is EnrichmentStatus.INSUFFICIENT
     assert result.normalized_claim is None
     assert result.reason_codes == ["pubmed_quote_mismatch"]
+
+
+def test_enrichment_marks_same_scope_support_and_contradiction_conflicting(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "ctd-two-pmids.csv.gz"
+    with gzip.open(source, "wt", encoding="utf-8", newline="") as handle:
+        handle.write("# CTD test fixture\n")
+        handle.write(
+            "Aspirin\tD001241\t\tprostate cancer\tMESH:D011471\t"
+            "marker/mechanism\tPTGS1\t3.5\t\t12345678|87654321\n"
+        )
+    index_path = tmp_path / "ctd-two-pmids.sqlite"
+    build_ctd_index(source, index_path)
+    support_text = (
+        "Aspirin exposure was associated with lower prostate cancer risk."
+    )
+    contradiction_text = (
+        "No lower prostate cancer risk was observed in the same cohort."
+    )
+    records = [
+        _pubmed_record("12345678", support_text),
+        _pubmed_record("87654321", contradiction_text),
+    ]
+    support_quote = "lower prostate cancer risk"
+    contradiction_quote = "No lower prostate cancer risk"
+    model = FakeStructuredModel(
+        responses={
+            "evidence_curator": {
+                "findings": [
+                    {
+                        "pmid": "12345678",
+                        "verdict": "supports",
+                        "intent": "risk_decrease",
+                        "support_level": "literature_supported",
+                        "polarity": "decrease",
+                        "claim_text": support_quote,
+                        "qualifiers": {
+                            "population": "same cohort",
+                            "study_type": "observational",
+                        },
+                        "citation": {
+                            "pmid": "12345678",
+                            "start": support_text.index(support_quote),
+                            "end": support_text.index(support_quote)
+                            + len(support_quote),
+                            "quote": support_quote,
+                        },
+                    },
+                    {
+                        "pmid": "87654321",
+                        "verdict": "contradicts",
+                        "intent": "risk_decrease",
+                        "support_level": "literature_supported",
+                        "polarity": "decrease",
+                        "claim_text": contradiction_quote,
+                        "qualifiers": {
+                            "population": "same cohort",
+                            "study_type": "observational",
+                        },
+                        "citation": {
+                            "pmid": "87654321",
+                            "start": contradiction_text.index(
+                                contradiction_quote
+                            ),
+                            "end": contradiction_text.index(
+                                contradiction_quote
+                            )
+                            + len(contradiction_quote),
+                            "quote": contradiction_quote,
+                        },
+                    },
+                ]
+            }
+        }
+    )
+    service = EvidenceEnrichmentService(
+        ctd_index=CtdEvidenceIndex(index_path),
+        model=model,
+        pubmed=_StaticPubMed(_pubmed_result(records)),
+    )
+
+    result = service.enrich(
+        _edge(),
+        seed_entity_id=ASPIRIN.canonical_id or "",
+        answer_entity_id=CANCER.canonical_id or "",
+    )
+
+    assert result.status is EnrichmentStatus.CONFLICTING
+    assert result.normalized_claim is None
+    assert result.fusion is not None
+    assert result.fusion.status is CtdEvidenceFusionStatus.CONFLICTING
+    assert result.reason_codes == ["contradicting_pubmed_evidence"]
+    assert len(result.pubmed_spans) == 2
+
+
+def test_provider_failure_is_not_reported_as_missing_evidence(
+    tmp_path: Path,
+) -> None:
+    source = _ctd_fixture(tmp_path)
+    index_path = tmp_path / "ctd.sqlite"
+    build_ctd_index(source, index_path)
+    service = EvidenceEnrichmentService(
+        ctd_index=CtdEvidenceIndex(index_path),
+        model=FakeStructuredModel(),
+        pubmed=_StaticPubMed(
+            _pubmed_result(
+                [],
+                status=PubMedProviderStatus.TIMEOUT,
+            )
+        ),
+    )
+
+    result = service.enrich(
+        _edge(),
+        seed_entity_id=ASPIRIN.canonical_id or "",
+        answer_entity_id=CANCER.canonical_id or "",
+    )
+
+    assert result.status is EnrichmentStatus.INSUFFICIENT
+    assert result.reason_codes == ["pubmed_timeout"]
+    assert "pubmed_empty_result" not in result.reason_codes
+
+
+def test_truncated_fetch_fails_closed_before_the_model_is_called(
+    tmp_path: Path,
+) -> None:
+    source = _ctd_fixture(tmp_path)
+    index_path = tmp_path / "ctd.sqlite"
+    build_ctd_index(source, index_path)
+    model = FakeStructuredModel()
+    service = EvidenceEnrichmentService(
+        ctd_index=CtdEvidenceIndex(index_path),
+        model=model,
+        pubmed=_StaticPubMed(
+            _pubmed_result(
+                [_pubmed_record("12345678", "Aspirin exposure was studied.")],
+                truncated=True,
+            )
+        ),
+    )
+
+    result = service.enrich(
+        _edge(),
+        seed_entity_id=ASPIRIN.canonical_id or "",
+        answer_entity_id=CANCER.canonical_id or "",
+    )
+
+    assert result.status is EnrichmentStatus.INSUFFICIENT
+    assert result.reason_codes == ["pubmed_fetch_truncated"]
+    assert model.invocations == []
 
 
 def _curated(edge: KGEvidence) -> CuratedEvidence:

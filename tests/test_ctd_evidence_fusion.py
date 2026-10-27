@@ -49,7 +49,7 @@ def _ctd(
         pubmed_ids=["123"],
         source_snapshot_id="ctd:2026-10",
         source_record_locator="ctd:row:1",
-        content_hash="ctd-hash-1",
+        content_hash=hashlib.sha256(b"ctd-row-1").hexdigest(),
     )
 
 
