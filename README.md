@@ -245,10 +245,31 @@ hard reject，不会自动进入机器校验或人工队列。Step 0 之前已�
 证据增强诊断：
 
 ```bat
-python -m medical_qa_data_factory evidence ctd build --source data/external/ctd/CTD_chemicals_diseases.csv.gz --output data/cache/ctd-evidence.sqlite
+python -m medical_qa_data_factory evidence ctd build --source data/external/ctd/CTD_chemicals_diseases.csv.gz --source-release "CTD YYYY-MM" --output data/cache/ctd-evidence.sqlite
 python -m medical_qa_data_factory evidence ctd lookup --index data/cache/ctd-evidence.sqlite --chemical-id D001241 --disease "prostate cancer"
+python -m medical_qa_data_factory evidence ctd enumerate --index data/cache/ctd-evidence.sqlite --chemical-id D001241
+python -m medical_qa_data_factory evidence ctd audit --index data/cache/ctd-evidence.sqlite --primekg-database ../../datasets/PrimeKG/primekg.sqlite
 python -m medical_qa_data_factory evidence pubmed search --query "\"aspirin\" AND \"prostate cancer\"" --limit 5
 python -m medical_qa_data_factory evidence pubmed fetch --pmid 34626297 --limit 1
+```
+
+`ctd enumerate` 不设置结果上限，并按 CTD disease identity 合并别名；同名但
+disease ID 不同的记录不会被合并。`ctd audit` 为每条 PrimeKG CTD
+`exposure_disease` 边输出 `mapped_exact`、`mapped_crosswalk`、`ambiguous` 或
+`unmapped`。如有经审核的 ID crosswalk，可通过 `--crosswalk` 传入
+`ctd-disease-crosswalk-v1` JSON；名称匹配与 crosswalk 冲突时审计会关闭式失败为
+`ambiguous`。
+
+```json
+{
+  "schema_version": "ctd-disease-crosswalk-v1",
+  "entries": [
+    {
+      "primekg_disease_id": "5070",
+      "ctd_disease_ids": ["MESH:D009369"]
+    }
+  ]
+}
 ```
 
 ```bat

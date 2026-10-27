@@ -306,6 +306,37 @@ class PrimeKGSQLiteProvider:
             self._connection.close()
             self._connection = None
 
+    def iter_edges_by_source(
+        self,
+        *,
+        source: str,
+        relation: str | None = None,
+        page_size: int = 1_000,
+    ) -> Iterable[GraphEdge]:
+        """Yield every matching edge through deterministic bounded pages."""
+        if page_size < 1:
+            raise ValueError("page_size must be positive")
+        connection = self._connect()
+        last_rowid = 0
+        while True:
+            clauses = ["source = ?", "rowid > ?"]
+            params: list[Any] = [source, last_rowid]
+            if relation is not None:
+                clauses.append("relation = ?")
+                params.append(relation)
+            params.append(page_size)
+            rows = connection.execute(
+                "SELECT rowid AS source_rowid, * FROM edges WHERE "
+                + " AND ".join(clauses)
+                + " ORDER BY rowid LIMIT ?",
+                params,
+            ).fetchall()
+            if not rows:
+                return
+            for row in rows:
+                yield self._edge_from_row(row)
+            last_rowid = int(rows[-1]["source_rowid"])
+
     def __enter__(self) -> "PrimeKGSQLiteProvider":
         return self
 

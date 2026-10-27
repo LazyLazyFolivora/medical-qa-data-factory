@@ -52,11 +52,15 @@ class CtdEvidenceRecord(ContractModel):
     chemical_name: str = Field(min_length=1)
     disease_id: str | None = None
     disease_name: str = Field(min_length=1)
+    disease_aliases: list[str] = Field(default_factory=list)
     direct_evidence: list[str] = Field(default_factory=list)
     inference_genes: list[str] = Field(default_factory=list)
     inference_score: float | None = None
     pubmed_ids: list[str] = Field(default_factory=list)
     source_snapshot_id: str = Field(min_length=1)
+    # Optional only for loading legacy enrichment-v1 artifacts. Every record
+    # emitted by the versioned CTD index carries a locator.
+    source_record_locator: str | None = Field(default=None, min_length=1)
     content_hash: str = Field(min_length=1)
 
 

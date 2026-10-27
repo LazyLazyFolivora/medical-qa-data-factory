@@ -145,12 +145,30 @@ def build_parser() -> argparse.ArgumentParser:
     )
     evidence_ctd_build.add_argument("--source", required=True)
     evidence_ctd_build.add_argument("--output", required=True)
+    evidence_ctd_build.add_argument(
+        "--source-release",
+        help="Explicit CTD release label; defaults to the source filename",
+    )
     evidence_ctd_lookup = evidence_ctd_commands.add_parser(
         "lookup", help="Look up one exact chemical/disease pair"
     )
     evidence_ctd_lookup.add_argument("--index", required=True)
     evidence_ctd_lookup.add_argument("--chemical-id", required=True)
     evidence_ctd_lookup.add_argument("--disease", required=True)
+    evidence_ctd_enumerate = evidence_ctd_commands.add_parser(
+        "enumerate", help="Enumerate every CTD disease for one chemical"
+    )
+    evidence_ctd_enumerate.add_argument("--index", required=True)
+    evidence_ctd_enumerate.add_argument("--chemical-id", required=True)
+    evidence_ctd_audit = evidence_ctd_commands.add_parser(
+        "audit", help="Audit all PrimeKG CTD exposure-disease mappings"
+    )
+    evidence_ctd_audit.add_argument("--index", required=True)
+    evidence_ctd_audit.add_argument("--primekg-database", required=True)
+    evidence_ctd_audit.add_argument(
+        "--crosswalk",
+        help="Optional ctd-disease-crosswalk-v1 JSON file",
+    )
 
     evidence_pubmed = evidence_commands.add_parser(
         "pubmed", help="Read PubMed metadata and abstracts"
@@ -824,21 +842,72 @@ def _run_literature_command(args: argparse.Namespace) -> int:
 def _run_evidence_command(args: argparse.Namespace) -> int:
     if args.evidence_command == "ctd":
         from .evidence_enrichment.ctd import (
+            CtdDiseaseCrosswalk,
             CtdEvidenceIndex,
+            audit_primekg_ctd_edges,
             build_ctd_index,
         )
 
         if args.ctd_command == "build":
-            metadata = build_ctd_index(args.source, args.output)
+            metadata = build_ctd_index(
+                args.source,
+                args.output,
+                source_release=args.source_release,
+            )
             _emit({"status": "built", **metadata})
             return 0
-        records = CtdEvidenceIndex(args.index).lookup(
-            chemical_id=args.chemical_id,
-            disease_name=args.disease,
-        )
+        index = CtdEvidenceIndex(args.index)
+        if args.ctd_command == "audit":
+            from .knowledge_graph.providers.primekg import (
+                PrimeKGSQLiteProvider,
+            )
+
+            crosswalk = (
+                CtdDiseaseCrosswalk.from_json(args.crosswalk)
+                if args.crosswalk
+                else CtdDiseaseCrosswalk()
+            )
+            with PrimeKGSQLiteProvider(args.primekg_database) as provider:
+                snapshot = provider.snapshot()
+                audit_records = audit_primekg_ctd_edges(
+                    provider.iter_edges_by_source(
+                        source="CTD",
+                        relation="exposure_disease",
+                    ),
+                    index=index,
+                    crosswalk=crosswalk,
+                )
+            status_counts: dict[str, int] = {}
+            for record in audit_records:
+                status = record.status.value
+                status_counts[status] = status_counts.get(status, 0) + 1
+            _emit(
+                {
+                    "ctd_snapshot_id": index.metadata()["snapshot_id"],
+                    "primekg_snapshot_id": snapshot.data_snapshot_id,
+                    "total_edges": len(audit_records),
+                    "status_counts": dict(sorted(status_counts.items())),
+                    "records": [
+                        record.model_dump(mode="json")
+                        for record in audit_records
+                    ],
+                }
+            )
+            return 0
+        if args.ctd_command == "enumerate":
+            records = index.enumerate_diseases(
+                chemical_id=args.chemical_id
+            )
+        else:
+            records = index.lookup(
+                chemical_id=args.chemical_id,
+                disease_name=args.disease,
+            )
         _emit(
             {
                 "index": args.index,
+                "snapshot_id": index.metadata()["snapshot_id"],
+                "record_count": len(records),
                 "records": [
                     item.model_dump(mode="json") for item in records
                 ],
