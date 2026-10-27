@@ -230,46 +230,12 @@ class CtdTaskQuestionWriter:
     def write(self, task: ValidatedTask, *, qid: str) -> QuestionVariant:
         if task.task.question_type != "study_context_qualified_disease":
             raise ValueError("CTD writer only accepts study-context tasks")
-        context = task.task.public_study_context
-        if context is None:
-            raise ValueError("CTD task is missing its public study context")
-        chemical = task.task.public_entity_names.get(
-            task.task.seed_entity_id
-        )
-        if not chemical:
-            raise ValueError("CTD task is missing the public chemical name")
-        qualifier_text = _ctd_context_text(context)
-        disease_category = context.disease_category
-        intent = context.relation_intent
-        if intent == "risk_decrease":
-            ending = (
-                f"哪种{disease_category}的发生风险被报告降低？"
-            )
-        elif intent == "risk_increase":
-            ending = (
-                f"哪种{disease_category}的发生风险被报告升高？"
-            )
-        elif intent == "association_research":
-            ending = (
-                f"哪种{disease_category}被研究与{chemical}暴露存在关联？"
-            )
-        elif intent == "biomarker_research":
-            ending = (
-                f"哪种{disease_category}被研究作为相关候选生物标志物？"
-            )
-        elif intent == "therapeutic_research":
-            ending = (
-                f"哪种{disease_category}是{chemical}被研究用于改善的疾病？"
-            )
-        else:
-            ending = (
-                f"哪种{disease_category}被报告为{chemical}相关的不良事件？"
-            )
+        question = _ctd_question_text(task)
         return QuestionVariant(
             variant_id=f"variant-{qid}-{self.version}",
             qid=qid,
             task_id=task.task.task_id,
-            question_text=f"在{qualifier_text}中，{ending}",
+            question_text=question,
             writer_version=self.version,
         )
 
@@ -284,6 +250,8 @@ class CtdTaskTextSemanticVerifier:
         "当前证据范围",
         "某疾病",
         "特定人群",
+        "某药物",
+        "某化学物",
         "claim",
         "evidence",
     )
@@ -320,6 +288,20 @@ class CtdTaskTextSemanticVerifier:
             reasons.append("missing_public_disambiguator")
         if any(term.casefold() in text for term in self._FORBIDDEN):
             reasons.append("database_trivia_or_internal_term")
+        if any(
+            placeholder in variant.question_text
+            for placeholder in (
+                "某疾病",
+                "特定人群",
+                "某药物",
+                "某化学物",
+                "化学物 A",
+                "药物 A",
+                "剂量 D",
+                "特征 S",
+            )
+        ):
+            reasons.append("uninstantiated_placeholder")
         hidden_answers = [
             *task.answer_contract.accepted_aliases,
             *task.answer_contract.canonical_answer_ids,
@@ -333,10 +315,21 @@ class CtdTaskTextSemanticVerifier:
             context.relation_intent == "therapeutic_research"
             and any(
                 term in text
-                for term in ("治疗有效", "能够治疗", "可治愈")
+                for term in (
+                    "治疗有效",
+                    "有效治疗",
+                    "能够治疗",
+                    "能够有效治疗",
+                    "可治愈",
+                )
             )
         ):
             reasons.append("claim_semantics_mismatch")
+        if (
+            variant.question_text != _ctd_question_text(task)
+            and "question_semantics_mismatch" not in reasons
+        ):
+            reasons.append("question_semantics_mismatch")
         if reasons:
             return TextSemanticReport(
                 variant_id=variant.variant_id,
@@ -389,3 +382,36 @@ def _ctd_context_text(context) -> str:
         for key, value in sorted(context.additional_qualifiers.items())
     )
     return "、".join(parts)
+
+
+def _ctd_question_text(task: ValidatedTask) -> str:
+    context = task.task.public_study_context
+    if context is None:
+        raise ValueError("CTD task is missing its public study context")
+    chemical = task.task.public_entity_names.get(task.task.seed_entity_id)
+    if not chemical:
+        raise ValueError("CTD task is missing the public chemical name")
+    qualifier_text = _ctd_context_text(context)
+    disease_category = context.disease_category
+    intent = context.relation_intent
+    if intent == "risk_decrease":
+        ending = f"哪种{disease_category}的发生风险被报告降低？"
+    elif intent == "risk_increase":
+        ending = f"哪种{disease_category}的发生风险被报告升高？"
+    elif intent == "association_research":
+        ending = (
+            f"哪种{disease_category}被研究与{chemical}暴露存在关联？"
+        )
+    elif intent == "biomarker_research":
+        ending = (
+            f"哪种{disease_category}被研究作为相关候选生物标志物？"
+        )
+    elif intent == "therapeutic_research":
+        ending = (
+            f"哪种{disease_category}是{chemical}被研究用于改善的疾病？"
+        )
+    else:
+        ending = (
+            f"哪种{disease_category}被报告为{chemical}相关的不良事件？"
+        )
+    return f"在{qualifier_text}中，{ending}"
