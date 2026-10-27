@@ -507,7 +507,113 @@ Writer 必须使用 Task 中的：
 - validation scope；
 - answer cardinality。
 
-示例结构：
+### 12.1 不使用程序固定题面
+
+正式 Writer 不得通过 `if intent == ...: question = "固定字符串"` 的方式生成题面。
+
+程序固定字符串会带来：
+
+- 模板占比过高；
+- 题目机械且重复；
+- 无法自然表达研究条件；
+- 数据集容易学习句式而不是学习信息检索；
+- 新增题型时必须修改 Writer 代码。
+
+固定句面只能存在于测试 fixture 或明确隔离的历史兼容路径，不能作为正式数据集的唯一 Writer。
+
+### 12.2 Prompt 约束负责表达
+
+Writer 接收结构化 Task，并由受版本控制的 Prompt 约束表达：
+
+```text
+role = question_writer
+version = ctd-pubmed-writer-v1
+
+输入：
+  ValidatedTask
+  question intent
+  public qualifiers
+  answer type
+  forbidden disclosures
+  desired language/style
+
+输出：
+  QuestionCandidate
+  question_text
+  reconstructed semantics
+```
+
+Prompt 约束至少包括：
+
+- 不得改变 chemical、disease、gene/pathway 或 answer cardinality；
+- 不得改变 predicate、polarity 或证据强度；
+- 必须公开所有承担消歧作用的 study qualifiers；
+- `therapeutic` 只能表达“被研究用于/治疗研究中被评估”；
+- 不得写成“有效治疗/治愈/预防”；
+- `marker/mechanism` 不得写成因果；
+- 不得提 CTD/PubMed 字段、PMID、claim、evidence 或内部 ID；
+- 不得泄漏答案名称、别名或可逆占位符；
+- 不得使用“当前证据范围内”等未公开范围；
+- 不要求题面永远使用同一种句式。
+
+Prompt 约束不是答案模板。它规定“可以怎么说、不能怎么说”，不规定唯一句子。
+
+### 12.3 多候选与风格
+
+每个 ValidatedTask 可以生成多个候选：
+
+- 研究型表达；
+- 医学学习者表达；
+- 普通检索表达。
+
+只有在不改变任务语义时才允许选择不同风格。
+
+程序和数据集必须记录：
+
+- prompt role/version/hash；
+- model config；
+- style profile；
+- task semantic digest；
+- verifier version。
+
+### 12.4 语义回验不能比较固定字符串
+
+Verifier 不能要求题面等于 Writer 的某条固定模板。
+
+正确流程是：
+
+```text
+question_text
+  -> semantic reconstruction
+  -> QuestionSemanticView
+  -> compare with ValidatedTask
+```
+
+`QuestionSemanticView` 至少包含：
+
+```text
+chemical/entity ids or canonical names
+predicate/intent
+polarity
+public qualifiers
+scope
+answer cardinality
+forbidden leakage checks
+```
+
+以下任一情况拒绝：
+
+- reconstruction 不确定；
+- 实体不一致；
+- predicate 或 polarity 不一致；
+- qualifier 丢失或新增；
+- 研究范围发生漂移；
+- 答案泄漏；
+- 关系强度升级。
+
+### 12.5 示例结构
+
+下面的内容只说明信息结构，不是程序必须拼接出的固定字符串：
 
 ```text
 在[研究中明确公开的人群/样本/模型]中，
