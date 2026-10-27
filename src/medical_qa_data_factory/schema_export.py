@@ -18,6 +18,7 @@ from .generation.evidence_fusion import (
     CtdEvidenceExtraction,
     CtdEvidenceFusion,
 )
+from .generation.ctd_world_evaluation import CtdWorldEvaluation
 from .generation.run_identity import (
     AttemptRecord,
     GenerationPreparationRun,
@@ -31,6 +32,10 @@ from .generation.task_contracts import (
     ValidatedTask,
     ValidationEnvironment,
     ValidationReport,
+)
+from .generation.task_candidates import (
+    CtdCandidateProposal,
+    CtdQualifierCounterfactual,
 )
 from .generation.training import (
     GenerationRunMetadata,
@@ -51,6 +56,11 @@ SCHEMA_MODELS = {
     "pubmed-evidence-span.schema.json": PubMedEvidenceSpan,
     "ctd-evidence-extraction.schema.json": CtdEvidenceExtraction,
     "ctd-evidence-fusion.schema.json": CtdEvidenceFusion,
+    "ctd-world-evaluation.schema.json": CtdWorldEvaluation,
+    "ctd-candidate-proposal.schema.json": CtdCandidateProposal,
+    "ctd-qualifier-counterfactual.schema.json": (
+        CtdQualifierCounterfactual
+    ),
     "question-spec.schema.json": QuestionSpec,
     "generation-preparation-run.schema.json": GenerationPreparationRun,
     "generation-run-manifest.schema.json": GenerationRunManifest,

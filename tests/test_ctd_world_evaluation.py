@@ -327,3 +327,85 @@ def test_snapshot_mismatch_fails_closed(tmp_path: Path) -> None:
     assert result.result_complete is False
     assert result.reason_codes == ["ctd_snapshot_mismatch"]
     assert result.competitor_outcomes == []
+
+
+def test_assessor_provider_failure_remains_unknown(tmp_path: Path) -> None:
+    index = _index(
+        tmp_path,
+        [("Cancer A", "MESH:A"), ("Cancer B", "MESH:B")],
+    )
+    assessor = _ContextAssessor(
+        lambda _record, _context, answer_id: (
+            "matched" if answer_id.endswith(":MESH:A") else "provider_failed"
+        )
+    )
+
+    result = _evaluator(index, assessor).evaluate(
+        chemical_id="D001241",
+        snapshot_id=index.metadata()["snapshot_id"],
+        context=_context(),
+    )
+
+    assert result.result_complete is False
+    assert any(
+        item.status == "provider_failed"
+        for item in result.competitor_outcomes
+    )
+
+
+def test_assessor_exception_is_a_provider_failure(tmp_path: Path) -> None:
+    index = _index(tmp_path, [("Cancer A", "MESH:A")])
+
+    class _Raises:
+        def assess(self, **_kwargs):
+            raise RuntimeError("provider exploded")
+
+    result = _evaluator(index, _Raises()).evaluate(
+        chemical_id="D001241",
+        snapshot_id=index.metadata()["snapshot_id"],
+        context=_context(),
+    )
+
+    assert result.result_complete is False
+    assert result.competitor_outcomes[0].status == "provider_failed"
+    assert (
+        "ctd_candidate_assessment_failed"
+        in result.competitor_outcomes[0].reason_codes
+    )
+
+
+def test_conflicting_alias_assessments_are_ambiguous(tmp_path: Path) -> None:
+    index = _index(
+        tmp_path,
+        [("Cancer A", "MESH:A"), ("Cancer B", "MESH:B")],
+    )
+    evaluator = _evaluator(
+        index,
+        _ContextAssessor(
+            lambda record, _context, _answer_id: (
+                "matched"
+                if record.disease_id == "MESH:A"
+                else "not_matched"
+            )
+        ),
+        identity_map={
+            "MESH:A": "primekg:disease:SAME",
+            "MESH:B": "primekg:disease:SAME",
+        },
+        category_map={
+            "primekg:disease:SAME": ["digestive cancer"],
+        },
+    )
+
+    result = evaluator.evaluate(
+        chemical_id="D001241",
+        snapshot_id=index.metadata()["snapshot_id"],
+        context=_context(),
+    )
+
+    assert result.result_complete is False
+    assert result.competitor_outcomes[0].status == "ambiguous"
+    assert (
+        "ctd_alias_outcomes_conflict"
+        in result.competitor_outcomes[0].reason_codes
+    )

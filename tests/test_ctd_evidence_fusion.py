@@ -3,6 +3,9 @@ from __future__ import annotations
 import hashlib
 
 from medical_qa_data_factory.domain.common import utc_now
+from medical_qa_data_factory.evidence_enrichment.contracts import (
+    EvidenceStore,
+)
 from medical_qa_data_factory.evidence_enrichment.models import (
     CtdEvidenceRecord,
     EvidencePolarity,
@@ -11,6 +14,17 @@ from medical_qa_data_factory.evidence_enrichment.models import (
 from medical_qa_data_factory.evidence_enrichment.pubmed_evidence import (
     PubMedSpanCitation,
 )
+from medical_qa_data_factory.generation.ctd_world_evaluation import (
+    FusionCtdCandidateAssessor,
+)
+from medical_qa_data_factory.generation.logical_query import (
+    LogicalDirection,
+    QueryStep,
+)
+from medical_qa_data_factory.generation.requirement_matching import (
+    match_requirement,
+)
+from medical_qa_data_factory.generation.task_compiler import TaskCompiler
 from medical_qa_data_factory.generation.evidence_fusion import (
     CtdEvidenceExtraction,
     CtdEvidenceFusionStatus,
@@ -19,6 +33,12 @@ from medical_qa_data_factory.generation.evidence_fusion import (
     StudyContextIntent,
     StudyContextQualifiers,
     fuse_ctd_pubmed_evidence,
+)
+from medical_qa_data_factory.generation.task_contracts import (
+    ProviderSnapshotRef,
+    StudyContext,
+    TaskCandidate,
+    ValidationEnvironment,
 )
 
 
@@ -144,9 +164,13 @@ def test_supported_finding_preserves_qualifiers_and_span_evidence() -> None:
     assert result.claim.qualifiers == {
         "disease_category": None,
         "dose_exposure": "low-dose aspirin",
+        "exposure_context": None,
+        "exposure_duration": None,
         "population": "adults",
         "study_type": "observational cohort",
         "temporal_scope": "at least two years",
+        "sample_type": None,
+        "additional_qualifiers": {},
     }
     assert result.ctd_direct_evidence == ["marker/mechanism"]
     assert result.supporting_evidence_ids == result.claim.supporting_evidence_ids
@@ -305,3 +329,126 @@ def test_fixed_inputs_replay_to_the_same_fusion_and_claim_identity() -> None:
     assert second.claim is not None
     assert first.claim.claim_id == second.claim.claim_id
     assert first.supporting_evidence_ids == second.supporting_evidence_ids
+
+
+def test_fusion_outcome_can_be_consumed_by_complete_world_evaluation() -> None:
+    record = _ctd()
+    fusion = _fuse(
+        findings=(
+            _finding(
+                qualifiers=StudyContextQualifiers(
+                    population="adults",
+                    study_type="observational cohort",
+                    dose_exposure="low-dose aspirin",
+                    temporal_scope="at least two years",
+                    disease_category="prostate cancer",
+                )
+            ),
+        )
+    )
+    assessor = FusionCtdCandidateAssessor(
+        fusions={
+            record.source_record_locator or record.content_hash: fusion
+        }
+    )
+
+    outcome = assessor.assess(
+        record=record,
+        context=StudyContext(
+            population="adults",
+            dose_or_regimen="low-dose aspirin",
+            study_type="observational cohort",
+            exposure_duration="at least two years",
+            disease_category="prostate cancer",
+            relation_intent="risk_decrease",
+            polarity="decrease",
+        ),
+        answer_id="primekg:disease:8315",
+    )
+
+    assert outcome.status == "matched"
+    assert outcome.claim_ids == [fusion.claim.claim_id]
+    assert len(outcome.evidence_ids) == len(
+        fusion.supporting_evidence_ids
+    ) + 1
+    assert set(fusion.supporting_evidence_ids).issubset(
+        set(outcome.evidence_ids)
+    )
+
+
+def test_compiled_study_requirement_matches_the_fused_claim() -> None:
+    fusion = _fuse(
+        findings=(
+            _finding(
+                qualifiers=StudyContextQualifiers(
+                    population="adults",
+                    study_type="observational cohort",
+                    dose_exposure="low-dose aspirin",
+                    temporal_scope="at least two years",
+                    disease_category="prostate cancer",
+                )
+            ),
+        )
+    )
+    context = StudyContext(
+        population="adults",
+        dose_or_regimen="low-dose aspirin",
+        study_type="observational cohort",
+        exposure_duration="at least two years",
+        disease_category="prostate cancer",
+        relation_intent="risk_decrease",
+        polarity="decrease",
+    )
+    candidate = TaskCandidate(
+        candidate_id="candidate-context-integration",
+        seed_entity_id="primekg:exposure:D001241",
+        question_type="study_context_qualified_disease",
+        steps=[
+            QueryStep(
+                position=0,
+                relation="chemical_exposure_disease",
+                direction=LogicalDirection.FORWARD,
+                target_entity_type="disease",
+            )
+        ],
+        proposed_answer_ids=["primekg:disease:8315"],
+        private_answer_names=["prostate cancer"],
+        answer_entity_type="disease",
+        snapshot_id="ctd:2026-10",
+        evidence_ids=["ctd:row:1"],
+        candidate_claim_ids=[fusion.claim.claim_id],
+        public_study_context=context,
+        public_entity_names={
+            "primekg:exposure:D001241": "Aspirin",
+        },
+        discovery_source="test",
+        generator_version="ctd-study-context-source-v1",
+    )
+    environment = ValidationEnvironment(
+        environment_id="ctd-environment",
+        providers=[
+            ProviderSnapshotRef(
+                provider_id="ctd",
+                snapshot_id="ctd:2026-10",
+                completeness="full_chemical_disease_enumeration",
+            ),
+            ProviderSnapshotRef(
+                provider_id="pubmed",
+                snapshot_id="pubmed:test",
+                completeness="fixed_read_back_corpus",
+            ),
+        ],
+        completeness_scope="all matching CTD diseases",
+    )
+    task = TaskCompiler().compile(candidate, environment)
+
+    match = match_requirement(
+        task.information_requirements[0],
+        EvidenceStore(
+            records=fusion.evidence_records,
+            claims=[fusion.claim],
+        ),
+    )
+
+    assert match.satisfied is True
+    assert match.matched_claim_ids == [fusion.claim.claim_id]

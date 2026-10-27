@@ -18,9 +18,11 @@ from medical_qa_data_factory.generation.task_candidates import (
 from medical_qa_data_factory.generation.task_compiler import TaskCompiler
 from medical_qa_data_factory.generation.task_contracts import (
     AnswerCandidateOutcome,
+    EvaluationTarget,
     ProviderSnapshotRef,
     StudyContext,
     ValidationEnvironment,
+    promote_validated_task,
 )
 from medical_qa_data_factory.generation.task_validation import (
     CtdTaskValidator,
@@ -215,6 +217,26 @@ def test_unknown_competitor_is_rejected(tmp_path: Path) -> None:
     assert "unknown_competitor" in result.reason_codes
 
 
+def test_candidate_source_preserves_snapshot_rejection(tmp_path: Path) -> None:
+    index = _index(tmp_path)
+    evaluator = _evaluator(
+        index,
+        _ContextAssessor(
+            lambda _record, _context, _answer_id: "matched"
+        ),
+    )
+
+    result = CtdStudyContextCandidateSource(evaluator).propose(
+        seed_entity_id=SEED_ID,
+        chemical_id="D001241",
+        snapshot_id="ctd:wrong",
+        context=_context(),
+    )
+
+    assert result.candidate is None
+    assert result.reason_codes == ["ctd_snapshot_mismatch"]
+
+
 def test_a_decorative_qualifier_is_rejected_as_a_shortcut(
     tmp_path: Path,
 ) -> None:
@@ -261,10 +283,14 @@ def test_candidate_compiles_and_validates_against_its_competitor_report(
     assert report.result_complete is True
     assert report.passed is True
     assert report.world_answer_ids == ["primekg:disease:MESH:A"]
-    assert report.matched_claim_ids == ["claim-MESH:A"]
+    assert report.matched_claim_ids == ["claim-A"]
     assert report.evidence_dependency_digest == (
         task.evidence_dependency_digest()
     )
+    validated = promote_validated_task(task, report)
+    target = EvaluationTarget.from_validated_task("question-ctd-1", validated)
+    assert target.gold_claim_ids == ["claim-A"]
+    assert target.validation_report_ref == report.report_id
 
 
 def test_validator_rejects_a_candidate_answer_that_differs_from_the_world(
@@ -328,3 +354,80 @@ def test_validator_rejects_a_shortcut_even_if_a_candidate_was_compiled(
 
     assert report.passed is False
     assert "shortcut_detected" in report.reason_codes
+
+
+def test_validator_requires_the_ctd_snapshot_and_pubmed_scope(
+    tmp_path: Path,
+) -> None:
+    index = _index(tmp_path)
+    assessor = _ContextAssessor(
+        lambda _record, context, answer_id: (
+            "matched"
+            if context.population == "adults"
+            and answer_id.endswith(":MESH:A")
+            else "matched"
+            if context.population != "adults"
+            else "not_matched"
+        )
+    )
+    evaluator = _evaluator(index, assessor)
+    proposal = CtdStudyContextCandidateSource(evaluator).propose(
+        seed_entity_id=SEED_ID,
+        chemical_id="D001241",
+        snapshot_id=index.metadata()["snapshot_id"],
+        context=_context(),
+    )
+    assert proposal.candidate is not None
+    task = TaskCompiler().compile(
+        proposal.candidate,
+        _environment(index),
+    )
+    payload = task.model_dump(mode="python")
+    payload["query"]["snapshot_id"] = "ctd:wrong"
+    payload["validation_environment"]["providers"][0]["snapshot_id"] = (
+        "ctd:wrong"
+    )
+    wrong_snapshot = type(task).model_validate(payload)
+
+    report = CtdTaskValidator(evaluator).validate(wrong_snapshot)
+
+    assert report.passed is False
+    assert "ctd_snapshot_mismatch" in report.reason_codes
+
+
+def test_validator_rejects_a_missing_pubmed_scope(tmp_path: Path) -> None:
+    index = _index(tmp_path)
+    assessor = _ContextAssessor(
+        lambda _record, context, answer_id: (
+            "matched"
+            if context.population == "adults"
+            and answer_id.endswith(":MESH:A")
+            else "matched"
+            if context.population != "adults"
+            else "not_matched"
+        )
+    )
+    evaluator = _evaluator(index, assessor)
+    proposal = CtdStudyContextCandidateSource(evaluator).propose(
+        seed_entity_id=SEED_ID,
+        chemical_id="D001241",
+        snapshot_id=index.metadata()["snapshot_id"],
+        context=_context(),
+    )
+    assert proposal.candidate is not None
+    task = TaskCompiler().compile(
+        proposal.candidate,
+        _environment(index),
+    )
+    payload = task.model_dump(mode="python")
+    payload["validation_environment"]["providers"] = [
+        provider
+        for provider in payload["validation_environment"]["providers"]
+        if provider["provider_id"] != "pubmed"
+    ]
+    missing_pubmed = type(task).model_validate(payload)
+
+    report = CtdTaskValidator(evaluator).validate(missing_pubmed)
+
+    assert report.passed is False
+    assert "scope_not_closed" in report.reason_codes

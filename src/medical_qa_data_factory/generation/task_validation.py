@@ -5,9 +5,14 @@ import hashlib
 import json
 from collections.abc import Sequence
 
+from .ctd_world_evaluation import (
+    KNOWN_OUTCOME_STATUSES,
+    CtdWorldEvaluator,
+)
 from .logical_query import QueryEvaluator
 from .task_contracts import (
     AnswerCandidateOutcome,
+    StudyContext,
     TaskSpec,
     ValidationReport,
 )
@@ -188,4 +193,187 @@ class TaskValidator:
             validator_version=self.version,
             validated_at=answer.evaluated_at,
         )
+
+
+class CtdTaskValidator:
+    """Validate a CTD task against every disease competitor in its snapshot."""
+
+    version = "ctd-task-validator-v1"
+    _RELAXABLE_FIELDS = (
+        "population",
+        "exposure_context",
+        "dose_or_regimen",
+        "exposure_duration",
+        "study_type",
+        "sample_type",
+        "temporal_scope",
+        "disease_category",
+    )
+
+    def __init__(self, evaluator: CtdWorldEvaluator) -> None:
+        self.evaluator = evaluator
+
+    def validate(
+        self,
+        task: TaskSpec,
+        *,
+        slice_answer_ids: Sequence[str] = (),
+    ) -> ValidationReport:
+        if task.question_type != "study_context_qualified_disease":
+            raise ValueError("CTD validator only accepts study-context tasks")
+        context = task.public_study_context
+        if context is None:
+            raise ValueError("CTD task is missing its public study context")
+        chemical_id = task.seed_entity_id.rsplit(":", 1)[-1]
+        evaluation = self.evaluator.evaluate(
+            chemical_id=chemical_id,
+            snapshot_id=task.query.snapshot_id,
+            context=context,
+        )
+        reasons = set(evaluation.reason_codes)
+        result_complete = evaluation.result_complete
+        ctd_snapshots = {
+            item.snapshot_id
+            for item in task.validation_environment.providers
+            if item.provider_id == "ctd"
+        }
+        if task.query.snapshot_id not in ctd_snapshots:
+            reasons.add("ctd_snapshot_mismatch")
+            result_complete = False
+        if not any(
+            item.provider_id == "pubmed"
+            for item in task.validation_environment.providers
+        ):
+            reasons.add("scope_not_closed")
+            result_complete = False
+        if any(
+            item.status not in KNOWN_OUTCOME_STATUSES
+            for item in evaluation.competitor_outcomes
+        ):
+            reasons.add("unknown_competitor")
+            result_complete = False
+
+        world_answers = sorted(set(evaluation.world_answer_ids))
+        proposed = sorted(
+            set(task.proposed_answer_contract.canonical_answer_ids)
+        )
+        if len(world_answers) != 1:
+            reasons.add(
+                "world_answer_missing"
+                if not world_answers
+                else "world_cardinality_mismatch"
+            )
+        if result_complete and proposed != world_answers:
+            reasons.add("candidate_answer_mismatch")
+
+        matched = [
+            item
+            for item in evaluation.competitor_outcomes
+            if item.status == "matched"
+        ]
+        matched_claim_ids = sorted(
+            {claim_id for item in matched for claim_id in item.claim_ids}
+        )
+        supporting_evidence_ids = sorted(
+            {
+                evidence_id
+                for item in matched
+                for evidence_id in item.evidence_ids
+            }
+        )
+        if world_answers and (
+            not matched_claim_ids or not supporting_evidence_ids
+        ):
+            reasons.add("claim_not_supported")
+            result_complete = False
+        if not set(matched_claim_ids).issubset(
+            task.candidate_claim_ids
+        ) or not set(supporting_evidence_ids).issubset(
+            task.candidate_evidence_ids
+        ):
+            reasons.add("evidence_dependency_mismatch")
+
+        relaxed_rows = 0
+        any_discriminating_qualifier = False
+        baseline_answers = set(world_answers)
+        for qualifier, relaxed in self._relaxed_contexts(context):
+            relaxed_evaluation = self.evaluator.evaluate(
+                chemical_id=chemical_id,
+                snapshot_id=task.query.snapshot_id,
+                context=relaxed,
+            )
+            relaxed_rows += relaxed_evaluation.rows_examined
+            if not relaxed_evaluation.result_complete:
+                reasons.add("incomplete_search")
+                result_complete = False
+                continue
+            if (
+                set(relaxed_evaluation.world_answer_ids)
+                != baseline_answers
+                and qualifier != "disease_category"
+            ):
+                any_discriminating_qualifier = True
+        if not any_discriminating_qualifier:
+            reasons.add("shortcut_detected")
+
+        reason_codes = sorted(reasons)
+        report_id = validation_report_id_for(
+            task,
+            validator_version=self.version,
+            world_answer_ids=world_answers,
+            result_complete=result_complete,
+            reason_codes=reason_codes,
+            rows_examined=evaluation.rows_examined + relaxed_rows,
+            matched_claim_ids=matched_claim_ids,
+            supporting_evidence_ids=supporting_evidence_ids,
+            competitor_outcomes=evaluation.competitor_outcomes,
+            evidence_dependency_digest=task.evidence_dependency_digest(),
+        )
+        return ValidationReport(
+            report_id=report_id,
+            task_id=task.task_id,
+            query_id=task.query.query_id,
+            query_digest=task.query.dependency_digest,
+            environment_id=task.validation_environment.environment_id,
+            passed=not reason_codes,
+            reason_codes=reason_codes,
+            slice_answer_ids=sorted(set(slice_answer_ids)),
+            world_answer_ids=world_answers,
+            result_complete=result_complete,
+            rows_examined=evaluation.rows_examined + relaxed_rows,
+            matched_claim_ids=matched_claim_ids,
+            supporting_evidence_ids=supporting_evidence_ids,
+            competitor_outcomes=list(evaluation.competitor_outcomes),
+            evidence_dependency_digest=task.evidence_dependency_digest(),
+            validator_version=self.version,
+            validated_at=evaluation.evaluated_at,
+        )
+
+    def _relaxed_contexts(
+        self,
+        context: StudyContext,
+    ):
+        for field in self._RELAXABLE_FIELDS:
+            value = getattr(context, field)
+            if value in {None, ""}:
+                continue
+            yield (
+                field,
+                context.model_copy(
+                    update={
+                        field: "" if field == "disease_category" else None
+                    }
+                ),
+            )
+        for key, value in sorted(context.additional_qualifiers.items()):
+            if not value:
+                continue
+            remaining = dict(context.additional_qualifiers)
+            remaining.pop(key, None)
+            yield (
+                f"additional_qualifiers.{key}",
+                context.model_copy(
+                    update={"additional_qualifiers": remaining}
+                ),
+            )
 

@@ -415,11 +415,23 @@ class StudyContextQualifiers(ContractModel):
     population: str | None = None
     study_type: str | None = None
     dose_exposure: str | None = None
+    exposure_context: str | None = None
+    exposure_duration: str | None = None
     temporal_scope: str | None = None
+    sample_type: str | None = None
     disease_category: str | None = None
+    additional_qualifiers: dict[str, str] = Field(default_factory=dict)
 
     def as_claim_qualifiers(self) -> dict[str, str | None]:
-        return self.model_dump(mode="json")
+        payload = self.model_dump(mode="json")
+        if (
+            payload["temporal_scope"] is None
+            and payload["exposure_duration"] is not None
+        ):
+            payload["temporal_scope"] = payload["exposure_duration"]
+        for key, value in self.additional_qualifiers.items():
+            payload.setdefault(key, value)
+        return payload
 
 
 class PubMedFinding(ContractModel):
