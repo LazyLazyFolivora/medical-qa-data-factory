@@ -5,6 +5,11 @@ import json
 from pathlib import Path
 
 from .domain import EvidenceBundle, GenerationTask, QuestionSpec
+from .evidence_enrichment.contracts import (
+    EvidenceRecord,
+    EvidenceStore,
+    NormalizedClaim,
+)
 from .generation.run_identity import (
     AttemptRecord,
     GenerationPreparationRun,
@@ -31,6 +36,9 @@ from .generation.training import (
 SCHEMA_MODELS = {
     "generation-task.schema.json": GenerationTask,
     "evidence-bundle.schema.json": EvidenceBundle,
+    "source-neutral-evidence-record.schema.json": EvidenceRecord,
+    "source-neutral-evidence-store.schema.json": EvidenceStore,
+    "normalized-claim.schema.json": NormalizedClaim,
     "question-spec.schema.json": QuestionSpec,
     "generation-preparation-run.schema.json": GenerationPreparationRun,
     "generation-run-manifest.schema.json": GenerationRunManifest,

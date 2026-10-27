@@ -191,6 +191,19 @@ def test_enrichment_extracts_supported_claim_and_literature(
     assert result.claim.answer_entity_id == CANCER.canonical_id
     assert result.literature_evidence[0].pmid == "12345678"
     assert "lower prostate cancer risk" in result.literature_evidence[0].evidence_text
+    assert result.normalized_claim is not None
+    assert result.normalized_claim.predicate_family == "disease_risk"
+    assert result.normalized_claim.polarity == "decrease"
+    assert {
+        item.provider_id for item in result.evidence_records
+    } == {"ctd", "pubmed"}
+    assert result.normalized_claim.supporting_evidence_ids == [
+        next(
+            item.evidence_id
+            for item in result.evidence_records
+            if item.provider_id == "pubmed"
+        )
+    ]
 
 
 def _curated(edge: KGEvidence) -> CuratedEvidence:

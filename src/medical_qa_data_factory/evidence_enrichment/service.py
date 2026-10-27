@@ -11,6 +11,15 @@ from ..domain import KGEvidence, LiteratureEvidence
 from ..domain.common import ContractModel
 from ..llm.contracts import StructuredGenerationRequest
 from .ctd import CtdEvidenceIndex
+from .contracts import (
+    EvidenceRecord,
+    EvidenceStore,
+    NormalizedClaim,
+    evidence_from_ctd,
+    evidence_from_kg,
+    evidence_from_pubmed,
+    migrate_legacy_claim,
+)
 from .models import (
     CtdEvidenceRecord,
     EnrichmentStatus,
@@ -51,7 +60,18 @@ class EvidenceEnrichmentResult(ContractModel):
     ctd_records: list[CtdEvidenceRecord] = Field(default_factory=list)
     pubmed_records: list[PubMedEvidenceRecord] = Field(default_factory=list)
     literature_evidence: list[LiteratureEvidence] = Field(default_factory=list)
+    evidence_records: list[EvidenceRecord] = Field(default_factory=list)
+    normalized_claim: NormalizedClaim | None = None
     reason_codes: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def source_neutral_references_are_closed(self) -> "EvidenceEnrichmentResult":
+        if self.normalized_claim is not None:
+            EvidenceStore(
+                records=self.evidence_records,
+                claims=[self.normalized_claim],
+            )
+        return self
 
 
 def _stable_claim_id(*parts: str) -> str:
@@ -281,6 +301,59 @@ class EvidenceEnrichmentService:
             ],
             reason_codes=list(assessment.reason_codes),
         )
+        source_neutral_records = [
+            evidence_from_ctd(
+                item,
+                subject_entity_id=seed_entity_id,
+                object_entity_id=answer_entity_id,
+                retrieved_at=edge.retrieved_at,
+            )
+            for item in ctd_records
+        ]
+        pubmed_evidence_by_pmid = {
+            item.pmid: evidence_from_pubmed(item) for item in readable_pubmed
+        }
+        source_neutral_records.extend(pubmed_evidence_by_pmid.values())
+        kg_snapshot_id = str(
+            edge.retrieval_action.get("snapshot_id")
+            or edge.metadata.get("provider_snapshot_id")
+            or ""
+        )
+        kg_record = (
+            evidence_from_kg(edge, provider_snapshot_id=kg_snapshot_id)
+            if kg_snapshot_id
+            else None
+        )
+        if kg_record is not None:
+            source_neutral_records.append(kg_record)
+        source_neutral_records = list(
+            {
+                item.evidence_id: item for item in source_neutral_records
+            }.values()
+        )
+        normalized_claim = migrate_legacy_claim(
+            claim,
+            qualifiers={
+                key: value
+                for key, value in {
+                    "study_type": assessment.study_type,
+                    "population": assessment.population,
+                }.items()
+                if value is not None
+            },
+            supporting_evidence_ids=[
+                pubmed_evidence_by_pmid[pmid].evidence_id
+                for pmid in assessment.supported_pmid_ids
+            ],
+            context_evidence_ids=[
+                *[
+                    item.evidence_id
+                    for item in source_neutral_records
+                    if item.provider_id == "ctd"
+                ],
+                *([kg_record.evidence_id] if kg_record is not None else []),
+            ],
+        )
         return EvidenceEnrichmentResult(
             edge_id=edge.evidence_id,
             status=EnrichmentStatus.SUPPORTED,
@@ -288,4 +361,6 @@ class EvidenceEnrichmentService:
             ctd_records=ctd_records,
             pubmed_records=readable_pubmed,
             literature_evidence=list(literature_by_pmid.values()),
+            evidence_records=source_neutral_records,
+            normalized_claim=normalized_claim,
         )
