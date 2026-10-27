@@ -1,39 +1,72 @@
-# PubMed 证据验证设计
+# PrimeKG、CTD 与 PubMed 联合证据验证设计
 
 > 状态：实施设计  
 > 日期：2026-10-27  
-> 适用对象：CTD direct evidence 候选、PubMed 文献验证和后续题目生成
+> 适用对象：PrimeKG 实体候选、CTD direct evidence、PubMed 文献验证和题目生成
 
 ## 1. 目标
 
-当前 `ctd-direct` 题只证明：
+目标架构是：
 
 ```text
-固定 CTD snapshot 中，某个 chemical 的 DirectEvidence
-只对应一个目标疾病。
+PrimeKG-first
+CTD-validated
+PubMed-supported
 ```
 
-它没有证明：
+PrimeKG 始终是实体身份、答案集合和图关系验证的权威来源。CTD 和 PubMed
+不能替换 PrimeKG entity，只负责验证 PrimeKG 候选关系是否有可靠的生物医学证据。
 
+当前简化路径的问题在于：
+
+```text
+PrimeKG source=CTD 边只被当作来源标签
+或
+CTD direct record 直接成为答案世界
+```
+
+这两种做法都绕过了统一流程。它们没有证明：
+
+- 最终答案实体是否存在于固定 PrimeKG snapshot；
+- PrimeKG 实体是否正确映射到 CTD；
 - CTD 引用的论文是否可读；
 - 论文是否真的支持该关系；
 - 论文中的研究条件是什么；
 - CTD 标签是否被夸大；
+- PrimeKG 完整候选世界中答案是否唯一；
 - 能否生成自然的生物医学问题。
 
-本设计增加 PubMed 证据验证层，把 CTD 记录从“候选”变成“有可复核文献证据的 claim”。
+本设计把 PrimeKG 图验证、CTD 结构化证据和 PubMed 原文验证串成一条链路。
 
 最终目标是：
 
 ```text
-CTD direct record
-  -> PubMed 固定文献
-  -> 原文支持 span
-  -> 规范 claim
-  -> 完整竞争集
+PrimeKG edge / candidate
+  -> PrimeKG canonical entities
+  -> identity crosswalk
+  -> matching CTD records
+  -> CTD DirectEvidence / inference status
+  -> frozen PubMed corpus
+  -> verified PubMed support spans
+  -> PrimeKG-bound normalized claim
+  -> complete PrimeKG candidate universe
   -> ValidatedTask
-  -> 自然问题
+  -> prompt-constrained Writer
+  -> semantic verifier
+  -> public / hidden release
 ```
+
+### 1.1 当前实现与目标实现的区别
+
+当前代码中有两条中间状态路径，均不能作为最终正式题目口径。
+
+| 当前路径 | 当前行为 | 问题 | 允许用途 |
+|---|---|---|---|
+| `generate validated --profile primekg-ctd` | 用 PrimeKG `source=CTD` 边发现候选，在 PrimeKG 中验证 | 没有读取 CTD DirectEvidence/PMID/PubMed | 图结构探索 |
+| `generate ctd-direct` | 枚举 CTD direct evidence，并用 CTD disease ID 作为答案 | 没有 PrimeKG canonical entity，也没有 PubMed 原文验证 | CTD 审计/候选发现 |
+| 本设计目标路径 | PrimeKG entities + CTD evidence + PubMed span + PrimeKG final world | 尚未实现 | 正式数据生成 |
+
+不允许把前两条路径的 public release 直接当作本设计完成后的正式 gold。
 
 ## 2. 设计边界
 
@@ -47,7 +80,10 @@ CTD direct record
 - 验证 support、contradiction、context-only、uncertain；
 - 保留研究条件；
 - 判断关系强度是否被夸大；
-- 把已验证证据送入 CTD 竞争集验证；
+- 把已验证证据重新绑定到 PrimeKG canonical entities；
+- 在固定 PrimeKG snapshot 中验证实体存在、关系/路径和候选全集；
+- 将 CTD/PubMed evidence references 绑定到 PrimeKG Task；
+- 只有实体、图关系、证据和语义全部通过时才发布；
 - 发布 public/hidden 分离的数据。
 
 ### 2.2 本项目不负责
@@ -63,12 +99,14 @@ CTD direct record
 
 1. **CTD 是候选来源，不是最终证据。**
 2. **PubMed PMID 是定位线索，不是支持证明。**
-3. **模型只能提出 verdict、claim 和 quote。**
-4. **代码决定 PMID、span、hash 和引用是否真实。**
-5. **所有 CTD 引用 PMID 都必须被评估，不能只挑支持文献。**
-6. **未知、不可读和 provider failure 都不能当作负例或“无证据”。**
-7. **题目只能从最终 ValidatedTask 生成。**
-8. **题面不得依赖未公开的 CTD 子集边界制造唯一性。**
+3. **PrimeKG canonical entity 是答案身份的唯一来源。**
+4. **CTD DiseaseID、MeSH ID 和 PubMed 中的名称不能直接替代 PrimeKG ID。**
+5. **模型只能提出 verdict、claim 和 quote。**
+6. **代码决定 PMID、span、hash、映射和引用是否真实。**
+7. **所有 CTD 引用 PMID 都必须被评估，不能只挑支持文献。**
+8. **未知、不可读、映射歧义和 provider failure 都不能当作负例。**
+9. **题目只能从最终 ValidatedTask 生成。**
+10. **题面不得依赖未公开的 source filter、CTD 子集或证据边界制造唯一性。**
 
 ## 4. 文献来源策略
 
@@ -120,12 +158,86 @@ PubMed abstract
 
 BioDSA 的 `fetch_paper_content_by_pmid` 可以作为全文获取 adapter，但其结果必须先转换成本项目的固定文献记录，不能直接作为 gold evidence。
 
-## 5. 数据流
+## 5. PrimeKG 候选绑定与数据流
+
+### 5.1 PrimeKG 实体身份
+
+候选首先来自 PrimeKG edge 或 PrimeKG graph query。边两端使用 PrimeKG
+canonical entity ID：
 
 ```text
-CTD EvidenceRecord
+primekg:exposure:C005445
+primekg:disease:2909
+```
+
+最终答案必须保留 PrimeKG entity ID。CTD DiseaseID/MeSH ID 只能作为
+evidence binding 和审计字段。
+
+例如：
+
+```text
+PrimeKG:
+  triphenyl phosphate --exposure_disease--> hyperglycemia
+  source = CTD
+
+CTD:
+  C005445 + MESH:D006943
+  DirectEvidence = marker/mechanism
+  PMID = 32679393
+```
+
+正确绑定是：
+
+```text
+PrimeKG chemical C005445
+  -> CTD C005445
+
+PrimeKG disease 2909
+  -> crosswalk
+  -> CTD MESH:D006943
+```
+
+错误做法是把最终答案改成 `ctd:disease:MESH:D006943`。CTD ID 只出现在 hidden
+evidence catalog 和 dependency digest 中。
+
+### 5.2 Entity mapping 状态
+
+疾病映射至少包含：
+
+```text
+resolved
+ambiguous
+unmapped
+provider_failed
+```
+
+规则：
+
+- `resolved` 且唯一：可以继续；
+- `ambiguous`：不能自动选择，阻止发布；
+- `unmapped`：不能构造正式 claim，阻止发布；
+- `provider_failed`：搜索未完成，阻止发布；
+- 同名异实体不得合并；
+- 多 CTD record 映射到同一 PrimeKG entity 时，必须保留 alias/record lineage；
+- `MONDO_grouped` 不能无条件视为其所有子疾病。
+
+### 5.3 数据流
+
+```text
+PrimeKG edge / graph candidate
   |
-  +--> PubMedIDs
+  +--> PrimeKG canonical entities
+          |
+          +--> identity crosswalk
+          |      +--> matching CTD chemical
+          |      +--> matching CTD disease
+          |      +--> mapping status
+          |
+          +--> CTD record resolution
+          |      +--> DirectEvidence
+          |      +--> inference-only status
+          |      +--> PubMedIDs
+          |
           |
           +--> PubMed fetch
           |      +--> abstract/full text
@@ -144,12 +256,16 @@ CTD EvidenceRecord
           |      +--> content/quote hashes
           |      +--> semantic upgrade checks
           |
-          +--> CTD evidence fusion
-                 +--> direct evidence layer
+          +--> PrimeKG-bound evidence fusion
+                 +--> CTD direct evidence layer
                  +--> PubMed evidence layers
                  +--> support/contrast/context
+                 +--> PrimeKG canonical answer ID
                  |
-                 +--> CTD complete competitor set
+                 +--> complete PrimeKG candidate universe
+                        +--> relation/path validation
+                        +--> qualifier/evidence validation
+                        +--> cardinality validation
                         |
                         +--> ValidatedTask or rejection
 ```
@@ -455,35 +571,164 @@ CTD record locator/hash
 - inference-only 不能升级为 direct claim；
 - CTD direct 标签负责发现和 provenance，不代替 PubMed 文本；
 - PubMed 文本负责证明论文实际说了什么；
-- 模型不能改变 CTD ChemicalID 或 DiseaseID；
+- 模型不能改变 PrimeKG canonical chemical/disease IDs；
+- CTD ChemicalID/DiseaseID 只作为证据绑定和 hidden lineage；
+- 任何 CTD/PubMed 结果都必须重新绑定到 PrimeKG Task；
 - 最终 claim 的 predicate 由受控语义映射产生；
 - CTD 和 PubMed 的位置、hash、snapshot 都必须进入依赖 digest。
 
-## 11. 竞争集验证
+## 11. PrimeKG 实体、路径与联合竞争集验证
 
-PubMed 只证明“某个候选是否有文献支持”，不能证明答案唯一。
+### 11.1 PrimeKG 验证什么
 
-最终仍要执行：
+PrimeKG 负责：
+
+- 固定 snapshot 中的 canonical entity 是否存在；
+- 题目定义的 relation 和 direction 是否成立；
+- 两个实体之间是否存在符合题面语义的路径；
+- 哪些实体是题目约束下的潜在答案；
+- 完整 PrimeKG 候选集是否严格单答案。
+
+PrimeKG 不负责判断：
+
+- CTD 中是否具有 DirectEvidence；
+- PubMed 论文是否支持；
+- population、dose、time 等研究条件；
+- 医学关系是否被语义夸大。
+
+“完整”仅相对于声明的 PrimeKG snapshot、relation、direction、source filter
+和 query scope，不表示现实世界绝对完整。
+
+### 11.2 双实体问题示例
+
+假设题面涉及：
 
 ```text
-CTD fixed snapshot
-  -> enumerate all applicable disease competitors
-  -> apply the same public relation and qualifiers
-  -> matched / not_matched / ambiguous / unreadable / provider_failed / not_evaluated
+起点实体：chemical X
+答案实体：disease D
+额外约束实体：protein P
 ```
 
-发布门槛：
+候选路径是：
 
 ```text
-result_complete == true
-world_answer_ids == exactly one
-所有 competitor 都有确定 outcome
-所有 matched claim/evidence 均可回放
+X --exposure_disease--> D
+D --disease_protein--> P
 ```
 
-任何 `not_evaluated` 或 `provider_failed` 都阻止发布。
+最终验证不能只确认：
 
-如果题面没有公开足够条件，而不能在完整 CTD/PubMed 世界中证明唯一性，应拒绝候选。
+```text
+D 存在，且 X -> D -> P 这条路径存在
+```
+
+还必须枚举 PrimeKG 中 X 的全部 exposure disease：
+
+```text
+A, B, C, D, E
+```
+
+并分别检查它们是否满足与 P 的关系：
+
+```text
+A -> P
+B -> 不满足
+C -> P
+D -> P
+E -> 未完成/不可读
+```
+
+如果结果是：
+
+```text
+matched = {A, D}
+```
+
+则题目有多个答案，拒绝。
+
+如果 E 未完成：
+
+```text
+result_complete = false
+```
+
+同样拒绝。
+
+只有：
+
+```text
+result_complete = true
+world_answer_ids = {D}
+```
+
+才能继续发布。
+
+### 11.3 路径规则
+
+验证器必须：
+
+1. 统一 relation direction；
+2. 枚举完整分页；
+3. 对同一答案实体去重；
+4. 保留所有满足题面的 evidence path；
+5. 区分直接边和间接路径；
+6. 不在题面未说明时选择某条生成路径作为“正确路线”。
+
+如果 PrimeKG 中同一 relation 由于不同 source 出现方向不一致，必须先应用
+versioned relation-direction policy。没有统一方向时，不能宣称竞争集完整。
+
+### 11.4 联合证据验证
+
+PrimeKG 枚举出的每个候选答案都需要执行同一套证据检查：
+
+```text
+PrimeKG disease
+  -> identity crosswalk
+  -> CTD record status
+  -> DirectEvidence/inference status
+  -> PubMed document availability
+  -> PubMed evidence assessment
+  -> matched/not_matched/ambiguous/unknown
+```
+
+任一候选无法完成映射或证据验证，都不能当成 `not_matched`。
+
+### 11.5 Source filter 必须公开
+
+如果题目只允许 PrimeKG 的 CTD 来源边：
+
+```text
+source = CTD
+```
+
+这个范围必须进入题面可理解语义或明确的任务契约，不能作为隐藏过滤条件。
+
+如果题面问的是普通 PrimeKG 或生物医学世界问题，则不能偷偷排除：
+
+```text
+MONDO
+MONDO_grouped
+其他 source
+```
+
+否则单答案只是由隐藏 source filter 制造出来的。
+
+### 11.6 发布门槛
+
+```text
+PrimeKG entity 存在
+AND identity mapping resolved
+AND graph relation/path matches question semantics
+AND CTD direct evidence status is known
+AND all CTD PMIDs have known verdicts
+AND all supporting spans/hashes are replayable
+AND complete PrimeKG candidate universe is evaluated
+AND result_complete == true
+AND world_answer_ids == one PrimeKG canonical entity
+AND text semantic verification passes
+```
+
+任何 `unmapped`、`ambiguous`、`not_evaluated` 或 `provider_failed` 都阻止发布。
 
 ## 12. 题目生成
 
@@ -492,9 +737,9 @@ world_answer_ids == exactly one
 第一阶段可以允许：
 
 ```text
-ctd_pubmed_therapeutic_research_disease
-ctd_pubmed_marker_mechanism
-ctd_pubmed_association
+primekg_ctd_pubmed_therapeutic_research_disease
+primekg_ctd_pubmed_marker_mechanism
+primekg_ctd_pubmed_association
 ```
 
 Writer 必须使用 Task 中的：
@@ -639,6 +884,7 @@ forbidden leakage checks
 
 ```text
 hidden/pubmed_corpus_manifest.json
+hidden/primekg_ctd_identity_map.snapshot.json
 hidden/pubmed_documents.jsonl
 hidden/pubmed_spans.jsonl
 hidden/ctd_pubmed_fusions.jsonl
@@ -766,35 +1012,47 @@ Adapter 负责：
 
 ## 17. 实施顺序
 
-### Step A：固定 PubMed adapter
+### Step A：PrimeKG ↔ CTD identity binding
+
+- 固定 PrimeKG、MONDO/MeSH 和 CTD mapping snapshot；
+- 以 PrimeKG canonical entity 为主键；
+- 建立 resolved/ambiguous/unmapped/provider_failed；
+- 同名异实体不得合并；
+- 所有正式 claim 保留 PrimeKG object ID；
+- CTD DiseaseID 只写入 hidden lineage。
+
+### Step B：固定 PubMed adapter
 
 - 新增 PubMed document/corpus 契约；
 - 接入现有 `PubMedClient`；
 - 可选接入 BioDSA full-text port；
 - 保存 hash 和 manifest。
 
-### Step B：结构化抽取
+### Step C：结构化抽取
 
 - 逐 PMID 调用受约束模型；
 - 输出 verdict、quote、span 和 qualifiers；
 - 未知/缺失 PMID 直接拒绝。
 
-### Step C：确定性验证与融合
+### Step D：确定性验证与融合
 
 - 验证 span/hash；
 - 生成支持、反对、上下文和不确定 evidence；
 - CTD/PubMed 分层；
+- 把已验证 evidence 重新绑定到 PrimeKG canonical claim；
 - 冲突和语义升级门禁。
 
-### Step D：接入 CTD direct service
+### Step E：接入 PrimeKG+CTD service
 
-- `ctd-direct` 先筛候选；
+- PrimeKG 生成候选和 canonical entities；
+- mapping 解析对应 CTD records；
 - 只有 PubMed 验证通过后才构造 ValidatedTask；
+- 发布前回到完整 PrimeKG 世界验证 relation/path 和 cardinality；
 - 保留当前 CTD-only release 作为审计对照，不进入正式 public data。
 
-### Step E：真实 PubMed smoke
+### Step F：真实 PubMed smoke
 
-- 使用固定 CTD snapshot；
+- 使用固定 PrimeKG、CTD 和 mapping snapshots；
 - 固定 PMID corpus；
 - 保存查询、响应、hash、模型配置和 prompt 版本；
 - 报告 passed/failed/not reproducible，不把网络失败写成通过。
@@ -803,16 +1061,20 @@ Adapter 负责：
 
 该阶段完成必须满足：
 
-1. CTD 引用 PMID 全部有确定状态；
-2. 每个 supporting span 能从固定文献重新读取；
-3. quote hash、document hash、corpus manifest 全部一致；
-4. 模型无法引用未知 PMID 或伪造 quote；
-5. CTD direct 不被 inference-only 替代；
-6. therapeutic 不被升级为疗效；
-7. qualifier 没有原文支持时不进入题面；
-8. support/contradict/context/uncertain 分层保存；
-9. 同一证据重放结果稳定；
-10. 竞争集不完整时禁止发布；
-11. 题目语义回验通过；
-12. public/hidden 数据物理隔离。
+1. 候选实体和最终答案都来自 PrimeKG canonical IDs；
+2. PrimeKG↔CTD 映射有 resolved/ambiguous/unmapped 状态；
+3. CTD 引用 PMID 全部有确定状态；
+4. 每个 supporting span 能从固定文献重新读取；
+5. quote hash、document hash、corpus manifest 全部一致；
+6. 模型无法引用未知 PMID 或伪造 quote；
+7. CTD direct 不被 inference-only 替代；
+8. therapeutic 不被升级为疗效；
+9. qualifier 没有原文支持时不进入题面；
+10. support/contradict/context/uncertain 分层保存；
+11. 已验证证据重新绑定到 PrimeKG canonical answer ID；
+12. 固定 PrimeKG snapshot 中 entity、relation/path 和完整候选集均通过；
+13. 同一证据重放结果稳定；
+14. 竞争集不完整时禁止发布；
+15. 题目语义回验通过；
+16. public/hidden 数据物理隔离。
 
