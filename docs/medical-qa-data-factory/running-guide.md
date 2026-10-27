@@ -74,6 +74,46 @@ python -m medical_qa_data_factory generate validated `
 
 该命令只发布通过完整冻结 PrimeKG 世界复算、答案基数、约束增益和题面语义回环的任务。输出目录必须不存在或为空。release 的 `public/` 只含 Planner 可见问题及其公开 manifest；`hidden/` 保存 evaluator 真值、验证报告、证据和生成 trace，二者不得作为同一训练输入分发。第一版只支持审定的 `constrained_entity` relation composition，因此某个实体生成 0 题是正常结果。
 
+### CTD-backed validated profile
+
+CTD formal profile 使用固定的 `CtdTaskRunSpec`，其中包含 chemical、public study
+context、disease identity/category mapping、Step 4 fusion、provider failure 和
+`ValidationEnvironment`：
+
+```powershell
+python -m medical_qa_data_factory generate validated `
+  --profile ctd `
+  --output data/runs/ctd-formal/release `
+  --ctd-index data/cache/ctd-evidence.sqlite `
+  --ctd-run-spec data/runs/ctd-formal/run-spec.json
+```
+
+该命令只在固定 CTD snapshot 内枚举全部疾病、为每个竞争者保存 outcome，并拒绝未知竞争者、
+候选答案不一致、无价值 qualifier、shortcut 或语义漂移。它不会把 provider failure 或未评估
+竞争者解释成“无答案”。
+
+发布目录：
+
+```text
+public/
+  planner_questions.jsonl
+  dataset_manifest.json
+hidden/
+  evaluation_targets.jsonl
+  validated_tasks.jsonl
+  validation_reports.jsonl
+  evidence_catalog.jsonl
+  generation_episodes.jsonl
+  rejected_candidates.jsonl
+  generation_traces.jsonl
+  quality_report.json
+  dataset_manifest.json
+```
+
+当前真实 pilot 的阻塞项见
+[CTD 正式接入实施状态](ctd-implementation-status.md)，不能用 fixture release 代替 20-seed
+真实验收。
+
 ## 旧生成/审核兼容入口
 
 下列 `generate entity` 仍用于历史探索、Web 审核和兼容测试；它尚未迁移到新的 `ValidatedTask` 发布契约，其 `PlannerTrajectory` 记录造题过程，不能作为 Query Planner 的正确动作训练标签：

@@ -206,13 +206,17 @@ python -m medical_qa_data_factory generate validated ...
 
 ## 5. 当前测试事实
 
-2026-10-26 当前默认回归：
+2026-10-27 当前默认回归：
 
 ```text
-851 passed, 13 deselected
+939 passed, 13 deselected
 ```
 
 `primekg_integration` marker 默认不随单元测试运行，不能把 deselected 写成 passed。
+
+CTD formal integration 的 Step 1-7 已实现；真实 20-seed pilot 与人工盲审仍未完成。
+当前阻塞项、真实 CTD preflight 和最新测试事实见
+[CTD 正式接入实施状态](ctd-implementation-status.md)。
 
 ## 6. 下一实施顺序
 
