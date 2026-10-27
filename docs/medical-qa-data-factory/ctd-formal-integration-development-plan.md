@@ -6,7 +6,7 @@
 >
 > 适用项目：`medical-qa-data-factory`
 >
-> 第一阶段范围：`chemical/drug -> disease` 的证据限定单实体问题
+> 第一阶段范围：`chemical/drug -> disease` 的公开研究上下文限定单实体问题
 
 ## 1. 文档定位
 
@@ -50,10 +50,10 @@ CTD-backed ValidatedTask
    `ValidatedTask`；
 6. 分离发布 Planner 可见问题和隐藏答案、claim、evidence 与验证报告。
 
-目标题型暂命名为：
+目标题型命名为：
 
 ```text
-evidence_qualified_entity
+study_context_qualified_disease
 ```
 
 第一阶段只启用：
@@ -76,6 +76,8 @@ cardinality: exactly_one
 - 不把 inference score 或 inference gene 单独作为自然医学结论；
 - 不把 association 写成 causality、prevention 或 efficacy；
 - 不生成诊断、治疗或用药建议；
+- 不把“具有某类证据”“被当前证据收录”作为疾病答案的主要判别条件；
+- 不用隐藏的 evidence scope 代替题面中公开、可理解的生物医学限定；
 - 不在本阶段生成 boolean、自由文本或开放集合答案；
 - 不实现 Query Planner 的动作策略、rollout 或 cost/gain 标签；
 - 不因接入 CTD 而把核心任务契约硬编码成 CTD 专用结构。
@@ -112,27 +114,79 @@ cardinality: exactly_one
 
 ## 5. 产品输出
 
-### 5.1 可发布问题
+### 5.1 正例的语义
 
-以下示例只描述题型，不声明示例中的医学事实已经成立：
+正例必须询问真实的生物医学关系。CTD/PubMed 是后台发现、核验和追溯手段，不是题面所问的对象。
+
+所有用于区分答案的条件必须以自然语言公开给答题者，例如：
+
+- 研究人群或遗传背景；
+- 职业、地区或其他暴露场景；
+- 暴露方式、剂量和持续时间；
+- study type、样本类型或随访条件；
+- 疾病类别或器官系统；
+- association、candidate biomarker、therapeutic research、safety 或风险方向；
+- 会改变结论的时间范围和其他 qualifier。
+
+固定 CTD release、PubMed corpus 和 evidence bundle 仍记录在隐藏验证环境中，但不能成为题面唯一的消歧条件。
+
+### 5.2 第一阶段允许的正例结构
+
+以下示例只定义语言和任务结构，不声明其中占位实体对应的医学事实已经成立。
+正式数据必须把 A、S、D 等占位符替换为已解析的具体实体和有证据支持的具体条件。
+
+**流行病学风险关系**：
+
+```text
+在携带遗传特征 S、并接受至少两年剂量 D 药物 A 的成年人长期随访中，哪种消化系统癌症的发生风险被报告降低？
+```
+
+**职业或环境暴露关系**：
+
+```text
+在长期接触化学物 A 的职业人群中，哪种血液系统恶性疾病的发生风险被报告升高？
+```
+
+**候选生物标志物关系**：
+
+```text
+在[明确患者人群 P]的血清研究中，代谢物 A 的水平变化被研究作为哪种神经退行性疾病的候选生物标志物？
+```
+
+**治疗研究对象**：
+
+```text
+在具有分子特征 S 的受试者中，药物 A 被临床研究用于改善哪种炎症性疾病？
+```
+
+**安全或不良风险关系**：
+
+```text
+在接受疗程 D 的人群中，长期使用药物 A 被报告与哪种肝胆系统疾病的风险升高相关？
+```
+
+发布必须同时满足：
+
+- 题面询问的是疾病风险、候选标志物、治疗研究对象或安全关联等领域事实；
+- CTD 与 PubMed 支持题面中的关系语义和公开 study context；
+- 疾病类别、研究人群、暴露、时间、剂量等公开限定均有证据来源；
+- 仅根据题面公开条件定义 query scope 后，答案集合严格为一个；
+- 去掉关键公开限定后答案集合扩大，证明限定不是装饰；
+- 所有可能竞争的候选都得到确定结果。
+
+### 5.3 不应发布的问题
 
 ```text
 在当前纳入的研究证据中，哪种癌症与化学物 A 暴露后的风险降低相关？
 ```
 
+原因：“当前纳入”是隐藏数据集范围，答题者无法据此确定候选世界。
+
 ```text
 在当前证据范围内，哪种神经系统疾病具有关于化学物 A 的直接机制研究证据？
 ```
 
-发布必须同时满足：
-
-- CTD 与 PubMed 能支持题面中的关系语义；
-- 疾病类别、研究人群、时间、剂量等限定均有证据来源；
-- 在固定验证环境和明确 query scope 中，答案集合严格为一个；
-- 去掉关键限定后答案集合扩大，或者任务仍能证明这些限定具有实际判别作用；
-- 所有可能竞争的候选已经得到确定结果。
-
-### 5.2 不应发布的问题
+原因：询问的是内部 evidence label，而不是具有独立意义的生物医学事实。
 
 ```text
 化学物 A 与哪种疾病有关？
@@ -152,13 +206,27 @@ CTD 显示化学物 A 能治疗什么疾病？
 
 原因：数据库术语题价值低，`therapeutic` 也不等于临床疗效。
 
+### 5.4 机制题的后续边界
+
+真正的机制题应该询问实际机制实体：
+
+```text
+化学物 A 与疾病 B 的关联被报道可能涉及哪个基因？
+```
+
+```text
+化学物 A 暴露影响的哪条信号通路可能参与疾病 B 的发生过程？
+```
+
+这类任务需要验证 `chemical -> gene/pathway -> disease`，答案类型也从 disease 改为 gene/pathway。它属于后续 CTD + PrimeKG + 文献多跳题型，不属于第一阶段。
+
 ## 6. 核心架构
 
 ```text
 Resolved chemical/drug entity
         |
         v
-CTD Candidate Source
+CTD Study-context Candidate Source
   - enumerate chemical-disease records
   - preserve snapshot and row identity
         |
@@ -205,22 +273,24 @@ CTD-backed task 的验证环境至少固定：
 - CTD release、源文件 hash、sidecar schema 和 index manifest hash；
 - PubMed provider、检索/回读日期、文档 content hash 与本次 corpus manifest；
 - normalizer、fusion、validator、Writer 和 prompt/model 版本；
-- query scope，例如 disease category、population、study type 和 temporal scope。
+- public task scope，例如 disease category、population、exposure、study type 和 temporal scope；
+- hidden evidence scope，例如 CTD release、PubMed corpus manifest 和检索日期。
 
 ### 7.2 操作性完整世界
 
-“唯一”仅表示在上述固定环境和 query scope 中唯一，不表示现实世界绝对唯一。
+“唯一”仅表示在上述固定环境和题面公开条件定义的 public task scope 中唯一，不表示现实世界绝对唯一。hidden evidence scope 负责复现和审计，不能凭空缩小公开问题的候选语义。
 
 对一个拟发布的 chemical -> disease 任务，Validator 必须：
 
-1. 枚举该 chemical 在 CTD 快照和 query scope 内的全部 disease 记录；
-2. canonicalize disease identity 并合并别名；
-3. 对所有可能满足题面语义的竞争项执行同等证据判定；
-4. 只有全部竞争项均得到 `matched` 或 `not_matched` 的确定结果时，才令
+1. 从题面公开的 population、exposure、disease category、intent、polarity 和其他 qualifier 构造 public task scope；
+2. 枚举该 chemical 在 CTD 快照和 public task scope 内的全部 disease 记录；
+3. canonicalize disease identity 并合并别名；
+4. 对所有可能满足题面语义的竞争项执行同等证据判定；
+5. 只有全部竞争项均得到 `matched` 或 `not_matched` 的确定结果时，才令
    `result_complete=true`；
-5. 如果任一竞争项为 `unreadable`、`unmapped`、`ambiguous`、`provider_failed` 或
+6. 如果任一竞争项为 `unreadable`、`unmapped`、`ambiguous`、`provider_failed` 或
    `not_evaluated`，则唯一性未知，候选不得发布；
-6. 最终 `matched` disease canonical ID 必须严格等于一个。
+7. 最终 `matched` disease canonical ID 必须严格等于一个。
 
 禁止只增强 Agent 首先选中的一对 chemical-disease，然后把其余记录视为不存在。
 
@@ -234,6 +304,8 @@ CTD 用于：
 - 提供 `DirectEvidence`、`InferenceGeneSymbol`、`InferenceScore` 和 PMID；
 - 提供结构化候选和检索线索；
 - 固定记录身份与数据快照。
+
+CTD 的 `DirectEvidence` 和 source metadata 不能直接成为题目的主要 predicate；它们只负责路由、证据强度判断和 provenance。
 
 CTD 单独不能证明：
 
@@ -262,12 +334,13 @@ PubMed read-back 用于核验：
 | Intent | 发布条件 |
 |---|---|
 | `association_research` | 原文明确支持研究关联，不包含因果升级 |
-| `mechanism_research` | CTD/原文支持机制研究，但不宣称机制已完全确立 |
+| `biomarker_research` | 原文明确支持候选 biomarker 语义，不宣称可用于临床诊断 |
 | `therapeutic_research` | 只能表述“治疗研究/被研究用于”，不能表述有效 |
 | `risk_increase` | PubMed 支持 span 明确给出方向和对象 |
 | `risk_decrease` | PubMed 支持 span 明确给出方向和对象 |
+| `safety` | 原文明确支持药物安全或不良疾病风险语义 |
 
-`insufficient`、`conflicting`、`mixed`、`unknown polarity` 与 inference-only 候选不得以更强语义发布。
+`mechanism_research` 不作为第一阶段 disease-answer 题型；它应在后续转化为 gene/pathway 等机制实体答案。`insufficient`、`conflicting`、`mixed`、`unknown polarity` 与 inference-only 候选不得以更强语义发布。
 
 ## 9. 契约改造
 
@@ -315,7 +388,9 @@ claim 必须能由通用 requirement matcher 消费，不能要求 matcher 理�
 需要补齐：
 
 - `TaskCandidate.candidate_claim_ids`；
+- `TaskCandidate.public_qualifiers` 或等价的结构化 study context；
 - `TaskSpec.candidate_claim_ids`；
+- `TaskSpec.public_task_scope`，只能由题面可表达的限定构成；
 - 显式、确定性的 `CompletionRule`；
 - `ValidationReport.matched_claim_ids`；
 - `ValidationReport.supporting_evidence_ids`；
@@ -337,7 +412,9 @@ claim 必须能由通用 requirement matcher 消费，不能要求 matcher 理�
 **主要修改**：
 
 - 新增 CTD 正例、冲突、多解、推断-only、缺 PMID、映射歧义 fixtures；
-- 为 `evidence_qualified_entity` 建立 task fixture；
+- 为 `study_context_qualified_disease` 建立 task fixture；
+- 为隐藏 evidence scope 造成伪唯一的候选建立必拒 fixture；
+- 将 `biomarker_research` 作为版本化 `QuestionIntent` 变更加入契约，并为旧 schema 提供明确迁移或兼容策略；
 - 固定 reason code 与 competitor outcome 枚举；
 - 明确 schema migration 策略，不直接破坏旧 run reload。
 
@@ -449,14 +526,16 @@ claim 必须能由通用 requirement matcher 消费，不能要求 matcher 理�
 
 **回滚**：关闭 CTD formal candidate source，不影响现有 PrimeKG constrained task。
 
-### Step 5：CTD Candidate Source 与完整竞争集验证
+### Step 5：Study-context Candidate Source 与完整竞争集验证
 
 **目的**：生成有价值的任务候选，并证明答案在声明范围内唯一。
 
 **主要修改**：
 
-- 新增 `CtdEvidenceQualifiedCandidateSource`；
+- 新增 `CtdStudyContextCandidateSource`；
 - 先枚举 candidate universe，再构造问题，而不是先选答案；
+- 只使用可公开表达且有证据支持的 population、exposure、study type、disease category、polarity 和其他 qualifier 构造候选；
+- 禁止使用“是否有 CTD/文献证据”作为主要 answer discriminator；
 - 为每个竞争 disease 记录 outcome；
 - 支持可验证的 disease category、intent、polarity 和 qualifier constraints；
 - 任一可能竞争项状态未知时 `result_complete=false`；
@@ -508,10 +587,14 @@ claim 必须能由通用 requirement matcher 消费，不能要求 matcher 理�
 **主要修改**：
 
 - Writer 只读取 `ValidatedTask`；
-- 为五类允许 intent 建受控骨架；
+- 为六类允许 intent 建受控骨架；
+- 题面必须公开所有承担消歧作用的 study context；
+- 禁止使用“当前纳入的研究证据中”“当前证据范围内”等未定义范围兜底；
+- 禁止用“具有直接机制证据”“CTD 中记录”等 evidence metadata 作为主要问题语义；
 - population、dose、time 和 study type 等关键 qualifier 不得丢失；
 - 独立 semantic verifier 回译实体、predicate、polarity、qualifier、scope 和 cardinality；
 - 增加答案/别名泄漏、内部 ID 泄漏、CTD 数据库术语题、近重复和模板占比门禁；
+- 正式题面禁止残留 A、B、S、D、`某疾病`、`特定人群` 等未实例化占位表达；
 - LLM 只能润色，不能修改 Task。
 
 **建议文件**：
@@ -584,6 +667,8 @@ Step 1 和 Step 2 可在契约冻结后并行设计，但 Step 5 必须依赖 St
 8. 将生成时使用的 provider 路线写成 Planner 的正确动作；
 9. 为了得到单答案而静默丢弃第二答案；
 10. 把“固定证据世界唯一”写成“医学上唯一”。
+11. 用隐藏 CTD/PubMed corpus 边界制造单答案，却不把有效限定公开到题面。
+12. 询问“哪个疾病具有某类证据”，把 evidence metadata 当成领域知识。
 
 ## 14. 计划变更规则
 
@@ -607,3 +692,4 @@ CTD 正式接入只有在以下事实同时成立时才算完成：
 6. public 数据不泄漏 gold、requirements、claims、evidence 或路线；
 7. 真实 pilot、自动化回归和人工盲审均通过；
 8. 不适用 CTD 的现有 PrimeKG 正式题型保持回归通过。
+9. 每道题的单答案范围由题面公开的 study context 定义，而不是由隐藏 evidence scope 定义。

@@ -4,13 +4,13 @@
 >
 > 更新日期：2026-10-27
 >
-> 适用范围：第一阶段 `chemical/drug -> disease` 的 `evidence_qualified_entity` 题型
+> 适用范围：第一阶段 `chemical/drug -> disease` 的 `study_context_qualified_disease` 题型
 
 ## 1. 验收结论定义
 
 只有满足本文全部 P0 条件，才可以声明：
 
-> CTD 已正式接入 `medical-qa-data-factory`，能够生成 CTD/PubMed 支持、在声明验证世界中严格单答案、可审计发布的 chemical/drug -> disease 问题。
+> CTD 已正式接入 `medical-qa-data-factory`，能够生成由公开研究上下文限定、CTD/PubMed 支持、在声明验证世界中严格单答案、可审计发布的 chemical/drug -> disease 问题。
 
 以下情况不能称为“正式接入”：
 
@@ -62,14 +62,18 @@
 | CTD-C08 | inference-only 记录不能生成直接机制、风险方向或疗效问题 |
 | CTD-C09 | 模型只能从 allow-list 选择 intent/polarity；未知值和不一致引用被拒绝 |
 | CTD-C10 | 相同固定 evidence bundle 重放得到相同 eligible/rejected 结果 |
+| CTD-C11 | CTD `DirectEvidence`、source 名称和 evidence availability 只用于后台验证，不能直接成为题目的主要 predicate |
 
 允许第一阶段发布的 intent 仅为：
 
 - `association_research`；
-- `mechanism_research`；
+- `biomarker_research`；
 - `therapeutic_research`；
 - `risk_increase`；
-- `risk_decrease`。
+- `risk_decrease`；
+- `safety`。
+
+`mechanism_research` 在第一阶段不能以 disease 为答案生成“哪种疾病具有机制证据”的问题；它应进入后续 gene/pathway 等机制实体答案题型。
 
 ## 5. P0：完整竞争集与答案正确性
 
@@ -87,6 +91,8 @@
 | CTD-A08 | scope statement 明确限定 CTD/PubMed 版本和 query scope，不宣称现实世界绝对唯一 |
 | CTD-A09 | qualifier/category 约束必须有证据且有判别价值；删除关键约束后应扩大答案集或改变匹配结果 |
 | CTD-A10 | provider failure、映射歧义、证据截断和预算耗尽均不能生成 passing report |
+| CTD-A11 | query scope 中承担消歧作用的 population、exposure、disease category、study type、polarity 等条件必须公开出现在题面语义中 |
+| CTD-A12 | hidden evidence scope 只能用于复现和审计，不能作为公开题目唯一性的隐含限定 |
 
 必须具备以下自动化 fixtures：
 
@@ -125,7 +131,7 @@
 | ID | 通过条件 |
 |---|---|
 | CTD-Q01 | Writer 只接收 `ValidatedTask`，不能接收未验证 Candidate |
-| CTD-Q02 | 题面中的 chemical、disease category、predicate、polarity 和 qualifier 与 Task 一致 |
+| CTD-Q02 | 题面中的 chemical、population、exposure、study type、disease category、predicate、polarity 和 qualifier 与 Task 一致 |
 | CTD-Q03 | 单数问法只对应 `exactly_one` |
 | CTD-Q04 | Writer 不得把“研究相关”改成“导致”，不得把“治疗研究”改成“有效治疗” |
 | CTD-Q05 | 题面不泄漏答案 canonical ID、名称、别名或可逆占位符 |
@@ -134,24 +140,52 @@
 | CTD-Q08 | 数据库字段翻译题和低价值 `CTD 显示……` 问法被拒绝 |
 | CTD-Q09 | semantic verifier 能恢复相同实体、predicate、polarity、qualifier、scope 和 cardinality |
 | CTD-Q10 | semantic verifier 不确定或不一致时拒绝，不能反向修改 gold task 适配题面 |
+| CTD-Q11 | 所有承担答案消歧作用的生物医学条件都已公开表达，不能依赖隐藏 evidence scope |
+| CTD-Q12 | 主要问题语义必须是疾病风险、候选 biomarker、治疗研究对象或安全关联，不能是“是否具有某类证据” |
+| CTD-Q13 | “当前纳入的研究证据中”“当前证据范围内”等未公开定义范围的表述不得作为第一阶段题面 |
+| CTD-Q14 | 正式题面不得残留 A、B、S、D、`某疾病`、`特定人群` 等未实例化占位表达 |
 
 ### 7.1 可通过的结构示例
 
-示例只代表语言结构：
+示例只代表语言结构，不声明占位实体对应的医学事实成立；正式发布时必须替换成具体实体和具体条件：
+
+```text
+在携带遗传特征 S、并接受至少两年剂量 D 药物 A 的成年人长期随访中，哪种消化系统癌症的发生风险被报告降低？
+```
+
+通过前提：population、dose、duration、study context、`risk_decrease` 和疾病分类均被证据支持；这些公开条件定义的完整竞争集严格单答案。
+
+```text
+在长期接触化学物 A 的职业人群中，哪种血液系统恶性疾病的发生风险被报告升高？
+```
+
+通过前提：职业场景、持续暴露、`risk_increase` 和疾病类别均有依据，答案严格唯一。
+
+```text
+在[明确患者人群 P]的血清研究中，代谢物 A 的水平变化被研究作为哪种神经退行性疾病的候选生物标志物？
+```
+
+通过前提：原文支持 candidate biomarker 语义与样本类型，不能升级为临床诊断能力。
+
+```text
+在具有分子特征 S 的受试者中，药物 A 被临床研究用于改善哪种炎症性疾病？
+```
+
+通过前提：原文只需支持 therapeutic research 对象；题面不能改成“能够有效治疗”。
+
+### 7.2 必须拒绝的结构示例
 
 ```text
 在当前纳入的研究证据中，哪种癌症与化学物 A 暴露后的风险降低相关？
 ```
 
-通过前提：`risk_decrease`、癌症分类和其他 qualifier 均被证据支持，且完整竞争集严格单答案。
+拒绝：答案范围依赖未公开的内部 evidence corpus，缺少可供答题者理解的 study context。
 
 ```text
 在当前证据范围内，哪种神经系统疾病具有关于化学物 A 的直接机制研究证据？
 ```
 
-通过前提：`mechanism_research` 不被写成确定因果机制，答案严格唯一。
-
-### 7.2 必须拒绝的结构示例
+拒绝：询问内部 evidence label，不是独立的生物医学关系；真正机制题应以 gene/pathway 等机制实体为答案。
 
 ```text
 化学物 A 与哪种疾病有关？
@@ -263,6 +297,8 @@ pilot 至少包含：
 - 各 reason code 拒绝数量；
 - unknown competitor 数；
 - 各 intent/polarity/qualifier 分布；
+- 公开 study-context qualifier 的覆盖率与判别价值；
+- 因隐藏 evidence scope 造成伪唯一而被拒绝的数量；
 - 候选到发布的漏斗；
 - 模板占比和近重复率；
 - 每题证据数量与 provider 分布；
@@ -283,6 +319,7 @@ pilot 至少包含：
 6. 是否存在已知但遗漏的竞争答案；
 7. 题目是否具有生物医学信息价值，而非数据库字段 trivia；
 8. Planner 视图是否泄漏答案或路线。
+9. 答案唯一性是否来自题面公开条件，而不是审阅者看不到的内部 corpus 边界。
 
 通过阈值：
 
@@ -315,6 +352,9 @@ evidence_dependency_mismatch
 question_semantics_mismatch
 answer_leakage
 database_trivia
+hidden_scope_dependency
+missing_public_disambiguator
+uninstantiated_placeholder
 ```
 
 reason code 必须区分数据本身不合格、provider failure、实现错误和预算停止。
@@ -325,6 +365,7 @@ reason code 必须区分数据本身不合格、provider failure、实现错误�
 
 - `disease -> chemical/drug` 反向实体题；
 - CTD inference gene + PrimeKG 的多跳问题；
+- 以 gene/pathway 为答案的真实机制题；
 - 更多 CTD 数据表；
 - 多篇文献的更精细研究质量分层；
 - Europe PMC、DrugBank 等其他 evidence provider；
@@ -346,6 +387,8 @@ P1 扩展必须复用同一 `EvidenceRecord + NormalizedClaim + InformationRequi
 - [ ] passing report 的 `result_complete=true` 且严格单答案；
 - [ ] claim/evidence/completion rule 已进入 hidden EvaluationTarget；
 - [ ] Writer 和 semantic verifier 通过；
+- [ ] 每题承担消歧作用的 study context 均已公开表达；
+- [ ] “当前证据范围”或 evidence metadata 问法为 0；
 - [ ] public/hidden 物理隔离通过；
 - [ ] 默认回归与真实 provider smoke 通过；
 - [ ] 20-seed pilot 和质量报告完成；
