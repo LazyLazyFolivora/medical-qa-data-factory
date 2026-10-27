@@ -28,6 +28,9 @@ def test_export_json_schemas_creates_versioned_contracts(tmp_path):
         "ctd-world-evaluation.schema.json",
         "ctd-candidate-proposal.schema.json",
         "ctd-qualifier-counterfactual.schema.json",
+        "ctd-evidence-catalog-entry.schema.json",
+        "ctd-generation-episode.schema.json",
+        "ctd-task-run-spec.schema.json",
     ):
         assert expected in names, expected
     question_schema = json.loads(
@@ -50,4 +53,4 @@ def test_schema_export_cli(tmp_path, capsys):
 
     assert exit_code == 0
     assert (tmp_path / "generation-task.schema.json").exists()
-    assert "Exported 29 schemas" in capsys.readouterr().out
+    assert "Exported 32 schemas" in capsys.readouterr().out

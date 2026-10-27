@@ -37,6 +37,11 @@ from .generation.task_candidates import (
     CtdCandidateProposal,
     CtdQualifierCounterfactual,
 )
+from .generation.task_service import (
+    CtdEvidenceCatalogEntry,
+    CtdGenerationEpisode,
+    CtdTaskRunSpec,
+)
 from .generation.training import (
     GenerationRunMetadata,
     PlannerStep,
@@ -61,6 +66,9 @@ SCHEMA_MODELS = {
     "ctd-qualifier-counterfactual.schema.json": (
         CtdQualifierCounterfactual
     ),
+    "ctd-evidence-catalog-entry.schema.json": CtdEvidenceCatalogEntry,
+    "ctd-generation-episode.schema.json": CtdGenerationEpisode,
+    "ctd-task-run-spec.schema.json": CtdTaskRunSpec,
     "question-spec.schema.json": QuestionSpec,
     "generation-preparation-run.schema.json": GenerationPreparationRun,
     "generation-run-manifest.schema.json": GenerationRunManifest,

@@ -321,10 +321,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Generate a frozen, world-validated task release",
     )
     validated.add_argument("--output", required=True)
+    validated.add_argument(
+        "--profile",
+        choices=["primekg", "ctd"],
+        default="primekg",
+    )
     validated.add_argument("--provider", default="primekg")
-    validated.add_argument("--entity-name", dest="entity_name", required=True)
-    validated.add_argument("--entity-id", dest="entity_id", required=True)
-    validated.add_argument("--entity-type", dest="entity_type", required=True)
+    validated.add_argument("--entity-name", dest="entity_name")
+    validated.add_argument("--entity-id", dest="entity_id")
+    validated.add_argument("--entity-type", dest="entity_type")
     validated.add_argument(
         "--kg-config",
         dest="kg_config",
@@ -338,6 +343,8 @@ def build_parser() -> argparse.ArgumentParser:
         choices=range(1, 1001),
         default=500,
     )
+    validated.add_argument("--ctd-index")
+    validated.add_argument("--ctd-run-spec", dest="ctd_run_spec")
 
     resume = generate_commands.add_parser(
         "resume", help="Resume a previous generation episode"
@@ -534,6 +541,8 @@ GENERATION_EXIT_CODES = {
 
 def _run_validated_generation_command(args: argparse.Namespace) -> int:
     """Build and export a task-first release from a pinned graph snapshot."""
+    if args.profile == "ctd":
+        return _run_ctd_validated_generation_command(args)
     from .generation.task_contracts import (
         ProviderSnapshotRef,
         ValidationEnvironment,
@@ -609,6 +618,95 @@ def _run_validated_generation_command(args: argparse.Namespace) -> int:
     _emit(
         {
             "status": "exported",
+            "release_id": summary.release_id,
+            "output": summary.output_dir,
+            "published_count": summary.published_count,
+            "rejected_count": summary.rejected_count,
+            "validation_report_count": summary.validation_report_count,
+        }
+    )
+    return 0
+
+
+def _run_ctd_validated_generation_command(
+    args: argparse.Namespace,
+) -> int:
+    """Build a CTD-backed release from a pinned evidence/fusion run spec."""
+    from pathlib import Path
+
+    from .evidence_enrichment.ctd import CtdEvidenceIndex
+    from .generation.ctd_world_evaluation import (
+        CtdWorldEvaluator,
+        FusionCtdCandidateAssessor,
+        StaticCtdDiseaseCategoryResolver,
+        StaticCtdDiseaseIdentityResolver,
+    )
+    from .generation.task_candidates import (
+        CtdStudyContextCandidateSource,
+    )
+    from .generation.task_compiler import TaskCompiler
+    from .generation.task_release import TaskReleaseExporter
+    from .generation.task_service import (
+        CtdTaskGenerationService,
+        CtdTaskRunSpec,
+    )
+    from .generation.task_validation import CtdTaskValidator
+
+    try:
+        if not args.ctd_index or not args.ctd_run_spec:
+            raise ValueError(
+                "the CTD profile needs --ctd-index and --ctd-run-spec"
+            )
+        index = CtdEvidenceIndex(Path(args.ctd_index))
+        run_spec = CtdTaskRunSpec.model_validate_json(
+            Path(args.ctd_run_spec).read_text(encoding="utf-8")
+        )
+        if run_spec.snapshot_id != index.metadata().get("snapshot_id"):
+            raise ValueError("CTD run spec snapshot does not match the index")
+        evaluator = CtdWorldEvaluator(
+            index=index,
+            identity_resolver=StaticCtdDiseaseIdentityResolver(
+                run_spec.identity_mapping
+            ),
+            category_resolver=StaticCtdDiseaseCategoryResolver(
+                run_spec.category_mapping
+            ),
+            assessor=FusionCtdCandidateAssessor(
+                fusions=run_spec.fusions,
+                provider_failures=run_spec.provider_failures,
+            ),
+        )
+        service = CtdTaskGenerationService(
+            candidate_source=CtdStudyContextCandidateSource(evaluator),
+            compiler=TaskCompiler(),
+            validator=CtdTaskValidator(evaluator),
+            evidence_by_record=run_spec.fusions,
+            provenance={
+                "model_config_id": run_spec.model_config_id,
+                "prompt_version": run_spec.prompt_version,
+                "code_commit": run_spec.code_commit,
+                "ctd_snapshot_id": run_spec.snapshot_id,
+            },
+        )
+        result = service.generate(
+            seed_entity_id=run_spec.seed_entity_id,
+            chemical_id=run_spec.chemical_id,
+            snapshot_id=run_spec.snapshot_id,
+            context=run_spec.context,
+            environment=run_spec.environment,
+        )
+        summary = TaskReleaseExporter().export(result, args.output)
+    except FileExistsError as exc:
+        _generation_error("output_exists", str(exc))
+        return 2
+    except (TypeError, ValueError) as exc:
+        _generation_error("invalid_arguments", str(exc))
+        return 2
+
+    _emit(
+        {
+            "status": "exported",
+            "profile": "ctd",
             "release_id": summary.release_id,
             "output": summary.output_dir,
             "published_count": summary.published_count,

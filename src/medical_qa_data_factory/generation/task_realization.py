@@ -220,3 +220,172 @@ class TaskTextSemanticVerifier:
             ),
             verifier_version=self.version,
         )
+
+
+class CtdTaskQuestionWriter:
+    """Deterministic first writer for validated CTD study-context tasks."""
+
+    version = "ctd-task-question-writer-v1"
+
+    def write(self, task: ValidatedTask, *, qid: str) -> QuestionVariant:
+        if task.task.question_type != "study_context_qualified_disease":
+            raise ValueError("CTD writer only accepts study-context tasks")
+        context = task.task.public_study_context
+        if context is None:
+            raise ValueError("CTD task is missing its public study context")
+        chemical = task.task.public_entity_names.get(
+            task.task.seed_entity_id
+        )
+        if not chemical:
+            raise ValueError("CTD task is missing the public chemical name")
+        qualifier_text = _ctd_context_text(context)
+        disease_category = context.disease_category
+        intent = context.relation_intent
+        if intent == "risk_decrease":
+            ending = (
+                f"哪种{disease_category}的发生风险被报告降低？"
+            )
+        elif intent == "risk_increase":
+            ending = (
+                f"哪种{disease_category}的发生风险被报告升高？"
+            )
+        elif intent == "association_research":
+            ending = (
+                f"哪种{disease_category}被研究与{chemical}暴露存在关联？"
+            )
+        elif intent == "biomarker_research":
+            ending = (
+                f"哪种{disease_category}被研究作为相关候选生物标志物？"
+            )
+        elif intent == "therapeutic_research":
+            ending = (
+                f"哪种{disease_category}是{chemical}被研究用于改善的疾病？"
+            )
+        else:
+            ending = (
+                f"哪种{disease_category}被报告为{chemical}相关的不良事件？"
+            )
+        return QuestionVariant(
+            variant_id=f"variant-{qid}-{self.version}",
+            qid=qid,
+            task_id=task.task.task_id,
+            question_text=f"在{qualifier_text}中，{ending}",
+            writer_version=self.version,
+        )
+
+
+class CtdTaskTextSemanticVerifier:
+    """Verify that a CTD question retains every public task constraint."""
+
+    version = "ctd-text-semantic-verifier-v1"
+    _FORBIDDEN = (
+        "ctd",
+        "当前纳入的研究证据",
+        "当前证据范围",
+        "某疾病",
+        "特定人群",
+        "claim",
+        "evidence",
+    )
+
+    def verify(
+        self,
+        variant: QuestionVariant,
+        task: ValidatedTask,
+    ) -> TextSemanticReport:
+        context = task.task.public_study_context
+        if context is None:
+            return self._failure(variant, task, "missing_public_context")
+        chemical = task.task.public_entity_names.get(
+            task.task.seed_entity_id
+        )
+        text = variant.question_text.casefold()
+        required = [
+            context.disease_category,
+            chemical,
+            context.population,
+            context.exposure_context,
+            context.dose_or_regimen,
+            context.exposure_duration,
+            context.study_type,
+            context.sample_type,
+            context.temporal_scope,
+            *context.additional_qualifiers.values(),
+        ]
+        reasons: list[str] = []
+        if any(
+            value and value.casefold() not in text
+            for value in required
+        ):
+            reasons.append("missing_public_disambiguator")
+        if any(term.casefold() in text for term in self._FORBIDDEN):
+            reasons.append("database_trivia_or_internal_term")
+        hidden_answers = [
+            *task.answer_contract.accepted_aliases,
+            *task.answer_contract.canonical_answer_ids,
+        ]
+        if any(
+            answer.casefold() in text
+            for answer in hidden_answers
+        ):
+            reasons.append("answer_leakage")
+        if (
+            context.relation_intent == "therapeutic_research"
+            and any(
+                term in text
+                for term in ("治疗有效", "能够治疗", "可治愈")
+            )
+        ):
+            reasons.append("claim_semantics_mismatch")
+        if reasons:
+            return TextSemanticReport(
+                variant_id=variant.variant_id,
+                task_id=variant.task_id,
+                passed=False,
+                reason_codes=sorted(reasons),
+                verifier_version=self.version,
+            )
+        return TextSemanticReport(
+            variant_id=variant.variant_id,
+            task_id=variant.task_id,
+            passed=True,
+            reconstructed_query_digest=task.task.query.dependency_digest,
+            verifier_version=self.version,
+        )
+
+    @staticmethod
+    def _failure(
+        variant: QuestionVariant,
+        task: ValidatedTask,
+        reason: str,
+    ) -> TextSemanticReport:
+        return TextSemanticReport(
+            variant_id=variant.variant_id,
+            task_id=task.task.task_id,
+            passed=False,
+            reason_codes=[reason],
+            verifier_version=CtdTaskTextSemanticVerifier.version,
+        )
+
+
+def _ctd_context_text(context) -> str:
+    parts: list[str] = []
+    if context.population:
+        parts.append(context.population)
+    if context.exposure_context:
+        parts.append(context.exposure_context)
+    if context.dose_or_regimen:
+        parts.append(f"剂量或方案为{context.dose_or_regimen}")
+    if context.exposure_duration:
+        parts.append(f"持续{context.exposure_duration}")
+    if context.study_type:
+        parts.append(context.study_type)
+    if context.sample_type:
+        parts.append(context.sample_type)
+    if context.temporal_scope:
+        parts.append(context.temporal_scope)
+    parts.extend(
+        f"{key}为{value}"
+        for key, value in sorted(context.additional_qualifiers.items())
+    )
+    return "、".join(parts)

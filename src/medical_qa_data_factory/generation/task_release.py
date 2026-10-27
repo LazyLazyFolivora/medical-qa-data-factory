@@ -9,7 +9,11 @@ from typing import Any, Iterable
 from pydantic import Field
 
 from ..domain.common import ContractModel
-from .task_service import TaskGenerationResult
+from .task_service import (
+    CtdEvidenceCatalogEntry,
+    EvidenceCatalogEntry,
+    TaskGenerationResult,
+)
 
 
 class TaskReleaseSummary(ContractModel):
@@ -94,7 +98,7 @@ class TaskReleaseExporter:
                 item.model_dump(mode="json")
                 for item in sorted(
                     result.evidence_catalog,
-                    key=lambda evidence: evidence.edge.edge_id,
+                    key=self._catalog_id,
                 )
             ],
             "generation_traces.jsonl": [
@@ -105,6 +109,10 @@ class TaskReleaseExporter:
                 )
             ],
         }
+        if result.episode is not None:
+            hidden_data["generation_episodes.jsonl"] = [
+                result.episode.model_dump(mode="json")
+            ]
         for filename, rows in public_data.items():
             self._write_jsonl(public_dir / filename, rows)
         for filename, rows in hidden_data.items():
@@ -120,6 +128,9 @@ class TaskReleaseExporter:
             "rejection_codes": self._count_rejections(result),
             "question_type_distribution": self._count_question_types(result),
         }
+        if result.episode is not None:
+            quality["stop_reason"] = result.episode.stop_reason
+            quality["search_complete"] = result.episode.search_complete
         self._write_json(hidden_dir / "quality_report.json", quality)
 
         public_files = {
@@ -144,6 +155,9 @@ class TaskReleaseExporter:
             "public_files": public_files,
             "hidden_files": hidden_files,
         }
+        if result.episode is not None:
+            release_payload["episode_id"] = result.episode.episode_id
+            release_payload["provenance"] = result.episode.provenance
         release_id = "release-" + hashlib.sha256(
             json.dumps(
                 release_payload, sort_keys=True, ensure_ascii=False
@@ -155,6 +169,9 @@ class TaskReleaseExporter:
             "environment_id": result.environment_id,
             "seed_entity_id": result.seed_entity_id,
         }
+        if result.episode is not None:
+            shared_manifest["episode_id"] = result.episode.episode_id
+            shared_manifest["provenance"] = result.episode.provenance
         self._write_json(
             public_dir / "dataset_manifest.json",
             {
@@ -223,3 +240,11 @@ class TaskReleaseExporter:
             qtype = item.planner_input.qtype
             counts[qtype] = counts.get(qtype, 0) + 1
         return dict(sorted(counts.items()))
+
+    @staticmethod
+    def _catalog_id(
+        item: EvidenceCatalogEntry | CtdEvidenceCatalogEntry,
+    ) -> str:
+        if isinstance(item, CtdEvidenceCatalogEntry):
+            return item.catalog_id
+        return item.edge.edge_id

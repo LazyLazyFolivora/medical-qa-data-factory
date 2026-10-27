@@ -1,11 +1,14 @@
-"""A narrow real-provider vertical slice for constrained task generation."""
+"""Validated task services for PrimeKG and CTD-backed questions."""
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 
 from pydantic import Field, model_validator
 
 from ..domain.common import ContractModel
+from ..evidence_enrichment.models import CtdEvidenceRecord
 from ..knowledge_graph.contracts import (
     GraphEdge,
     GraphEntity,
@@ -13,25 +16,43 @@ from ..knowledge_graph.contracts import (
     NeighborQuery,
 )
 from ..knowledge_graph.ports import KnowledgeGraphProvider
-from .task_candidates import ConstrainedIntersectionCandidateSource
+from .evidence_fusion import CtdEvidenceFusion
+from .logical_query import LogicalDirection
+from .ctd_world_evaluation import (
+    CtdWorldEvaluator,
+    FusionCtdCandidateAssessor,
+    StaticCtdDiseaseCategoryResolver,
+    StaticCtdDiseaseIdentityResolver,
+)
+from .task_candidates import (
+    ConstrainedIntersectionCandidateSource,
+    CtdCandidateProposal,
+    CtdStudyContextCandidateSource,
+)
 from .task_compiler import TaskCompiler
 from .task_contracts import (
     EvaluationTarget,
     PlannerQuestionInput,
+    StudyContext,
     ValidatedTask,
     ValidationEnvironment,
     ValidationReport,
     promote_validated_task,
 )
 from .task_realization import (
+    CtdTaskQuestionWriter,
+    CtdTaskTextSemanticVerifier,
     QuestionVariant,
     TaskQuestionWriter,
     TaskTextSemanticVerifier,
     TextSemanticReport,
 )
-from .task_validation import TaskValidator, validation_report_id_for
+from .task_validation import (
+    CtdTaskValidator,
+    TaskValidator,
+    validation_report_id_for,
+)
 from .world_evaluation import PrimeKGWorldEvaluator
-from .logical_query import LogicalDirection
 
 
 @dataclass(frozen=True)
@@ -129,6 +150,45 @@ class EvidenceCatalogEntry(ContractModel):
     generation_trace_ids: list[str] = Field(min_length=1)
 
 
+class CtdEvidenceCatalogEntry(ContractModel):
+    catalog_id: str = Field(min_length=1)
+    snapshot_id: str = Field(min_length=1)
+    record: CtdEvidenceRecord
+    fusion: CtdEvidenceFusion | None = None
+
+
+class CtdGenerationEpisode(ContractModel):
+    episode_id: str = Field(min_length=1)
+    seed_entity_id: str = Field(min_length=1)
+    chemical_id: str = Field(min_length=1)
+    snapshot_id: str = Field(min_length=1)
+    environment_id: str = Field(min_length=1)
+    candidate_count: int = Field(ge=0)
+    competitor_count: int = Field(ge=0)
+    published_count: int = Field(ge=0)
+    search_complete: bool
+    stop_reason: str = Field(min_length=1)
+    evidence_gaps: list[str] = Field(default_factory=list)
+    provenance: dict[str, str] = Field(default_factory=dict)
+
+
+class CtdTaskRunSpec(ContractModel):
+    """Pinned inputs for one formal CTD task-generation run."""
+
+    seed_entity_id: str = Field(min_length=1)
+    chemical_id: str = Field(min_length=1)
+    snapshot_id: str = Field(min_length=1)
+    context: StudyContext
+    identity_mapping: dict[str, str | list[str]]
+    category_mapping: dict[str, list[str]]
+    fusions: dict[str, CtdEvidenceFusion] = Field(default_factory=dict)
+    provider_failures: dict[str, str] = Field(default_factory=dict)
+    environment: ValidationEnvironment
+    model_config_id: str = "unknown"
+    prompt_version: str = "curator-v2"
+    code_commit: str = "unknown"
+
+
 class TaskGenerationResult(ContractModel):
     seed_entity_id: str = Field(min_length=1)
     environment_id: str = Field(min_length=1)
@@ -136,8 +196,11 @@ class TaskGenerationResult(ContractModel):
     published: list[PublishedTask] = Field(default_factory=list)
     rejections: list[TaskGenerationRejection] = Field(default_factory=list)
     validation_reports: list[ValidationReport] = Field(default_factory=list)
-    evidence_catalog: list[EvidenceCatalogEntry] = Field(default_factory=list)
+    evidence_catalog: list[
+        EvidenceCatalogEntry | CtdEvidenceCatalogEntry
+    ] = Field(default_factory=list)
     generation_traces: list[GraphQueryTrace] = Field(default_factory=list)
+    episode: CtdGenerationEpisode | None = None
 
 
 class ConstrainedTaskGenerationService:
@@ -368,3 +431,280 @@ class ConstrainedTaskGenerationService:
             trace_ids.setdefault(edge.edge_id, set()).update(
                 scan.trace_ids_by_edge[edge.edge_id]
             )
+
+
+class CtdTaskGenerationService:
+    """Assemble the formal CTD task path into one validated release result."""
+
+    version = "ctd-task-generation-service-v1"
+
+    def __init__(
+        self,
+        *,
+        candidate_source: CtdStudyContextCandidateSource,
+        compiler: TaskCompiler,
+        validator: CtdTaskValidator,
+        evidence_by_record: dict[str, CtdEvidenceFusion],
+        writer: CtdTaskQuestionWriter | None = None,
+        text_verifier: CtdTaskTextSemanticVerifier | None = None,
+        provenance: dict[str, str] | None = None,
+    ) -> None:
+        self.candidate_source = candidate_source
+        self.compiler = compiler
+        self.validator = validator
+        self.evidence_by_record = dict(evidence_by_record)
+        self.writer = writer or CtdTaskQuestionWriter()
+        self.text_verifier = (
+            text_verifier or CtdTaskTextSemanticVerifier()
+        )
+        self.provenance = dict(provenance or {})
+
+    def generate(
+        self,
+        *,
+        seed_entity_id: str,
+        chemical_id: str,
+        snapshot_id: str,
+        context: StudyContext,
+        environment: ValidationEnvironment,
+    ) -> TaskGenerationResult:
+        proposal = self.candidate_source.propose(
+            seed_entity_id=seed_entity_id,
+            chemical_id=chemical_id,
+            snapshot_id=snapshot_id,
+            context=context,
+        )
+        evaluation = proposal.evaluation
+        rejections: list[TaskGenerationRejection] = []
+        reports: list[ValidationReport] = []
+        published: list[PublishedTask] = []
+        if proposal.candidate is None:
+            rejections.append(
+                TaskGenerationRejection(
+                    candidate_id=self._rejected_candidate_id(
+                        snapshot_id,
+                        chemical_id,
+                        context,
+                    ),
+                    stage="candidate_source",
+                    reason_codes=list(proposal.reason_codes),
+                )
+            )
+        else:
+            candidate = proposal.candidate
+            try:
+                task = self.compiler.compile(candidate, environment)
+            except ValueError as exc:
+                rejections.append(
+                    TaskGenerationRejection(
+                        candidate_id=candidate.candidate_id,
+                        stage="task_compilation",
+                        reason_codes=[str(exc)],
+                    )
+                )
+            else:
+                report = self.validator.validate(
+                    task,
+                    slice_answer_ids=candidate.proposed_answer_ids,
+                )
+                reports.append(report)
+                if not report.passed:
+                    rejections.append(
+                        TaskGenerationRejection(
+                            candidate_id=candidate.candidate_id,
+                            stage="task_validation",
+                            reason_codes=list(report.reason_codes),
+                        )
+                    )
+                else:
+                    validated = promote_validated_task(task, report)
+                    qid = f"question-{task.task_id}"
+                    try:
+                        variant = self.writer.write(validated, qid=qid)
+                    except ValueError as exc:
+                        rejections.append(
+                            TaskGenerationRejection(
+                                candidate_id=candidate.candidate_id,
+                                stage="question_realization",
+                                reason_codes=[str(exc)],
+                            )
+                        )
+                    else:
+                        semantic = self.text_verifier.verify(
+                            variant,
+                            validated,
+                        )
+                        if not semantic.passed:
+                            rejections.append(
+                                TaskGenerationRejection(
+                                    candidate_id=candidate.candidate_id,
+                                    stage="text_semantic_verification",
+                                    reason_codes=list(
+                                        semantic.reason_codes
+                                    ),
+                                )
+                            )
+                        else:
+                            planner = PlannerQuestionInput(
+                                qid=qid,
+                                question=variant.question_text,
+                                qtype=task.question_type,
+                                budget={
+                                    "ctd_access": 8,
+                                    "pubmed_access": 12,
+                                },
+                                max_steps=8,
+                                sufficiency_threshold=1.0,
+                                environment_ref=environment.environment_id,
+                            )
+                            published.append(
+                                PublishedTask(
+                                    planner_input=planner,
+                                    evaluation_target=(
+                                        EvaluationTarget.from_validated_task(
+                                            qid,
+                                            validated,
+                                        )
+                                    ),
+                                    validated_task=validated,
+                                    validation_report=report,
+                                    question_variant=variant,
+                                    semantic_report=semantic,
+                                )
+                            )
+
+        episode = self._episode(
+            seed_entity_id=seed_entity_id,
+            chemical_id=chemical_id,
+            snapshot_id=snapshot_id,
+            environment=environment,
+            proposal=proposal,
+            published_count=len(published),
+            provenance={
+                "service_version": self.version,
+                "validator_version": self.validator.version,
+                "writer_version": self.writer.version,
+                "verifier_version": self.text_verifier.version,
+                "task_schema_version": "task-construction-v2",
+                "pubmed_snapshots": ",".join(
+                    sorted(
+                        {
+                            assessment.span.snapshot_id
+                            for fusion in self.evidence_by_record.values()
+                            for assessment in fusion.pubmed_assessments
+                        }
+                    )
+                ),
+                "normalizer_versions": ",".join(
+                    sorted(
+                        {
+                            fusion.claim.normalizer_version
+                            for fusion in self.evidence_by_record.values()
+                            if fusion.claim is not None
+                        }
+                    )
+                ),
+                **self.provenance,
+            },
+        )
+        catalog = []
+        for answer_id in sorted(evaluation.answer_records):
+            for record in evaluation.answer_records[answer_id]:
+                locator = record.source_record_locator or record.content_hash
+                catalog.append(
+                    CtdEvidenceCatalogEntry(
+                        catalog_id=(
+                            f"{record.source_snapshot_id}:{locator}"
+                        ),
+                        snapshot_id=record.source_snapshot_id,
+                        record=record,
+                        fusion=self.evidence_by_record.get(locator),
+                    )
+                )
+        return TaskGenerationResult(
+            seed_entity_id=seed_entity_id,
+            environment_id=environment.environment_id,
+            candidates_seen=(1 if proposal.candidate is not None else 0),
+            published=published,
+            rejections=rejections,
+            validation_reports=reports,
+            evidence_catalog=sorted(
+                catalog,
+                key=lambda item: item.catalog_id,
+            ),
+            generation_traces=[],
+            episode=episode,
+        )
+
+    @staticmethod
+    def _rejected_candidate_id(
+        snapshot_id: str,
+        chemical_id: str,
+        context: StudyContext,
+    ) -> str:
+        digest = hashlib.sha256(
+            json.dumps(
+                {
+                    "snapshot_id": snapshot_id,
+                    "chemical_id": chemical_id,
+                    "context": context.model_dump(mode="json"),
+                },
+                sort_keys=True,
+                ensure_ascii=False,
+            ).encode("utf-8")
+        ).hexdigest()[:24]
+        return f"candidate-ctd-rejected-{digest}"
+
+    @staticmethod
+    def _episode(
+        *,
+        seed_entity_id: str,
+        chemical_id: str,
+        snapshot_id: str,
+        environment: ValidationEnvironment,
+        proposal: CtdCandidateProposal,
+        published_count: int,
+        provenance: dict[str, str],
+    ) -> CtdGenerationEpisode:
+        evaluation = proposal.evaluation
+        if any(
+            item.status == "provider_failed"
+            for item in evaluation.competitor_outcomes
+        ) or "ctd_provider_unavailable" in evaluation.reason_codes:
+            stop_reason = "provider_unavailable"
+        elif not evaluation.result_complete:
+            stop_reason = "search_incomplete"
+        elif published_count:
+            stop_reason = "question_targets_met"
+        else:
+            stop_reason = "required_searches_completed"
+        identity = hashlib.sha256(
+            json.dumps(
+                {
+                    "seed_entity_id": seed_entity_id,
+                    "chemical_id": chemical_id,
+                    "snapshot_id": snapshot_id,
+                    "environment_id": environment.environment_id,
+                },
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()[:24]
+        return CtdGenerationEpisode(
+            episode_id=f"ctd-episode-{identity}",
+            seed_entity_id=seed_entity_id,
+            chemical_id=chemical_id,
+            snapshot_id=snapshot_id,
+            environment_id=environment.environment_id,
+            candidate_count=1 if proposal.candidate is not None else 0,
+            competitor_count=len(evaluation.competitor_outcomes),
+            published_count=published_count,
+            search_complete=evaluation.result_complete,
+            stop_reason=stop_reason,
+            evidence_gaps=sorted(
+                {
+                    *evaluation.reason_codes,
+                    *proposal.reason_codes,
+                }
+            ),
+            provenance=dict(sorted(provenance.items())),
+        )
