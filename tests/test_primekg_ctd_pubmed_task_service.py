@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import datetime, timezone
 
 from medical_qa_data_factory.evidence_enrichment.ctd import (
@@ -16,7 +17,12 @@ from medical_qa_data_factory.evidence_enrichment.pubmed import (
     PubMedProviderStatus,
 )
 from medical_qa_data_factory.generation.primekg_ctd_pubmed import (
+    PrimeKgCtdChemicalMapper,
     PrimeKgCtdDiseaseMapper,
+)
+from medical_qa_data_factory.evidence_enrichment.primekg_ctd_identity import (
+    PrimeKgCtdChemicalCrosswalk,
+    PrimeKgCtdChemicalCrosswalkEntry,
 )
 from medical_qa_data_factory.generation.primekg_ctd_pubmed_task import (
     PrimeKGCtdPubmedTaskService,
@@ -162,14 +168,26 @@ class _PubMed:
         for pmid in requested:
             record = self.by_pmid[pmid]
             if "marker/mechanism" in record.direct_evidence:
+                study_text = (
+                    "in an observational study and a controlled study"
+                    if record.disease_name == "Disease B"
+                    else "in a controlled study"
+                )
                 abstract = (
                     f"Test chemical exposure was associated with "
-                    f"{record.disease_name} in a controlled study."
+                    f"{record.disease_name} {study_text} of a "
+                    "metabolic disease."
                 )
             else:
+                study_text = (
+                    "in an observational study and a controlled study"
+                    if record.disease_name == "Disease B"
+                    else "in a controlled study"
+                )
                 abstract = (
                     f"Test chemical was studied as a treatment for "
-                    f"{record.disease_name} in a controlled study."
+                    f"{record.disease_name} {study_text} of a "
+                    "metabolic disease."
                 )
             documents.append(
                 PubMedEvidenceRecord(
@@ -207,6 +225,18 @@ def _crosswalk() -> CtdDiseaseCrosswalk:
     )
 
 
+def _chemical_crosswalk() -> PrimeKgCtdChemicalCrosswalk:
+    return PrimeKgCtdChemicalCrosswalk(
+        entries=[
+            PrimeKgCtdChemicalCrosswalkEntry(
+                primekg_chemical_id=SEED_ID,
+                ctd_chemical_id="C000001",
+                source_edge_ids=["primekg-edge-source"],
+            )
+        ]
+    )
+
+
 def _environment() -> ValidationEnvironment:
     return ValidationEnvironment(
         environment_id="primekg-ctd-pubmed-test-world",
@@ -235,12 +265,23 @@ def _extraction(request) -> dict:
     edge = request.payload["primekg_edge"]
     record = request.payload["pubmed_records"][0]
     answer_name = edge["object_name"]
+    study_text = (
+        "in an observational study and a controlled study"
+        if answer_name == "Disease B"
+        else "in a controlled study"
+    )
     quote = (
-        f"was studied as a treatment for {answer_name} in a controlled study"
+        f"was studied as a treatment for {answer_name} {study_text} "
+        "of a metabolic disease"
     )
     abstract = record["abstract"]
     start = abstract.index(quote)
-    supports = edge["object_id"] == ANSWER_A_ID
+    supports = True
+    study_type = (
+        "observational study"
+        if edge["object_id"] == ANSWER_B_ID
+        else "controlled study"
+    )
     finding = {
         "pmid": record["pmid"],
         "verdict": "supports" if supports else "context_only",
@@ -249,11 +290,13 @@ def _extraction(request) -> dict:
         "polarity": "neutral",
         "claim_text": (
             f"Test chemical was studied as a treatment for {answer_name}."
-            if supports
-            else ""
         ),
         "qualifiers": {
-            "study_type": "controlled study",
+            "study_type": study_type,
+            "disease_category": "metabolic disease",
+        },
+        "qualifier_evidence": {
+            "study_type": study_type,
             "disease_category": "metabolic disease",
         },
         "citation": {
@@ -291,6 +334,11 @@ def _question_writer(request) -> dict:
 def _semantic_verifier(request) -> dict:
     task = request.payload["validated_task"]
     context = task["public_study_context"]
+    strength = (
+        "research"
+        if context["relation_intent"] == "therapeutic_research"
+        else "association"
+    )
     return {
         "chemical_name": task["public_entity_names"][task["seed_entity_id"]],
         "relation_intent": context["relation_intent"],
@@ -305,6 +353,8 @@ def _semantic_verifier(request) -> dict:
         "temporal_scope": context["temporal_scope"],
         "additional_qualifiers": context["additional_qualifiers"],
         "cardinality": "exactly_one",
+        "relation_strength": strength,
+        "answer_disclosed": False,
         "uncertain": False,
     }
 
@@ -320,6 +370,8 @@ def _model(*, support_both: bool = False) -> FakeStructuredModel:
                 "Test chemical was studied as a treatment for "
                 f"{request.payload['primekg_edge']['object_name']}."
             )
+            finding["qualifiers"]["study_type"] = "controlled study"
+            finding["qualifier_evidence"]["study_type"] = "controlled study"
         return payload
 
     return FakeStructuredModel(
@@ -336,21 +388,37 @@ def _association_model() -> FakeStructuredModel:
         edge = request.payload["primekg_edge"]
         record = request.payload["pubmed_records"][0]
         answer_name = edge["object_name"]
-        quote = f"was associated with {answer_name} in a controlled study"
+        study_text = (
+            "in an observational study and a controlled study"
+            if answer_name == "Disease B"
+            else "in a controlled study"
+        )
+        quote = (
+            f"was associated with {answer_name} {study_text} "
+            "of a metabolic disease"
+        )
         message = f"Test chemical exposure {quote}."
         start = message.index(quote)
-        supports = edge["object_id"] == ANSWER_A_ID
+        study_type = (
+            "observational study"
+            if edge["object_id"] == ANSWER_B_ID
+            else "controlled study"
+        )
         return {
             "findings": [
                 {
                     "pmid": record["pmid"],
-                    "verdict": "supports" if supports else "context_only",
-                    "intent": "association_research" if supports else None,
+                    "verdict": "supports",
+                    "intent": "association_research",
                     "support_level": "literature_supported",
                     "polarity": "neutral",
-                    "claim_text": message if supports else "",
+                    "claim_text": message,
                     "qualifiers": {
-                        "study_type": "controlled study",
+                        "study_type": study_type,
+                        "disease_category": "metabolic disease",
+                    },
+                    "qualifier_evidence": {
+                        "study_type": study_type,
                         "disease_category": "metabolic disease",
                     },
                     "citation": {
@@ -376,6 +444,7 @@ def _service(
     *,
     records: list[CtdEvidenceRecord] | None = None,
     crosswalk: CtdDiseaseCrosswalk | None = None,
+    chemical_crosswalk: PrimeKgCtdChemicalCrosswalk | None = None,
     model: FakeStructuredModel | None = None,
     edges: list[GraphEdge] | None = None,
 ) -> PrimeKGCtdPubmedTaskService:
@@ -403,6 +472,9 @@ def _service(
         ctd_index=_CtdIndex(ctd_records),
         pubmed=_PubMed(ctd_records),
         disease_mapper=PrimeKgCtdDiseaseMapper(crosswalk or _crosswalk()),
+        chemical_mapper=PrimeKgCtdChemicalMapper(
+            chemical_crosswalk or _chemical_crosswalk()
+        ),
         model=model or _model(),
     )
 
@@ -432,6 +504,16 @@ def test_service_publishes_one_natural_question_with_complete_pubmed_competition
         ANSWER_A_ID: "matched",
         ANSWER_B_ID: "not_matched",
     }
+    study_counterfactual = next(
+        item
+        for item in published.validation_report.qualifier_counterfactuals
+        if item.qualifier == "study_type"
+    )
+    assert study_counterfactual.discriminates is True
+    assert study_counterfactual.world_answer_ids == [
+        ANSWER_A_ID,
+        ANSWER_B_ID,
+    ]
     assert "Disease A" not in published.planner_input.question
     assert "primekg:" not in published.planner_input.question
     assert published.semantic_report.passed is True
@@ -474,6 +556,20 @@ def test_two_evidence_supported_primekg_answers_are_rejected():
     assert "world_cardinality_mismatch" in (
         result.validation_reports[0].reason_codes
     )
+
+
+def test_non_discriminating_public_qualifier_is_rejected():
+    result = _service(
+        model=_model(),
+        edges=[_edge(ANSWER_A_ID, "Disease A", source="CTD")],
+    ).generate(
+        edge=_edge(ANSWER_A_ID, "Disease A", source="CTD"),
+        evidence_kind="therapeutic",
+        environment=_environment(),
+    )
+
+    assert result.published == []
+    assert "shortcut_detected" in result.validation_reports[0].reason_codes
 
 
 def test_marker_mechanism_support_produces_neutral_association_task():
@@ -554,6 +650,44 @@ def test_caller_cannot_label_a_provider_edge_as_ctd():
     assert "source_not_ctd" in result.rejections[0].reason_codes
 
 
+def test_unmapped_primekg_chemical_blocks_task_generation():
+    result = _service(
+        model=_model(),
+        chemical_crosswalk=PrimeKgCtdChemicalCrosswalk(),
+    ).generate(
+        edge=_edge(ANSWER_A_ID, "Disease A", source="CTD"),
+        evidence_kind="therapeutic",
+        environment=_environment(),
+    )
+
+    assert result.published == []
+    assert result.rejections[0].stage == "ctd_identity"
+    assert "ctd_chemical_mapping_unmapped" in (
+        result.rejections[0].reason_codes
+    )
+
+
+def test_qualifier_without_verbatim_pubmed_evidence_is_rejected():
+    model = _model()
+
+    def unsupported_qualifier(request):
+        payload = _extraction(request)
+        finding = payload["findings"][0]
+        finding["qualifier_evidence"]["population"] = "children"
+        finding["qualifiers"]["population"] = "children"
+        return payload
+
+    model.set_response("evidence_curator", unsupported_qualifier)
+    result = _service(model=model).generate(
+        edge=_edge(ANSWER_A_ID, "Disease A", source="CTD"),
+        evidence_kind="therapeutic",
+        environment=_environment(),
+    )
+
+    assert result.published == []
+    assert "qualifier_not_supported" in result.rejections[0].reason_codes
+
+
 def test_pubmed_snapshot_outside_environment_blocks_publication():
     environment = _environment()
     poison = environment.model_copy(
@@ -602,6 +736,7 @@ def test_release_keeps_pubmed_truth_and_competition_hidden(tmp_path):
         "pubmed_assessments.jsonl",
         "ctd_pubmed_fusions.jsonl",
         "competitor_reports.jsonl",
+        "qualifier_counterfactuals.jsonl",
     }.issubset(hidden)
     public_payload = "\n".join(
         path.read_text(encoding="utf-8")
@@ -613,3 +748,11 @@ def test_release_keeps_pubmed_truth_and_competition_hidden(tmp_path):
     assert "pubmed-corpus." in (
         output / "hidden" / "pubmed_corpus_manifest.json"
     ).read_text(encoding="utf-8")
+    quality = json.loads(
+        (output / "hidden" / "quality_report.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert quality["question_diversity"]["status"] == (
+        "not_applicable_single_question"
+    )

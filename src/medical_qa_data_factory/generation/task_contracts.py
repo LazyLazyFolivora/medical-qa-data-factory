@@ -386,6 +386,16 @@ class AnswerCandidateOutcome(ContractModel):
         return self
 
 
+class QualifierCounterfactualResult(ContractModel):
+    """Competition result after publicly removing one task condition."""
+
+    qualifier: str = Field(min_length=1)
+    world_answer_ids: list[str] = Field(default_factory=list)
+    result_complete: bool
+    discriminates: bool
+    reason_codes: list[str] = Field(default_factory=list)
+
+
 class ValidationReport(ContractModel):
     """Immutable result of executing and checking a TaskSpec."""
 
@@ -404,6 +414,9 @@ class ValidationReport(ContractModel):
     matched_claim_ids: list[str] = Field(default_factory=list)
     supporting_evidence_ids: list[str] = Field(default_factory=list)
     competitor_outcomes: list[AnswerCandidateOutcome] = Field(
+        default_factory=list
+    )
+    qualifier_counterfactuals: list[QualifierCounterfactualResult] = Field(
         default_factory=list
     )
     evidence_dependency_digest: str | None = None

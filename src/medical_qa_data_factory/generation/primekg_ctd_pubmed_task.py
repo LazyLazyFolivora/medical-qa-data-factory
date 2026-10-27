@@ -9,6 +9,8 @@ from pydantic import Field
 
 from ..domain.common import ContractModel, utc_now
 from ..evidence_enrichment.ctd import CtdEvidenceIndex, CtdMappingStatus
+from ..evidence_enrichment.contracts import predicate_family_for_intent
+from ..evidence_enrichment.models import QuestionIntent
 from ..evidence_enrichment.pubmed import PubMedClient
 from ..knowledge_graph.contracts import (
     GraphEdge,
@@ -17,7 +19,10 @@ from ..knowledge_graph.contracts import (
     NeighborQuery,
 )
 from ..knowledge_graph.ports import KnowledgeGraphProvider
-from .ctd_world_evaluation import UNKNOWN_OUTCOME_STATUSES
+from .ctd_world_evaluation import (
+    UNKNOWN_OUTCOME_STATUSES,
+    qualifiers_match,
+)
 from .evidence_fusion import (
     CtdEvidenceFusion,
     CtdEvidenceFusionStatus,
@@ -26,11 +31,17 @@ from .evidence_fusion import (
 from .logical_query import LogicalDirection, QueryStep
 from .primekg_ctd_pubmed import (
     EvidenceKind,
+    PrimeKgCtdChemicalMapper,
     PrimeKgCtdDiseaseMapper,
     PrimeKgCtdPubMedResult,
     PrimeKgCtdPubMedService,
 )
 from .prompt_writing import (
+    STYLE_PROFILE,
+    VERIFIER_PROMPT_HASH,
+    VERIFIER_SYSTEM_PROMPT_VERSION,
+    WRITER_PROMPT_HASH,
+    WRITER_SYSTEM_PROMPT_VERSION,
     PromptQuestionSemanticVerifier,
     PromptQuestionWriter,
 )
@@ -40,6 +51,7 @@ from .task_contracts import (
     AnswerCandidateOutcome,
     EvaluationTarget,
     PlannerQuestionInput,
+    QualifierCounterfactualResult,
     StudyContext,
     StudyRelationIntent,
     TaskSpec,
@@ -82,6 +94,7 @@ class PrimeKGCtdPubmedTaskService:
         ctd_index: CtdEvidenceIndex,
         pubmed: PubMedClient,
         disease_mapper: PrimeKgCtdDiseaseMapper,
+        chemical_mapper: PrimeKgCtdChemicalMapper,
         model,
         page_size: int = 500,
     ) -> None:
@@ -90,6 +103,7 @@ class PrimeKGCtdPubmedTaskService:
         self.provider = provider
         self.ctd_index = ctd_index
         self.disease_mapper = disease_mapper
+        self.chemical_mapper = chemical_mapper
         self.page_size = page_size
         self.model = model
         self.evidence_service = PrimeKgCtdPubMedService(
@@ -132,8 +146,38 @@ class PrimeKGCtdPubmedTaskService:
             item.provider_id == "pubmed" for item in environment.providers
         ):
             raise ValueError("PubMed snapshot is outside the validation world")
+        if (
+            self.chemical_mapper.primekg_snapshot_id is not None
+            and self.chemical_mapper.primekg_snapshot_id
+            != snapshot.data_snapshot_id
+        ):
+            raise ValueError(
+                "chemical crosswalk PrimeKG snapshot does not match provider"
+            )
+        if (
+            self.chemical_mapper.ctd_snapshot_id is not None
+            and self.chemical_mapper.ctd_snapshot_id != ctd_snapshot
+        ):
+            raise ValueError(
+                "chemical crosswalk CTD snapshot does not match index"
+            )
 
         candidate_id = self._candidate_id(edge, evidence_kind, snapshot.data_snapshot_id)
+        chemical_mapping = self.chemical_mapper.resolve(
+            edge.head.canonical_id
+        )
+        if (
+            chemical_mapping.status is not CtdMappingStatus.MAPPED_CROSSWALK
+            or len(chemical_mapping.ctd_chemical_ids) != 1
+        ):
+            return self._rejected_result(
+                edge=edge,
+                candidate_id=candidate_id,
+                environment=environment,
+                stage="ctd_identity",
+                reasons=chemical_mapping.reason_codes,
+            )
+        ctd_chemical_id = chemical_mapping.ctd_chemical_ids[0]
         if str(edge.source or "").casefold() != "ctd":
             return self._rejected_result(
                 edge=edge,
@@ -212,13 +256,17 @@ class PrimeKGCtdPubmedTaskService:
                     evidence_kind=evidence_kind,
                     source_edge_id=candidate_edge.edge_id,
                     retrieved_at=utc_now(),
+                    ctd_chemical_id=ctd_chemical_id,
                 )
-            except Exception:
+            except Exception as exc:
                 evidence = None
                 outcome = AnswerCandidateOutcome(
                     answer_id=answer_id,
                     status="provider_failed",
-                    reason_codes=["primekg_ctd_pubmed_provider_failed"],
+                    reason_codes=[
+                        "primekg_ctd_pubmed_provider_failed",
+                        _provider_failure_code(exc),
+                    ],
                 )
             else:
                 outcome = self._to_competitor_outcome(evidence)
@@ -243,7 +291,11 @@ class PrimeKGCtdPubmedTaskService:
         target = next(
             item for item in outcomes if item.edge.tail.canonical_id == edge.tail.canonical_id
         )
-        if target.evidence is None or target.evidence.fusion is None:
+        if (
+            target.evidence is None
+            or target.evidence.status != "accepted"
+            or target.evidence.fusion is None
+        ):
             return self._rejected_result(
                 edge=edge,
                 candidate_id=candidate_id,
@@ -275,6 +327,19 @@ class PrimeKGCtdPubmedTaskService:
                 traces=traces,
             )
 
+        outcomes = [
+            item.model_copy(
+                update={
+                    "outcome": self._contextual_outcome(item, context)
+                }
+            )
+            for item in outcomes
+        ]
+        target = next(
+            item
+            for item in outcomes
+            if item.edge.tail.canonical_id == edge.tail.canonical_id
+        )
         target_fusion = target.evidence.fusion
         assert target_fusion.claim is not None
         evidence_ids = sorted(
@@ -513,11 +578,14 @@ class PrimeKGCtdPubmedTaskService:
         ):
             status = "unreadable"
         elif reasons & {
-            "ctd_direct_evidence_missing",
             "pubmed_document_missing",
             "claim_not_supported",
         }:
             status = "not_evaluated"
+        elif "ctd_direct_evidence_missing" in reasons:
+            # The identity map resolved and CTD was read successfully; the
+            # requested direct-evidence predicate is known to be absent.
+            status = "not_matched"
         elif reason := next(
             (
                 reason
@@ -535,6 +603,48 @@ class PrimeKGCtdPubmedTaskService:
             answer_id=result.primekg_object_id,
             status=status,
             reason_codes=sorted(reasons),
+        )
+
+    @staticmethod
+    def _contextual_outcome(
+        item: PrimeKgCtdPubmedTaskOutcome,
+        context: StudyContext,
+    ) -> AnswerCandidateOutcome:
+        if item.outcome.status in UNKNOWN_OUTCOME_STATUSES:
+            return item.outcome
+        result = item.evidence
+        if (
+            result is None
+            or result.status != "accepted"
+            or result.fusion is None
+            or result.fusion.claim is None
+        ):
+            return item.outcome
+        claim = result.fusion.claim
+        expected_predicate = predicate_family_for_intent(
+            QuestionIntent(context.relation_intent),
+            fallback_relation="chemical_disease_association",
+        )
+        if (
+            claim.predicate_family != expected_predicate
+            or claim.polarity != context.polarity
+        ):
+            return AnswerCandidateOutcome(
+                answer_id=result.primekg_object_id,
+                status="not_matched",
+                reason_codes=["claim_semantics_mismatch"],
+            )
+        if not qualifiers_match(claim.qualifiers, context):
+            return AnswerCandidateOutcome(
+                answer_id=result.primekg_object_id,
+                status="not_matched",
+                reason_codes=["qualifier_not_supported"],
+            )
+        return AnswerCandidateOutcome(
+            answer_id=result.primekg_object_id,
+            status="matched",
+            claim_ids=[claim.claim_id],
+            evidence_ids=list(claim.supporting_evidence_ids),
         )
 
     @staticmethod
@@ -650,6 +760,21 @@ class PrimeKGCtdPubmedTaskService:
             reasons.add("evidence_dependency_mismatch")
             result_complete = False
 
+        counterfactuals = self._qualifier_counterfactuals(
+            task,
+            evidence_outcomes,
+            baseline_answers=set(world_answers),
+        )
+        if any(not item.result_complete for item in counterfactuals):
+            reasons.add("incomplete_search")
+            result_complete = False
+        if not any(
+            item.discriminates
+            and item.qualifier != "disease_category"
+            for item in counterfactuals
+        ):
+            reasons.add("shortcut_detected")
+
         reason_codes = sorted(reasons)
         report_id = validation_report_id_for(
             task,
@@ -657,10 +782,13 @@ class PrimeKGCtdPubmedTaskService:
             world_answer_ids=world_answers,
             result_complete=result_complete,
             reason_codes=reason_codes,
-            rows_examined=len(competitor_outcomes),
+            rows_examined=(
+                len(competitor_outcomes) * (len(counterfactuals) + 1)
+            ),
             matched_claim_ids=matched_claim_ids,
             supporting_evidence_ids=supporting_evidence_ids,
             competitor_outcomes=competitor_outcomes,
+            qualifier_counterfactuals=counterfactuals,
             evidence_dependency_digest=task.evidence_dependency_digest(),
         )
         return ValidationReport(
@@ -674,14 +802,87 @@ class PrimeKGCtdPubmedTaskService:
             slice_answer_ids=[task.proposed_answer_contract.canonical_answer_ids[0]],
             world_answer_ids=world_answers,
             result_complete=result_complete,
-            rows_examined=len(competitor_outcomes),
+            rows_examined=(
+                len(competitor_outcomes) * (len(counterfactuals) + 1)
+            ),
             matched_claim_ids=matched_claim_ids,
             supporting_evidence_ids=supporting_evidence_ids,
             competitor_outcomes=list(competitor_outcomes),
+            qualifier_counterfactuals=counterfactuals,
             evidence_dependency_digest=task.evidence_dependency_digest(),
             validator_version=self.version,
             validated_at=utc_now(),
         )
+
+    def _qualifier_counterfactuals(
+        self,
+        task: TaskSpec,
+        evidence_outcomes: Sequence[PrimeKgCtdPubmedTaskOutcome],
+        *,
+        baseline_answers: set[str],
+    ) -> list[QualifierCounterfactualResult]:
+        context = task.public_study_context
+        if context is None:
+            return []
+        relaxed_contexts: list[tuple[str, StudyContext]] = []
+        for field in (
+            "population",
+            "exposure_context",
+            "dose_or_regimen",
+            "exposure_duration",
+            "study_type",
+            "sample_type",
+            "temporal_scope",
+        ):
+            if getattr(context, field):
+                relaxed_contexts.append(
+                    (
+                        field,
+                        context.model_copy(update={field: None}),
+                    )
+                )
+        for key, value in sorted(context.additional_qualifiers.items()):
+            if not value:
+                continue
+            remaining = dict(context.additional_qualifiers)
+            remaining.pop(key, None)
+            relaxed_contexts.append(
+                (
+                    f"additional_qualifiers.{key}",
+                    context.model_copy(
+                        update={"additional_qualifiers": remaining}
+                    ),
+                )
+            )
+        results: list[QualifierCounterfactualResult] = []
+        for qualifier, relaxed in relaxed_contexts:
+            outcomes = [
+                self._contextual_outcome(item, relaxed)
+                for item in evidence_outcomes
+            ]
+            complete = not any(
+                item.status in UNKNOWN_OUTCOME_STATUSES
+                for item in outcomes
+            )
+            answers = sorted(
+                item.answer_id
+                for item in outcomes
+                if item.status == "matched"
+            )
+            results.append(
+                QualifierCounterfactualResult(
+                    qualifier=qualifier,
+                    world_answer_ids=answers,
+                    result_complete=complete,
+                    discriminates=(
+                        complete and set(answers) != baseline_answers
+                    ),
+                    reason_codes=(
+                        ["unknown_competitor"] if not complete else []
+                    ),
+                )
+            )
+        return results
 
     def _result(
         self,
@@ -707,10 +908,21 @@ class PrimeKGCtdPubmedTaskService:
             if search_complete
             else "search_incomplete"
         )
+        chemical_mapping = self.chemical_mapper.resolve(
+            edge.head.canonical_id
+        )
+        chemical_id = (
+            chemical_mapping.ctd_chemical_ids[0]
+            if chemical_mapping.ctd_chemical_ids
+            else (
+                edge.head.native_id
+                or edge.head.canonical_id.rsplit(":", 1)[-1]
+            )
+        )
         episode = CtdGenerationEpisode(
             episode_id=f"primekg-ctd-pubmed-episode-{identity}",
             seed_entity_id=edge.head.canonical_id,
-            chemical_id=edge.head.native_id or edge.head.canonical_id.rsplit(":", 1)[-1],
+            chemical_id=chemical_id,
             snapshot_id=ctd_snapshot,
             environment_id=environment.environment_id,
             candidate_count=len(outcomes),
@@ -729,22 +941,15 @@ class PrimeKGCtdPubmedTaskService:
                 "service_version": self.version,
                 "writer_version": self.writer.version,
                 "verifier_version": self.text_verifier.version,
-                "model_config_id": str(
-                    getattr(
-                        self.model,
-                        "model_config_id",
-                        getattr(
-                            getattr(self.model, "config", None),
-                            "config_hash",
-                            "unknown",
-                        ),
-                    )
-                ),
+                "model_config_id": self._model_config_identity(),
                 "model_role_versions": (
                     "evidence_curator:curator-v2,"
-                    "question_writer:writer-v2,"
-                    "answer_verifier:verifier-v2"
+                    f"question_writer:{WRITER_SYSTEM_PROMPT_VERSION},"
+                    f"answer_verifier:{VERIFIER_SYSTEM_PROMPT_VERSION}"
                 ),
+                "writer_prompt_hash": WRITER_PROMPT_HASH,
+                "verifier_prompt_hash": VERIFIER_PROMPT_HASH,
+                "style_profile": STYLE_PROFILE,
             },
         )
         return TaskGenerationResult(
@@ -759,16 +964,34 @@ class PrimeKGCtdPubmedTaskService:
             episode=episode,
         )
 
+    def _model_config_identity(self) -> str:
+        explicit = getattr(self.model, "model_config_id", None)
+        if explicit:
+            return str(explicit)
+        config = getattr(self.model, "config", None)
+        config_hash = getattr(config, "config_hash", None)
+        if callable(config_hash):
+            config_hash = config_hash()
+        if config_hash:
+            return str(config_hash)
+        return "unknown"
+
     def _catalog(
         self,
         outcomes: Sequence[PrimeKgCtdPubmedTaskOutcome],
     ) -> list[CtdEvidenceCatalogEntry]:
-        records = self.ctd_index.enumerate_diseases(
-            chemical_id=(
-                outcomes[0].edge.head.native_id
-                or outcomes[0].edge.head.canonical_id.rsplit(":", 1)[-1]
+        chemical_id = None
+        if outcomes:
+            mapping = self.chemical_mapper.resolve(
+                outcomes[0].edge.head.canonical_id
             )
-        ) if outcomes else []
+            if mapping.ctd_chemical_ids:
+                chemical_id = mapping.ctd_chemical_ids[0]
+        records = (
+            self.ctd_index.enumerate_diseases(chemical_id=chemical_id)
+            if chemical_id
+            else []
+        )
         result_by_locator = {
             locator: item.evidence
             for item in outcomes
@@ -853,3 +1076,14 @@ class PrimeKGCtdPubmedTaskService:
             ).encode("utf-8")
         ).hexdigest()[:24]
         return f"candidate-primekg-ctd-pubmed-{digest}"
+
+
+def _provider_failure_code(exc: Exception) -> str:
+    code = getattr(exc, "code", None)
+    value = getattr(code, "value", code)
+    label = str(value or type(exc).__name__).casefold()
+    normalized = "".join(
+        character if character.isalnum() or character == "_" else "_"
+        for character in label
+    )
+    return f"provider_error:{normalized[:80]}"

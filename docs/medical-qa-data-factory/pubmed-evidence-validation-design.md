@@ -381,6 +381,11 @@ span 必须相对于明确的 section，不能相对于运行时随意拼接的�
     "duration": null,
     "sample_type": null
   },
+  "qualifier_evidence": {
+    "population": "in adults",
+    "study_type": "randomized trial",
+    "dose_or_exposure": "10 mg daily"
+  },
   "reason_codes": []
 }
 ```
@@ -451,6 +456,10 @@ sha256(citation.quote) == quote_hash
 3. 与支持结论的语义一致；
 4. 不得根据常识补齐；
 5. 不得把动物/细胞条件写成患者条件。
+
+当前实现要求每个非空 qualifier 在 `qualifier_evidence` 中有逐字片段，并且该
+片段必须包含在 `citation.quote` 内。缺项或伪造片段返回
+`qualifier_not_supported`。代码不会因为模型在 qualifier 字段写了合理值就接受它。
 
 ### 8.4 关系强度校验
 
@@ -688,6 +697,11 @@ world_answer_ids = {D}
 ```
 
 才能继续发布。
+
+候选竞争集使用目标题公开的 `StudyContext` 重新判定，而不是把“该 answer 有
+PubMed support”直接当作 matched。发布前还会逐个删除 population、study type、
+dose、duration、sample type 或 additional qualifier 后重算完整答案集。没有任何
+public qualifier 能改变答案集时返回 `shortcut_detected`。
 
 ### 11.3 路径规则
 

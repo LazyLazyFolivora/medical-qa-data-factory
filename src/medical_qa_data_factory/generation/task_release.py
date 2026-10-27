@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -113,6 +115,18 @@ class TaskReleaseExporter:
             hidden_data["generation_episodes.jsonl"] = [
                 result.episode.model_dump(mode="json")
             ]
+        counterfactual_rows = [
+            {
+                "task_id": report.task_id,
+                **item.model_dump(mode="json"),
+            }
+            for report in result.validation_reports
+            for item in report.qualifier_counterfactuals
+        ]
+        if counterfactual_rows:
+            hidden_data["qualifier_counterfactuals.jsonl"] = (
+                counterfactual_rows
+            )
         pubmed_json_files = self._add_pubmed_artifacts(
             result, hidden_data, hidden_dir
         )
@@ -130,6 +144,7 @@ class TaskReleaseExporter:
             "rejected_count": len(result.rejections),
             "rejection_codes": self._count_rejections(result),
             "question_type_distribution": self._count_question_types(result),
+            "question_diversity": self._question_diversity(published),
         }
         if result.episode is not None:
             quality["stop_reason"] = result.episode.stop_reason
@@ -361,6 +376,55 @@ class TaskReleaseExporter:
             qtype = item.planner_input.qtype
             counts[qtype] = counts.get(qtype, 0) + 1
         return dict(sorted(counts.items()))
+
+    @staticmethod
+    def _question_diversity(published) -> dict[str, Any]:
+        questions = [item.planner_input.question for item in published]
+        signatures: list[str] = []
+        for item, question in zip(published, questions, strict=True):
+            public_names = sorted(
+                item.validated_task.task.public_entity_names.values(),
+                key=len,
+                reverse=True,
+            )
+            normalized = question.casefold()
+            for name in public_names:
+                normalized = normalized.replace(name.casefold(), "<entity>")
+            normalized = re.sub(r"\d+(?:\.\d+)?", "<n>", normalized)
+            normalized = re.sub(r"[\W_]+", "", normalized, flags=re.UNICODE)
+            signatures.append(normalized)
+        pair_count = len(questions) * (len(questions) - 1) // 2
+        near_duplicates = sum(
+            1
+            for left in range(len(signatures))
+            for right in range(left + 1, len(signatures))
+            if SequenceMatcher(
+                None,
+                signatures[left],
+                signatures[right],
+                autojunk=False,
+            ).ratio()
+            >= 0.9
+        )
+        counts: dict[str, int] = {}
+        for signature in signatures:
+            counts[signature] = counts.get(signature, 0) + 1
+        return {
+            "status": (
+                "not_applicable_single_question"
+                if len(questions) < 2
+                else "reported"
+            ),
+            "question_count": len(questions),
+            "unique_signature_count": len(counts),
+            "near_duplicate_pair_count": near_duplicates,
+            "near_duplicate_pair_ratio": (
+                near_duplicates / pair_count if pair_count else None
+            ),
+            "max_signature_share": (
+                max(counts.values()) / len(questions) if questions else None
+            ),
+        }
 
     @staticmethod
     def _catalog_id(

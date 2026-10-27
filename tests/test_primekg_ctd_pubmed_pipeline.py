@@ -81,8 +81,11 @@ def _ctd_record() -> CtdEvidenceRecord:
     )
 
 
-ABSTRACT = "Test chemical exposure increased Disease A marker activity."
-QUOTE = "increased Disease A marker activity"
+ABSTRACT = (
+    "In an experimental study of disease, Test chemical exposure "
+    "increased Disease A marker activity."
+)
+QUOTE = ABSTRACT
 
 
 def _pubmed_record() -> PubMedEvidenceRecord:
@@ -120,6 +123,10 @@ def _extraction() -> dict:
                 "polarity": "neutral",
                 "claim_text": "Test chemical increased Disease A marker activity.",
                 "qualifiers": {
+                    "study_type": "experimental study",
+                    "disease_category": "disease",
+                },
+                "qualifier_evidence": {
                     "study_type": "experimental study",
                     "disease_category": "disease",
                 },

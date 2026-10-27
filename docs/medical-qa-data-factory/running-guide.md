@@ -116,7 +116,16 @@ hidden/
 
 ### PrimeKG + CTD + PubMed validated profile
 
-联合入口从一个真实 `source=CTD` 的 PrimeKG candidate edge 出发，枚举同一
+先生成并审计固定快照的 identity map：
+
+```powershell
+python -m medical_qa_data_factory evidence ctd build-identity `
+  --index data/cache/ctd-evidence.sqlite `
+  --primekg-database E:/Cursor/assumption/datasets/PrimeKG/primekg.sqlite `
+  --output data/cache/primekg-ctd-identity.snapshot.json
+```
+
+随后联合入口从一个真实 `source=CTD` 的 PrimeKG candidate edge 出发，枚举同一
 public query 下的全部 PrimeKG 答案，再逐个执行 CTD mapping、CTD direct
 evidence 和 PubMed 全文引用验证：
 
@@ -132,7 +141,7 @@ python -m medical_qa_data_factory generate primekg-ctd-pubmed `
   --target-type disease `
   --evidence-kind marker/mechanism `
   --ctd-index data/cache/ctd-evidence.sqlite `
-  --crosswalk data/cache/primekg-ctd-disease-crosswalk.json `
+  --identity-snapshot data/cache/primekg-ctd-identity.snapshot.json `
   --pubmed-snapshot-id pubmed:2026-10-27 `
   --model-config config/models.json
 ```
@@ -151,6 +160,7 @@ pubmed_spans.jsonl
 pubmed_assessments.jsonl
 ctd_pubmed_fusions.jsonl
 competitor_reports.jsonl
+qualifier_counterfactuals.jsonl
 ```
 
 ## 旧生成/审核兼容入口

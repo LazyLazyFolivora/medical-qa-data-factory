@@ -14,6 +14,10 @@ from .evidence_enrichment.pubmed_evidence import (
     PubMedCorpusManifest,
     PubMedEvidenceSpan,
 )
+from .evidence_enrichment.primekg_ctd_identity import (
+    PrimeKgCtdChemicalCrosswalk,
+    PrimeKgCtdIdentitySnapshot,
+)
 from .generation.evidence_fusion import (
     CtdEvidenceExtraction,
     CtdEvidenceFusion,
@@ -43,6 +47,7 @@ from .generation.task_service import (
     CtdTaskRunSpec,
 )
 from .generation.primekg_ctd_pubmed import (
+    PrimeKgCtdChemicalMapping,
     PrimeKgCtdDiseaseMapping,
     PrimeKgCtdPubMedResult,
 )
@@ -81,6 +86,13 @@ SCHEMA_MODELS = {
     "ctd-generation-episode.schema.json": CtdGenerationEpisode,
     "ctd-task-run-spec.schema.json": CtdTaskRunSpec,
     "primekg-ctd-disease-mapping.schema.json": PrimeKgCtdDiseaseMapping,
+    "primekg-ctd-chemical-mapping.schema.json": PrimeKgCtdChemicalMapping,
+    "primekg-ctd-chemical-crosswalk.schema.json": (
+        PrimeKgCtdChemicalCrosswalk
+    ),
+    "primekg-ctd-identity-snapshot.schema.json": (
+        PrimeKgCtdIdentitySnapshot
+    ),
     "primekg-ctd-pubmed-result.schema.json": PrimeKgCtdPubMedResult,
     "primekg-ctd-pubmed-task-outcome.schema.json": (
         PrimeKgCtdPubmedTaskOutcome

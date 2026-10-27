@@ -16,6 +16,9 @@ from medical_qa_data_factory.evidence_enrichment.ctd import (
     audit_primekg_ctd_edge,
     build_ctd_index,
 )
+from medical_qa_data_factory.evidence_enrichment.primekg_ctd_identity import (
+    build_primekg_ctd_identity_snapshot,
+)
 from medical_qa_data_factory.knowledge_graph.contracts import (
     GraphEdge,
     GraphEntity,
@@ -217,6 +220,54 @@ def test_mapping_audit_distinguishes_exact_crosswalk_ambiguous_and_unmapped(
     )
     assert conflict.status is CtdMappingStatus.AMBIGUOUS
     assert conflict.reason_codes == ["ctd_crosswalk_name_conflict"]
+
+
+def test_identity_snapshot_maps_only_unambiguous_source_records(
+    tmp_path: Path,
+) -> None:
+    index_path = tmp_path / "ctd.sqlite"
+    build_ctd_index(
+        _write_rows(
+            tmp_path,
+            [
+                _row("Exact disease", "MESH:D000010"),
+                _row("Shared disease", "MESH:D000020"),
+                _row("Shared disease", "MESH:D000021"),
+            ],
+        ),
+        index_path,
+    )
+    index = CtdEvidenceIndex(index_path)
+    snapshot, audit = build_primekg_ctd_identity_snapshot(
+        [
+            _edge("Exact disease", "PKG-10"),
+            _edge("Shared disease", "PKG-20"),
+            _edge("Missing disease", "PKG-40"),
+        ],
+        index=index,
+        primekg_snapshot_id="primekg:test",
+    )
+
+    assert snapshot.method == "primekg_ctd_source_exact_alias_v1"
+    assert snapshot.primekg_snapshot_id == "primekg:test"
+    assert snapshot.ctd_snapshot_id == index.metadata()["snapshot_id"]
+    assert snapshot.chemical_crosswalk.ctd_ids_for(
+        "primekg:exposure:D000001"
+    ) == {"D000001"}
+    assert snapshot.disease_crosswalk.ctd_ids_for(
+        "primekg:disease:PKG-10"
+    ) == {"MESH:D000010"}
+    assert snapshot.disease_crosswalk.ctd_ids_for(
+        "primekg:disease:PKG-20"
+    ) == set()
+    assert snapshot.disease_crosswalk.ctd_ids_for(
+        "primekg:disease:PKG-40"
+    ) == set()
+    assert snapshot.audit_counts["mapped_exact"] == 1
+    assert snapshot.audit_counts["ambiguous"] == 1
+    assert snapshot.audit_counts["unmapped"] == 1
+    assert snapshot.fully_mapped_chemical_ids == []
+    assert len(audit) == 3
 
 
 def test_primekg_source_edge_enumeration_uses_complete_bounded_pages(

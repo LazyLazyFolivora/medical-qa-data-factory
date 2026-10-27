@@ -481,7 +481,7 @@ class FusionCtdCandidateAssessor:
                 status="not_matched",
                 reason_codes=["claim_semantics_mismatch"],
             )
-        if not _qualifiers_match(claim.qualifiers, context):
+        if not qualifiers_match(claim.qualifiers, context):
             return AnswerCandidateOutcome(
                 answer_id=answer_id,
                 status="not_matched",
@@ -504,7 +504,7 @@ class FusionCtdCandidateAssessor:
         )
 
 
-def _qualifiers_match(
+def qualifiers_match(
     actual: Mapping[str, object],
     context: StudyContext,
 ) -> bool:

@@ -169,6 +169,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--crosswalk",
         help="Optional ctd-disease-crosswalk-v1 JSON file",
     )
+    evidence_ctd_identity = evidence_ctd_commands.add_parser(
+        "build-identity",
+        help="Build a pinned PrimeKG-to-CTD identity snapshot",
+    )
+    evidence_ctd_identity.add_argument("--index", required=True)
+    evidence_ctd_identity.add_argument("--primekg-database", required=True)
+    evidence_ctd_identity.add_argument("--output", required=True)
 
     evidence_pubmed = evidence_commands.add_parser(
         "pubmed", help="Read PubMed metadata and abstracts"
@@ -382,7 +389,11 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
     )
     pubmed_task.add_argument("--ctd-index", required=True)
-    pubmed_task.add_argument("--crosswalk", required=True)
+    pubmed_task.add_argument(
+        "--identity-snapshot",
+        dest="identity_snapshot",
+        required=True,
+    )
     pubmed_task.add_argument("--pubmed-snapshot-id", required=True)
     pubmed_task.add_argument("--model-config", dest="model_config")
     pubmed_task.add_argument("--model-provider", dest="model_provider")
@@ -817,11 +828,16 @@ def _run_primekg_ctd_pubmed_generation_command(
     args: argparse.Namespace,
 ) -> int:
     from .evidence_enrichment.ctd import (
-        CtdDiseaseCrosswalk,
         CtdEvidenceIndex,
     )
+    from .evidence_enrichment.primekg_ctd_identity import (
+        PrimeKgCtdIdentitySnapshot,
+    )
     from .evidence_enrichment.pubmed import PubMedClient
-    from .generation.primekg_ctd_pubmed import PrimeKgCtdDiseaseMapper
+    from .generation.primekg_ctd_pubmed import (
+        PrimeKgCtdChemicalMapper,
+        PrimeKgCtdDiseaseMapper,
+    )
     from .generation.primekg_ctd_pubmed_task import (
         PrimeKGCtdPubmedTaskService,
     )
@@ -907,6 +923,24 @@ def _run_primekg_ctd_pubmed_generation_command(
         kg_snapshot = provider.snapshot()
         index = CtdEvidenceIndex(args.ctd_index)
         ctd_snapshot = index.metadata()["snapshot_id"]
+        identity = PrimeKgCtdIdentitySnapshot.from_json(
+            args.identity_snapshot
+        )
+        if identity.primekg_snapshot_id != kg_snapshot.data_snapshot_id:
+            raise ValueError(
+                "identity snapshot PrimeKG ID does not match provider"
+            )
+        if identity.ctd_snapshot_id != ctd_snapshot:
+            raise ValueError(
+                "identity snapshot CTD ID does not match the index"
+            )
+        if seed.canonical_id not in set(
+            identity.fully_mapped_chemical_ids
+        ):
+            raise ValueError(
+                "identity snapshot does not resolve every PrimeKG exposure "
+                "answer for this chemical"
+            )
         environment = ValidationEnvironment(
             environment_id=(
                 f"primekg-ctd-pubmed-{kg_snapshot.data_snapshot_id}-"
@@ -948,7 +982,12 @@ def _run_primekg_ctd_pubmed_generation_command(
                 snapshot_id=args.pubmed_snapshot_id
             ),
             disease_mapper=PrimeKgCtdDiseaseMapper(
-                CtdDiseaseCrosswalk.from_json(args.crosswalk)
+                identity.disease_crosswalk
+            ),
+            chemical_mapper=PrimeKgCtdChemicalMapper(
+                identity.chemical_crosswalk,
+                primekg_snapshot_id=identity.primekg_snapshot_id,
+                ctd_snapshot_id=identity.ctd_snapshot_id,
             ),
             model=model,
             page_size=args.page_size,
@@ -1231,6 +1270,63 @@ def _run_evidence_command(args: argparse.Namespace) -> int:
             _emit({"status": "built", **metadata})
             return 0
         index = CtdEvidenceIndex(args.index)
+        if args.ctd_command == "build-identity":
+            import json
+            from pathlib import Path
+
+            from .evidence_enrichment.primekg_ctd_identity import (
+                build_primekg_ctd_identity_snapshot,
+            )
+            from .knowledge_graph.providers.primekg import (
+                PrimeKGSQLiteProvider,
+            )
+
+            with PrimeKGSQLiteProvider(args.primekg_database) as provider:
+                snapshot = provider.snapshot()
+                identity_snapshot, audit_records = (
+                    build_primekg_ctd_identity_snapshot(
+                        provider.iter_edges_by_source(
+                            source="CTD",
+                            relation="exposure_disease",
+                        ),
+                        index=index,
+                        primekg_snapshot_id=snapshot.data_snapshot_id,
+                    )
+                )
+            output = identity_snapshot.write_json(args.output)
+            audit_path = Path(str(output) + ".audit.jsonl")
+            audit_path.write_text(
+                "".join(
+                    json.dumps(
+                        item.model_dump(mode="json"),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                    + "\n"
+                    for item in audit_records
+                ),
+                encoding="utf-8",
+                newline="\n",
+            )
+            _emit(
+                {
+                    "status": "built",
+                    "snapshot": str(output),
+                    "audit": str(audit_path),
+                    "primekg_snapshot_id": (
+                        identity_snapshot.primekg_snapshot_id
+                    ),
+                    "ctd_snapshot_id": identity_snapshot.ctd_snapshot_id,
+                    "chemical_mappings": len(
+                        identity_snapshot.chemical_crosswalk.entries
+                    ),
+                    "disease_mappings": len(
+                        identity_snapshot.disease_crosswalk.entries
+                    ),
+                    "audit_counts": identity_snapshot.audit_counts,
+                }
+            )
+            return 0
         if args.ctd_command == "audit":
             from .knowledge_graph.providers.primekg import (
                 PrimeKGSQLiteProvider,

@@ -57,9 +57,9 @@ def _query() -> LogicalQuery:
 
 def _context() -> StudyContext:
     return StudyContext(
-        population="adults carrying genetic feature S",
+        population="adults carrying a BRCA1 pathogenic variant",
         exposure_context="drug A exposure",
-        dose_or_regimen="dose D",
+        dose_or_regimen="aspirin 81 mg daily",
         exposure_duration="at least two years",
         study_type="long-term follow-up",
         disease_category="digestive system cancer",

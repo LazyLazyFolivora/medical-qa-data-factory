@@ -127,6 +127,9 @@ class PublishedTask(ContractModel):
                 self.validation_report.supporting_evidence_ids
             ),
             competitor_outcomes=self.validation_report.competitor_outcomes,
+            qualifier_counterfactuals=(
+                self.validation_report.qualifier_counterfactuals
+            ),
             evidence_dependency_digest=(
                 self.validation_report.evidence_dependency_digest
             ),

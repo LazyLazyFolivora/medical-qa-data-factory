@@ -12,6 +12,7 @@ from .ctd_world_evaluation import (
 from .logical_query import QueryEvaluator
 from .task_contracts import (
     AnswerCandidateOutcome,
+    QualifierCounterfactualResult,
     StudyContext,
     TaskSpec,
     ValidationReport,
@@ -32,6 +33,7 @@ def validation_report_id_for(
     matched_claim_ids: Sequence[str] = (),
     supporting_evidence_ids: Sequence[str] = (),
     competitor_outcomes: Sequence[AnswerCandidateOutcome] = (),
+    qualifier_counterfactuals: Sequence[QualifierCounterfactualResult] = (),
     evidence_dependency_digest: str | None = None,
 ) -> str:
     """Return the content identity of a validation result."""
@@ -56,6 +58,13 @@ def validation_report_id_for(
             for item in sorted(
                 competitor_outcomes,
                 key=lambda outcome: (outcome.answer_id, outcome.status),
+            )
+        ],
+        "qualifier_counterfactuals": [
+            item.model_dump(mode="json")
+            for item in sorted(
+                qualifier_counterfactuals,
+                key=lambda result: result.qualifier,
             )
         ],
         "evidence_dependency_digest": evidence_dependency_digest,

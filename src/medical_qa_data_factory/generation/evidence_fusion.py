@@ -446,6 +446,10 @@ class PubMedFinding(ContractModel):
     qualifiers: StudyContextQualifiers = Field(
         default_factory=StudyContextQualifiers
     )
+    #: Every non-empty qualifier must point to a verbatim fragment covered by
+    #: ``citation.quote``. This prevents a model from filling a plausible
+    #: population, dose or duration that the cited text never states.
+    qualifier_evidence: dict[str, str] = Field(default_factory=dict)
     citation: PubMedSpanCitation
 
     @model_validator(mode="after")

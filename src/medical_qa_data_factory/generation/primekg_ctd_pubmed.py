@@ -19,6 +19,9 @@ from ..evidence_enrichment.ctd import (
     CtdEvidenceIndex,
     CtdMappingStatus,
 )
+from ..evidence_enrichment.primekg_ctd_identity import (
+    PrimeKgCtdChemicalCrosswalk,
+)
 from ..evidence_enrichment.pubmed import (
     PubMedClient,
     PubMedFetchResult,
@@ -33,6 +36,7 @@ from .evidence_fusion import (
     CtdEvidenceExtraction,
     CtdEvidenceFusion,
     CtdEvidenceFusionStatus,
+    PubMedFindingVerdict,
     StudyContextIntent,
     fuse_ctd_pubmed_evidence,
 )
@@ -90,6 +94,52 @@ class PrimeKgCtdDiseaseMapper:
             status=CtdMappingStatus.MAPPED_CROSSWALK,
             primekg_disease_id=primekg_disease_id,
             ctd_disease_ids=ctd_ids,
+        )
+
+
+class PrimeKgCtdChemicalMapping(ContractModel):
+    status: CtdMappingStatus
+    primekg_chemical_id: str
+    ctd_chemical_ids: list[str] = Field(default_factory=list)
+    reason_codes: list[str] = Field(default_factory=list)
+
+
+class PrimeKgCtdChemicalMapper:
+    """Resolve a PrimeKG chemical only through an explicit frozen identity map."""
+
+    def __init__(
+        self,
+        crosswalk: PrimeKgCtdChemicalCrosswalk,
+        *,
+        primekg_snapshot_id: str | None = None,
+        ctd_snapshot_id: str | None = None,
+    ) -> None:
+        self.primekg_snapshot_id = primekg_snapshot_id
+        self.ctd_snapshot_id = ctd_snapshot_id
+        self.by_primekg = {
+            entry.primekg_chemical_id: [entry.ctd_chemical_id]
+            for entry in crosswalk.entries
+        }
+
+    def resolve(self, primekg_chemical_id: str) -> PrimeKgCtdChemicalMapping:
+        ctd_ids = self.by_primekg.get(primekg_chemical_id, [])
+        if not ctd_ids:
+            return PrimeKgCtdChemicalMapping(
+                status=CtdMappingStatus.UNMAPPED,
+                primekg_chemical_id=primekg_chemical_id,
+                reason_codes=["ctd_chemical_mapping_unmapped"],
+            )
+        if len(ctd_ids) != 1:
+            return PrimeKgCtdChemicalMapping(
+                status=CtdMappingStatus.AMBIGUOUS,
+                primekg_chemical_id=primekg_chemical_id,
+                ctd_chemical_ids=ctd_ids,
+                reason_codes=["ctd_chemical_mapping_ambiguous"],
+            )
+        return PrimeKgCtdChemicalMapping(
+            status=CtdMappingStatus.MAPPED_CROSSWALK,
+            primekg_chemical_id=primekg_chemical_id,
+            ctd_chemical_ids=ctd_ids,
         )
 
 
@@ -179,6 +229,7 @@ class PrimeKgCtdPubMedService:
         evidence_kind: EvidenceKind,
         source_edge_id: str,
         retrieved_at,
+        ctd_chemical_id: str | None = None,
     ) -> PrimeKgCtdPubMedResult:
         """Assess one graph answer without requiring that edge's source.
 
@@ -198,7 +249,7 @@ class PrimeKgCtdPubMedService:
                 mapping.reason_codes,
             )
 
-        chemical_id = _native_id(seed_entity_id)
+        chemical_id = ctd_chemical_id or _native_id(seed_entity_id)
         records = self.ctd_index.enumerate_diseases(
             chemical_id=chemical_id
         )
@@ -278,6 +329,10 @@ class PrimeKgCtdPubMedService:
                     "assess every supplied PMID exactly once",
                     "use supports, contradicts, context_only or uncertain",
                     "quote a verbatim abstract span with exact offsets",
+                    (
+                        "map every non-empty qualifier to a verbatim fragment "
+                        "inside the cited quote"
+                    ),
                     "do not infer efficacy or causation",
                     "preserve only study qualifiers stated in the abstract",
                 ],
@@ -300,6 +355,20 @@ class PrimeKgCtdPubMedService:
             answer_entity_id=answer_entity_id,
             ctd_retrieved_at=retrieved_at,
         )
+        qualifier_reasons = _qualifier_support_reasons(extraction)
+        if (
+            fusion.status is CtdEvidenceFusionStatus.ELIGIBLE
+            and qualifier_reasons
+        ):
+            return self._reject(
+                seed_entity_id,
+                answer_entity_id,
+                mapping.status,
+                qualifier_reasons,
+                ctd_record_ids=record_ids,
+                pubmed_corpus=manifest,
+                fusion=fusion,
+            )
         if fusion.status is not CtdEvidenceFusionStatus.ELIGIBLE:
             return self._reject(
                 seed_entity_id,
@@ -373,6 +442,42 @@ def _pubmed_failure_reasons(result: PubMedFetchResult) -> list[str]:
     ):
         reasons.append("pubmed_no_abstract")
     return reasons
+
+
+def _qualifier_support_reasons(
+    extraction: CtdEvidenceExtraction,
+) -> list[str]:
+    reasons: set[str] = set()
+    for finding in extraction.findings:
+        if finding.verdict not in {
+            PubMedFindingVerdict.SUPPORTS,
+            PubMedFindingVerdict.CONTRADICTS,
+        }:
+            continue
+        qualifiers = finding.qualifiers.model_dump(mode="json")
+        additional = qualifiers.pop("additional_qualifiers", {}) or {}
+        required = {
+            key: value
+            for key, value in qualifiers.items()
+            if isinstance(value, str) and value.strip()
+        }
+        required.update(
+            {
+                key: value
+                for key, value in additional.items()
+                if isinstance(value, str) and value.strip()
+            }
+        )
+        quoted = finding.citation.quote.casefold()
+        for key, value in required.items():
+            evidence = finding.qualifier_evidence.get(key)
+            if (
+                not isinstance(evidence, str)
+                or not evidence.strip()
+                or evidence.casefold() not in quoted
+            ):
+                reasons.add("qualifier_not_supported")
+    return sorted(reasons)
 
 
 class PrimeKGCtdEdgeVerifier:

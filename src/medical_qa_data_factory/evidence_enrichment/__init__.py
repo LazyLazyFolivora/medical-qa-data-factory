@@ -12,6 +12,10 @@ from .models import (
     QuestionIntent,
 )
 from .pubmed_evidence import PubMedCorpusManifest, PubMedEvidenceSpan
+from .primekg_ctd_identity import (
+    PrimeKgCtdChemicalCrosswalk,
+    PrimeKgCtdIdentitySnapshot,
+)
 
 __all__ = [
     "CtdEvidenceRecord",
@@ -26,5 +30,7 @@ __all__ = [
     "PubMedEvidenceRecord",
     "PubMedCorpusManifest",
     "PubMedEvidenceSpan",
+    "PrimeKgCtdChemicalCrosswalk",
+    "PrimeKgCtdIdentitySnapshot",
     "QuestionIntent",
 ]

@@ -18,6 +18,8 @@
 - `ValidatedTask`、requirement matcher、promotion 和 evidence dependency digest；
 - CTD service、`generate validated --profile ctd`、public/hidden release；
 - PrimeKG canonical answer + 完整 PrimeKG 竞争集 + CTD/PubMed 联合服务；
+- 版本化 PrimeKG/CTD chemical/disease identity snapshot 生成器；
+- qualifier 逐项原文证据、public qualifier 反事实和题面硬门禁；
 - Prompt Writer、独立语义 Verifier 和联合 public/hidden release；
 - `generate primekg-ctd-pubmed` 单候选正式入口；
 - 六类 intent 的确定性题面和语义回环；
@@ -25,7 +27,6 @@
 
 尚未完成：
 
-- 真实 CTD disease identity crosswalk；
 - 真实疾病类别 taxonomy snapshot；
 - 20 个真实 seed 的 PubMed fusion corpus；
 - 至少 5 个真实可发布正例；
@@ -42,7 +43,9 @@ PrimeKG source=CTD 候选边
   -> 每个 answer 解析 CTD disease crosswalk
   -> 每个 answer 读取 CTD direct records 和全部 PMID
   -> 每个 PMID 生成可回读 span/assessment
+  -> 每个 public qualifier 指向 citation quote 内的逐字证据
   -> 完整 competition report
+  -> 删除每个 public qualifier 后重算答案集
   -> ValidatedTask
   -> Prompt 生成自然题面
   -> 独立 verifier 回读题面语义
@@ -56,6 +59,45 @@ PrimeKG canonical ID，CTD disease ID 只进入 hidden lineage。
 只允许 therapeutic research disease 和 association。机制题后续必须把答案世界
 扩展到 PrimeKG gene/pathway 等机制实体，不能把“有机制证据的疾病”当作机制答案。
 
+### 1.2 Source-derived identity snapshot
+
+当前已生成一个可从固定输入重建的身份快照：
+
+```text
+data/cache/primekg-ctd-identity.snapshot.json
+data/cache/primekg-ctd-identity.snapshot.json.audit.jsonl
+```
+
+构建命令：
+
+```powershell
+python -m medical_qa_data_factory evidence ctd build-identity `
+  --index data/cache/ctd-evidence.sqlite `
+  --primekg-database E:/Cursor/assumption/datasets/PrimeKG/primekg.sqlite `
+  --output data/cache/primekg-ctd-identity.snapshot.json
+```
+
+方法版本为 `primekg_ctd_source_exact_alias_v1`。它只接受同一冻结
+PrimeKG CTD source edge 与 CTD record 的 exact normalized name 匹配；同名对应
+多个 CTD ID 时标为 ambiguous 并排除。它不是外部 ontology gold，也不能用模糊名称
+扩充映射。
+
+本次真实快照：
+
+```text
+PrimeKG snapshot: bd22ae20ed3037e2d4bb518904406143
+CTD snapshot:     ctd:95fdff4ae428f880
+snapshot SHA256:  aef560df6e252aa0edf62a50a50f660054dde5136feda43a98d946edbd404352
+chemical maps:    459
+disease maps:     108
+CTD edges:        837 mapped_exact, 1467 unmapped
+fully mapped chemicals for all PrimeKG exposure answers: 76
+```
+
+“fully mapped”只说明 identity closure 成立，不说明这些 chemical 的 CTD/PubMed
+证据能够形成可发布题。每道题仍需经过 direct evidence、全部 PMID、qualifier
+counterfactual 和题面语义门禁。
+
 ## 2. 自动化事实
 
 实现基线：
@@ -68,8 +110,8 @@ b1d0892 feat: add PrimeKG CTD PubMed evidence foundation
 最终验证：
 
 ```text
-971 passed, 13 deselected
-13 passed, 971 deselected    # primekg_integration
+980 passed, 13 deselected
+13 passed, 980 deselected    # primekg_integration
 ```
 
 默认测试环境未安装 `pytest-cov`，本文不声明当前分支的精确行覆盖率。联合服务的
@@ -148,16 +190,15 @@ sqlite3 -readonly -header -column data/cache/ctd-evidence.sqlite "<上面的 SQL
 
 ## 5. Step 8 阻塞项
 
-### 5.1 Disease identity
+### 5.1 Disease identity residual risk
 
-当前 CTD disease ID/name 尚未绑定到权威 canonical disease identity。
+source-derived exact-alias snapshot 已解决 108 个 disease 的稳定绑定，并在
+2304 条 source edges 上留下完整 audit。剩余问题不是名称匹配算法，而是：
 
-没有 crosswalk 时：
-
-- alias 合并无法证明；
-- 同名异病无法安全区分；
-- candidate answer 无法与下游 canonical ID 对齐；
-- 完整竞争集不能进入正式发布。
+- 1467 条仍 unmapped，相关 chemical 不会进入发布；
+- 同一 PrimeKG disease 跨 edge 若出现冲突映射，当前规则会排除；
+- 该快照需要产品/数据负责人确认其 identity policy 是否满足正式 gold 要求；
+- 疾病类别仍缺独立 taxonomy，不能从模型自由生成。
 
 ### 5.2 Disease category
 
@@ -178,11 +219,21 @@ CTD 当前文件没有直接提供本项目所需的稳定疾病分类。不能�
 
 人工盲审需要产品/医学审阅者完成，不能由自动化测试替代。
 
+### 5.5 真实 smoke 结果
+
+已用 Dicamba `D003996` → Parkinson disease 运行一次真实 PubMed + 结构化模型
+smoke。PubMed 成功读取；isolated target assessment 被
+`pubmed_quote_mismatch` 拒绝，完整竞争运行也没有发布题目，并保留了
+`provider_failed / unknown_competitor` rejection。
+
+这次结果证明链路不会把网络成功或模型返回结构合法误当成 gold。它是失败 smoke，
+不是 pilot 通过，也不能作为真实正例。
+
 ## 6. 恢复 Step 8 的必要输入
 
 运行真实 pilot 前必须具备：
 
-1. 版本化 CTD disease crosswalk；
+1. 已生成 identity snapshot，待负责人确认 policy；
 2. 版本化 disease category taxonomy；
 3. 授权的模型配置和 PubMed provider；
 4. 20 个 seed 的 pinned PubMed corpus；
@@ -195,11 +246,7 @@ CTD 当前文件没有直接提供本项目所需的稳定疾病分类。不能�
 # 1. 为每个 seed 生成并持久化 Step 4 fusion
 # 2. 写出 CtdTaskRunSpec
 
-python -m medical_qa_data_factory generate validated `
-  --profile ctd `
-  --ctd-index data/cache/ctd-evidence.sqlite `
-  --ctd-run-spec data/runs/ctd-pilot/<seed>/run-spec.json `
-  --output data/runs/ctd-pilot/<seed>/release
+python -m medical_qa_data_factory generate primekg-ctd-pubmed ...
 
 # 3. 汇总候选漏斗、拒绝码、intent/polarity/qualifier 分布和模板占比
 # 4. 对全部发布题执行医学盲审
