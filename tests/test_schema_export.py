@@ -21,6 +21,8 @@ def test_export_json_schemas_creates_versioned_contracts(tmp_path):
         "source-neutral-evidence-record.schema.json",
         "source-neutral-evidence-store.schema.json",
         "normalized-claim.schema.json",
+        "pubmed-corpus-manifest.schema.json",
+        "pubmed-evidence-span.schema.json",
     ):
         assert expected in names, expected
     question_schema = json.loads(
@@ -43,4 +45,4 @@ def test_schema_export_cli(tmp_path, capsys):
 
     assert exit_code == 0
     assert (tmp_path / "generation-task.schema.json").exists()
-    assert "Exported 22 schemas" in capsys.readouterr().out
+    assert "Exported 24 schemas" in capsys.readouterr().out

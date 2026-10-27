@@ -11,6 +11,7 @@ from .models import (
     PubMedEvidenceRecord,
     QuestionIntent,
 )
+from .pubmed_evidence import PubMedCorpusManifest, PubMedEvidenceSpan
 
 __all__ = [
     "CtdEvidenceRecord",
@@ -23,5 +24,7 @@ __all__ = [
     "NormalizedEvidenceClaim",
     "NormalizedClaim",
     "PubMedEvidenceRecord",
+    "PubMedCorpusManifest",
+    "PubMedEvidenceSpan",
     "QuestionIntent",
 ]

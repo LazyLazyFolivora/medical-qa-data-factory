@@ -10,6 +10,10 @@ from .evidence_enrichment.contracts import (
     EvidenceStore,
     NormalizedClaim,
 )
+from .evidence_enrichment.pubmed_evidence import (
+    PubMedCorpusManifest,
+    PubMedEvidenceSpan,
+)
 from .generation.run_identity import (
     AttemptRecord,
     GenerationPreparationRun,
@@ -39,6 +43,8 @@ SCHEMA_MODELS = {
     "source-neutral-evidence-record.schema.json": EvidenceRecord,
     "source-neutral-evidence-store.schema.json": EvidenceStore,
     "normalized-claim.schema.json": NormalizedClaim,
+    "pubmed-corpus-manifest.schema.json": PubMedCorpusManifest,
+    "pubmed-evidence-span.schema.json": PubMedEvidenceSpan,
     "question-spec.schema.json": QuestionSpec,
     "generation-preparation-run.schema.json": GenerationPreparationRun,
     "generation-run-manifest.schema.json": GenerationRunManifest,

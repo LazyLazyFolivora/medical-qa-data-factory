@@ -111,6 +111,12 @@ class _PubMed:
             snapshot_id="pubmed:test",
         ).fetch(["12345678"], limit=limit)
 
+    def fetch_result(self, pmids: list[str], *, limit: int | None = None):
+        return PubMedClient(
+            transport=lambda _url, _data: _xml(),
+            snapshot_id="pubmed:test",
+        ).fetch_result(["12345678"], limit=limit)
+
 
 def test_ctd_index_builds_and_maps_exact_pair(tmp_path: Path) -> None:
     source = _ctd_fixture(tmp_path)
@@ -169,6 +175,15 @@ def test_enrichment_extracts_supported_claim_and_literature(
                 "study_type": "observational",
                 "population": None,
                 "supported_pmid_ids": ["12345678"],
+                "support_spans": [
+                    {
+                        "pmid": "12345678",
+                        "text_field": "abstract",
+                        "start": 37,
+                        "end": 63,
+                        "quote": "lower prostate cancer risk",
+                    }
+                ],
                 "reason_codes": [],
             }
         }
@@ -197,13 +212,60 @@ def test_enrichment_extracts_supported_claim_and_literature(
     assert {
         item.provider_id for item in result.evidence_records
     } == {"ctd", "pubmed"}
+    assert len(result.pubmed_spans) == 1
+    assert result.pubmed_corpus_manifest is not None
+    supporting_record = next(
+        item
+        for item in result.evidence_records
+        if item.evidence_id
+        in result.normalized_claim.supporting_evidence_ids
+    )
     assert result.normalized_claim.supporting_evidence_ids == [
-        next(
-            item.evidence_id
-            for item in result.evidence_records
-            if item.provider_id == "pubmed"
-        )
+        supporting_record.evidence_id
     ]
+    assert supporting_record.document_text == "lower prostate cancer risk"
+
+
+def test_enrichment_rejects_a_fabricated_pubmed_quote(tmp_path: Path) -> None:
+    source = _ctd_fixture(tmp_path)
+    index_path = tmp_path / "ctd.sqlite"
+    build_ctd_index(source, index_path)
+    model = FakeStructuredModel(
+        responses={
+            "evidence_curator": {
+                "status": "supported",
+                "question_intent": "risk_decrease",
+                "support_level": "literature_supported",
+                "polarity": "decrease",
+                "claim_text": "lower prostate cancer risk",
+                "supported_pmid_ids": ["12345678"],
+                "support_spans": [
+                    {
+                        "pmid": "12345678",
+                        "start": 37,
+                        "end": 63,
+                        "quote": "fabricated prostate claim",
+                    }
+                ],
+                "reason_codes": [],
+            }
+        }
+    )
+    service = EvidenceEnrichmentService(
+        ctd_index=CtdEvidenceIndex(index_path),
+        model=model,
+        pubmed=_PubMed(),
+    )
+
+    result = service.enrich(
+        _edge(),
+        seed_entity_id=ASPIRIN.canonical_id or "",
+        answer_entity_id=CANCER.canonical_id or "",
+    )
+
+    assert result.status is EnrichmentStatus.INSUFFICIENT
+    assert result.normalized_claim is None
+    assert result.reason_codes == ["pubmed_quote_mismatch"]
 
 
 def _curated(edge: KGEvidence) -> CuratedEvidence:

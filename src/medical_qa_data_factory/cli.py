@@ -914,24 +914,27 @@ def _run_evidence_command(args: argparse.Namespace) -> int:
             }
         )
         return 0
-    from .evidence_enrichment.pubmed import PubMedClient
+    from .evidence_enrichment.pubmed import (
+        PubMedClient,
+        PubMedProviderStatus,
+    )
 
     client = PubMedClient()
     if args.pubmed_command == "search":
-        _emit(
-            {
-                "query": args.query,
-                "pmids": client.search(args.query, limit=args.limit),
-            }
-        )
-        return 0
-    records = client.fetch(args.pmid, limit=args.limit)
-    _emit(
-        {
-            "records": [item.model_dump(mode="json") for item in records],
+        result = client.search_result(args.query, limit=args.limit)
+    else:
+        result = client.fetch_result(args.pmid, limit=args.limit)
+    _emit(result.model_dump(mode="json"))
+    return (
+        0
+        if result.status
+        in {
+            PubMedProviderStatus.SUCCESS,
+            PubMedProviderStatus.EMPTY,
+            PubMedProviderStatus.NO_ABSTRACT,
         }
+        else 1
     )
-    return 0
 
 
 def _run_model_command(args: argparse.Namespace) -> int:
