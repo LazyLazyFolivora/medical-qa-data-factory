@@ -4,6 +4,7 @@ import gzip
 import json
 from pathlib import Path
 
+from medical_qa_data_factory.cli import main
 from medical_qa_data_factory.evidence_enrichment.ctd import (
     CtdEvidenceIndex,
     build_ctd_index,
@@ -72,6 +73,16 @@ def test_marker_mechanism_question_uses_ctd_answer_world(
     ]
     assert published.evaluation_target.gold_evidence_ids
     assert result.episode.search_complete is True
+    assert (
+        published.validated_task.task.information_requirements[
+            0
+        ].claim_pattern.subject_id
+        == "ctd:chemical:C000001"
+    )
+    assert (
+        published.evaluation_target.answer_contract.accepted_aliases
+        == ["Disease A"]
+    )
 
 
 def test_therapeutic_question_never_upgrades_to_efficacy(
@@ -175,3 +186,30 @@ def test_release_keeps_ctd_answers_hidden(tmp_path: Path) -> None:
     assert any(
         row["record"]["disease_id"] == "MESH:A" for row in catalog
     )
+
+
+def test_ctd_direct_cli_generates_release(tmp_path: Path, capsys) -> None:
+    index = _write_index(tmp_path, _base_rows())
+    index_path = tmp_path / "ctd-direct.sqlite"
+    output = tmp_path / "cli-release"
+
+    code = main(
+        [
+            "generate",
+            "ctd-direct",
+            "--output",
+            str(output),
+            "--ctd-index",
+            str(index_path),
+            "--chemical-id",
+            "C000001",
+            "--evidence-kind",
+            "marker/mechanism",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert index.metadata()["snapshot_id"]
+    assert code == 0
+    assert payload["profile"] == "ctd-direct"
+    assert payload["published_count"] == 1

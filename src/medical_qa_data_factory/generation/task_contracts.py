@@ -26,6 +26,7 @@ TaskQuestionType = Literal[
     "hidden_bridge_two_hop",
     "explicit_bridge_two_hop",
     "study_context_qualified_disease",
+    "ctd_direct_evidence_disease",
 ]
 
 StudyRelationIntent = Literal[

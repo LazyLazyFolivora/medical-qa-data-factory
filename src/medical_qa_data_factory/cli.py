@@ -346,6 +346,19 @@ def build_parser() -> argparse.ArgumentParser:
     validated.add_argument("--ctd-index")
     validated.add_argument("--ctd-run-spec", dest="ctd_run_spec")
 
+    ctd_direct = generate_commands.add_parser(
+        "ctd-direct",
+        help="Generate a CTR-backed direct-evidence disease release",
+    )
+    ctd_direct.add_argument("--output", required=True)
+    ctd_direct.add_argument("--ctd-index", required=True)
+    ctd_direct.add_argument("--chemical-id", required=True)
+    ctd_direct.add_argument(
+        "--evidence-kind",
+        choices=["marker/mechanism", "therapeutic"],
+        required=True,
+    )
+
     resume = generate_commands.add_parser(
         "resume", help="Resume a previous generation episode"
     )
@@ -512,6 +525,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "generate":
         if args.generate_command == "validated":
             return _run_validated_generation_command(args)
+        if args.generate_command == "ctd-direct":
+            return _run_ctd_direct_generation_command(args)
         return _run_generate_command(args)
     raise AssertionError("unreachable command")
 
@@ -716,6 +731,42 @@ def _run_ctd_validated_generation_command(
         {
             "status": "exported",
             "profile": "ctd",
+            "release_id": summary.release_id,
+            "output": summary.output_dir,
+            "published_count": summary.published_count,
+            "rejected_count": summary.rejected_count,
+            "validation_report_count": summary.validation_report_count,
+        }
+    )
+    return 0
+
+
+def _run_ctd_direct_generation_command(
+    args: argparse.Namespace,
+) -> int:
+    from .evidence_enrichment.ctd import CtdEvidenceIndex
+    from .generation.ctd_direct_evidence import CtdDirectEvidenceService
+    from .generation.task_release import TaskReleaseExporter
+
+    try:
+        result = CtdDirectEvidenceService(
+            CtdEvidenceIndex(args.ctd_index)
+        ).generate(
+            chemical_id=args.chemical_id,
+            evidence_kind=args.evidence_kind,
+        )
+        summary = TaskReleaseExporter().export(result, args.output)
+    except FileExistsError as exc:
+        _generation_error("output_exists", str(exc))
+        return 2
+    except (TypeError, ValueError) as exc:
+        _generation_error("invalid_arguments", str(exc))
+        return 2
+
+    _emit(
+        {
+            "status": "exported",
+            "profile": "ctd-direct",
             "release_id": summary.release_id,
             "output": summary.output_dir,
             "published_count": summary.published_count,
