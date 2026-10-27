@@ -4,6 +4,10 @@
 > 日期：2026-10-27  
 > 适用对象：PrimeKG 实体候选、CTD direct evidence、PubMed 文献验证和题目生成
 
+题目是否可发布，以
+[PrimeKG + CTD + PubMed 题目验收标准](primekg-ctd-pubmed-question-acceptance.md)
+为准。
+
 ## 1. 目标
 
 目标架构是：
