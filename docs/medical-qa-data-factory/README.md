@@ -20,6 +20,8 @@
 当前重建工作：
 
 - [原架构重建实施计划](original-architecture-reconstruction-plan.md)：删除独立 MVP，在原始主干上实现真实 Validation World、任务验证和发布链路。
+- [CTD 正式接入开发计划](ctd-formal-integration-development-plan.md)：将现有 CTD/PubMed enrichment 接入 task-first 正式链路。
+- [CTD 正式接入验收标准](ctd-formal-integration-acceptance-criteria.md)：CTD-backed task 的代码、数据、题面和真实 pilot 门禁。
 
 发生冲突时，开发架构定义产品边界和数据契约，项目验收标准定义通过条件，题型与语言规范只定义问题内容和措辞。三者均优先于历史路线和旧验收报告。
 

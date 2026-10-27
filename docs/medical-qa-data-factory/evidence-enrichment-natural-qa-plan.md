@@ -1,5 +1,7 @@
 # Evidence-Enriched Natural QA Expansion Plan
 
+> 实施说明：本文保留为证据增强的背景设计。CTD 进入正式 task-first 主链的当前执行计划和验收门禁，分别见 [CTD 正式接入开发计划](ctd-formal-integration-development-plan.md) 与 [CTD 正式接入验收标准](ctd-formal-integration-acceptance-criteria.md)。
+
 ## 1. 背景
 
 当前 Web 的自然语言出题只依赖 PrimeKG 一条边，例如：
