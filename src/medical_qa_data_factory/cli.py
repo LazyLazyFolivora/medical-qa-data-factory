@@ -323,7 +323,7 @@ def build_parser() -> argparse.ArgumentParser:
     validated.add_argument("--output", required=True)
     validated.add_argument(
         "--profile",
-        choices=["primekg", "ctd"],
+        choices=["primekg", "primekg-ctd", "ctd"],
         default="primekg",
     )
     validated.add_argument("--provider", default="primekg")
@@ -548,7 +548,11 @@ def _run_validated_generation_command(args: argparse.Namespace) -> int:
         ValidationEnvironment,
     )
     from .generation.task_release import TaskReleaseExporter
-    from .generation.task_service import ConstrainedTaskGenerationService
+    from .generation.task_service import (
+        CTD_RELATION_PROFILE,
+        DEFAULT_RELATION_PROFILES,
+        ConstrainedTaskGenerationService,
+    )
     from .knowledge_graph import EntityLookup
     from .knowledge_graph.errors import KnowledgeGraphError
     from .knowledge_graph.registry import provider_from_config
@@ -600,6 +604,11 @@ def _run_validated_generation_command(args: argparse.Namespace) -> int:
         result = ConstrainedTaskGenerationService(
             provider,
             page_size=args.page_size,
+            relation_profiles=(
+                (CTD_RELATION_PROFILE,)
+                if args.profile == "primekg-ctd"
+                else DEFAULT_RELATION_PROFILES
+            ),
         ).generate(resolution.selected, environment=environment)
         summary = TaskReleaseExporter().export(result, args.output)
     except FileExistsError as exc:

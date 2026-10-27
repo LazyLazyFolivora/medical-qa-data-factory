@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 
+from medical_qa_data_factory.cli import main
 from medical_qa_data_factory.generation.logical_query import LogicalDirection
 from medical_qa_data_factory.generation.task_contracts import (
     ProviderSnapshotRef,
@@ -53,23 +55,23 @@ def _database(tmp_path):
                     "MONDO",
                 ),
                 (
-                    "Disease One",
-                    "disease_protein",
                     "Protein One",
-                    "D1",
+                    "disease_protein",
+                    "Disease One",
                     "P1",
-                    "disease",
+                    "D1",
                     "gene/protein",
+                    "disease",
                     "DisGeNET",
                 ),
                 (
-                    "Disease Two",
-                    "disease_protein",
                     "Protein Two",
-                    "D2",
+                    "disease_protein",
+                    "Disease Two",
                     "P2",
-                    "disease",
+                    "D2",
                     "gene/protein",
+                    "disease",
                     "DisGeNET",
                 ),
             ],
@@ -98,7 +100,7 @@ def _profile() -> RelationPairProfile:
         "exposure_disease",
         LogicalDirection.FORWARD,
         "disease_protein",
-        LogicalDirection.FORWARD,
+        LogicalDirection.REVERSE,
         primary_source="CTD",
     )
 
@@ -152,3 +154,60 @@ def test_ctd_source_filter_excludes_mondo_only_edges(tmp_path) -> None:
 
     assert result.published == []
     assert result.candidates_seen == 0
+
+
+def test_cli_generates_ctd_seeded_primekg_release(tmp_path, capsys) -> None:
+    database = _database(tmp_path)
+    config = tmp_path / "kg.json"
+    config.write_text(
+        json.dumps(
+            {
+                "default_provider": "primekg",
+                "providers": {
+                    "primekg": {
+                        "driver": "primekg_sqlite",
+                        "database_path": str(database),
+                        "read_only": True,
+                        "default_limit": 100,
+                        "max_limit": 1000,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "release"
+
+    code = main(
+        [
+            "generate",
+            "validated",
+            "--profile",
+            "primekg-ctd",
+            "--output",
+            str(output),
+            "--provider",
+            "primekg",
+            "--kg-config",
+            str(config),
+            "--entity-name",
+            "Drug A",
+            "--entity-id",
+            "C000001",
+            "--entity-type",
+            "chemical",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert payload["published_count"] == 1
+    questions = [
+        json.loads(line)
+        for line in (output / "public" / "planner_questions.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert questions[0]["question"] == (
+        "与Drug A存在暴露关联、并且与Protein One相关的疾病是哪一种？"
+    )

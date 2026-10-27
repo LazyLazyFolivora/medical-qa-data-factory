@@ -63,6 +63,7 @@ class RelationPairProfile:
     primary_direction: LogicalDirection
     constraint_relation: str
     constraint_direction: LogicalDirection
+    primary_source: str | None = None
 
 
 @dataclass(frozen=True)
@@ -88,6 +89,14 @@ DEFAULT_RELATION_PROFILES = (
         "pathway_protein",
         LogicalDirection.REVERSE,
     ),
+)
+
+CTD_RELATION_PROFILE = RelationPairProfile(
+    "exposure_disease",
+    LogicalDirection.FORWARD,
+    "disease_protein",
+    LogicalDirection.REVERSE,
+    primary_source="CTD",
 )
 
 
@@ -266,7 +275,14 @@ class ConstrainedTaskGenerationService:
                 edges=evidence_edges,
                 trace_ids=evidence_trace_ids,
             )
-            for primary_edge in primary_scan.edges:
+            primary_edges = primary_scan.edges
+            if profile.primary_source is not None:
+                primary_edges = [
+                    edge
+                    for edge in primary_edges
+                    if edge.source == profile.primary_source
+                ]
+            for primary_edge in primary_edges:
                 answer_entity = (
                     primary_edge.tail
                     if profile.primary_direction is LogicalDirection.FORWARD

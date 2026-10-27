@@ -81,6 +81,26 @@ class TaskQuestionWriter:
                 f"与{seed_name}相关且参与{terminal_name}的"
                 f"{answer_noun}是哪一种？"
             )
+        elif relation_key == (
+            "exposure_disease",
+            LogicalDirection.FORWARD,
+            "disease_protein",
+            LogicalDirection.FORWARD,
+        ):
+            question = (
+                f"与{seed_name}存在暴露关联、并且与{terminal_name}相关的"
+                f"{answer_noun}是哪一种？"
+            )
+        elif relation_key == (
+            "exposure_disease",
+            LogicalDirection.FORWARD,
+            "disease_protein",
+            LogicalDirection.REVERSE,
+        ):
+            question = (
+                f"与{seed_name}存在暴露关联、并且与{terminal_name}相关的"
+                f"{answer_noun}是哪一种？"
+            )
         else:
             raise ValueError(f"unsupported relation composition: {relation_key}")
         return QuestionVariant(
@@ -186,6 +206,30 @@ class TaskTextSemanticVerifier:
                 ):
                     parsed = re.fullmatch(
                         r"与(?P<seed>.+)相关且参与(?P<terminal>.+)的"
+                        r"(?P<noun>蛋白|疾病|通路)是哪一种[？?]",
+                        text,
+                    )
+                elif relation_key == (
+                    "exposure_disease",
+                    LogicalDirection.FORWARD,
+                    "disease_protein",
+                    LogicalDirection.FORWARD,
+                ):
+                    parsed = re.fullmatch(
+                        r"与(?P<seed>.+)存在暴露关联、并且与"
+                        r"(?P<terminal>.+)相关的"
+                        r"(?P<noun>蛋白|疾病|通路)是哪一种[？?]",
+                        text,
+                    )
+                elif relation_key == (
+                    "exposure_disease",
+                    LogicalDirection.FORWARD,
+                    "disease_protein",
+                    LogicalDirection.REVERSE,
+                ):
+                    parsed = re.fullmatch(
+                        r"与(?P<seed>.+)存在暴露关联、并且与"
+                        r"(?P<terminal>.+)相关的"
                         r"(?P<noun>蛋白|疾病|通路)是哪一种[？?]",
                         text,
                     )
