@@ -23,6 +23,7 @@
 - [CTD 正式接入开发计划](ctd-formal-integration-development-plan.md)：将现有 CTD/PubMed enrichment 接入 task-first 正式链路。
 - [CTD 正式接入验收标准](ctd-formal-integration-acceptance-criteria.md)：CTD-backed task 的代码、数据、题面和真实 pilot 门禁。
 - [CTD 正式接入实施状态](ctd-implementation-status.md)：Step 1-7 的实现事实、真实 20-seed preflight 与 Step 8 阻塞项。
+- [PubMed 证据验证设计](pubmed-evidence-validation-design.md)：CTD PMID 获取、span/hash 校验、模型抽取、冲突处理和题面发布门禁。
 
 发生冲突时，开发架构定义产品边界和数据契约，项目验收标准定义通过条件，题型与语言规范只定义问题内容和措辞。三者均优先于历史路线和旧验收报告。
 
