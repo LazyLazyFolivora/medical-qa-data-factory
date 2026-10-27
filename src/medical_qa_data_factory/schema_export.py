@@ -42,6 +42,14 @@ from .generation.task_service import (
     CtdGenerationEpisode,
     CtdTaskRunSpec,
 )
+from .generation.primekg_ctd_pubmed import (
+    PrimeKgCtdDiseaseMapping,
+    PrimeKgCtdPubMedResult,
+)
+from .generation.prompt_writing import (
+    GeneratedQuestionText,
+    QuestionSemanticView,
+)
 from .generation.training import (
     GenerationRunMetadata,
     PlannerStep,
@@ -69,6 +77,10 @@ SCHEMA_MODELS = {
     "ctd-evidence-catalog-entry.schema.json": CtdEvidenceCatalogEntry,
     "ctd-generation-episode.schema.json": CtdGenerationEpisode,
     "ctd-task-run-spec.schema.json": CtdTaskRunSpec,
+    "primekg-ctd-disease-mapping.schema.json": PrimeKgCtdDiseaseMapping,
+    "primekg-ctd-pubmed-result.schema.json": PrimeKgCtdPubMedResult,
+    "generated-question-text.schema.json": GeneratedQuestionText,
+    "question-semantic-view.schema.json": QuestionSemanticView,
     "question-spec.schema.json": QuestionSpec,
     "generation-preparation-run.schema.json": GenerationPreparationRun,
     "generation-run-manifest.schema.json": GenerationRunManifest,

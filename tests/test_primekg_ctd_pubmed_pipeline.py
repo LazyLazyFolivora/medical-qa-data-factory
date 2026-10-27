@@ -22,8 +22,13 @@ from medical_qa_data_factory.evidence_enrichment.pubmed import (
     PubMedProviderStatus,
 )
 from medical_qa_data_factory.generation.primekg_ctd_pubmed import (
+    PrimeKGCtdEdgeVerifier,
     PrimeKgCtdDiseaseMapper,
     PrimeKgCtdPubMedService,
+)
+from medical_qa_data_factory.knowledge_graph.contracts import (
+    GraphEdge,
+    GraphEntity,
 )
 from medical_qa_data_factory.llm import FakeStructuredModel
 
@@ -55,10 +60,9 @@ def _edge(source: str = "CTD") -> KGEvidence:
         direction=EvidenceDirection.FORWARD,
         source_database="primekg",
         source_record_id="ctd-row-1",
-        source=source,
         retrieval_action={"provider_id": "primekg"},
         retrieved_at=NOW,
-        metadata={"upstream_source": "CTD"},
+        metadata={"upstream_source": source},
     )
 
 
@@ -214,6 +218,32 @@ def test_pipeline_rejects_ambiguous_disease_mapping() -> None:
     assert result.fusion is None
 
 
+def test_pipeline_rejects_unmapped_disease() -> None:
+    result = _service(
+        crosswalk=CtdDiseaseCrosswalk()
+    ).validate(
+        edge=_edge(),
+        seed_entity_id="primekg:exposure:C000001",
+        answer_entity_id="primekg:disease:8315",
+        evidence_kind="marker/mechanism",
+    )
+
+    assert result.status == "rejected"
+    assert "ctd_mapping_unmapped" in result.reason_codes
+
+
+def test_pipeline_rejects_non_ctd_primekg_edge() -> None:
+    result = _service().validate(
+        edge=_edge("MONDO"),
+        seed_entity_id="primekg:exposure:C000001",
+        answer_entity_id="primekg:disease:8315",
+        evidence_kind="marker/mechanism",
+    )
+
+    assert result.status == "rejected"
+    assert result.reason_codes == ["source_not_ctd"]
+
+
 def test_pipeline_rejects_false_primekg_edge() -> None:
     result = _service(
         edge_verifier=lambda edge: False
@@ -274,3 +304,43 @@ def test_pipeline_rejects_unreadable_pubmed_result() -> None:
 
     assert result.status == "rejected"
     assert "pubmed_no_abstract" in result.reason_codes
+
+
+def test_provider_edge_verifier_requires_a_ctd_source_edge() -> None:
+    edge = _edge()
+    graph_edge = GraphEdge(
+        provider_id="primekg",
+        edge_id="provider-edge-1",
+        head=GraphEntity(
+            provider_id="primekg",
+            native_id="C000001",
+            canonical_id="primekg:exposure:C000001",
+            name="Test chemical",
+            entity_type="exposure",
+        ),
+        relation="exposure_disease",
+        tail=GraphEntity(
+            provider_id="primekg",
+            native_id="8315",
+            canonical_id="primekg:disease:8315",
+            name="Disease A",
+            entity_type="disease",
+        ),
+        source="CTD",
+    )
+
+    class _Provider:
+        def neighbors(self, query):
+            return type(
+                "Result",
+                (),
+                {
+                    "edges": [graph_edge],
+                    "truncated": False,
+                    "next_cursor": None,
+                },
+            )()
+
+    assert PrimeKGCtdEdgeVerifier(_Provider())(edge) is True
+    graph_edge.source = "MONDO"
+    assert PrimeKGCtdEdgeVerifier(_Provider())(edge) is False

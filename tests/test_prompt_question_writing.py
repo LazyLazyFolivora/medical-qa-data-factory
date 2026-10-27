@@ -58,8 +58,10 @@ def test_prompt_writer_generates_a_natural_variant_without_program_template() ->
 
     assert variant.question_text.startswith("对于携带遗传特征 S")
     payload = model.payloads_for("question_writer")[0]
-    assert payload["task"]["query"]["filters"]
-    assert "must not state the answer" in payload["constraints"]
+    assert payload["task"]["public_study_context"]["population"]
+    assert any(
+        "state the answer" in item for item in payload["constraints"]
+    )
 
 
 def test_semantic_verifier_accepts_equivalent_rewording() -> None:
