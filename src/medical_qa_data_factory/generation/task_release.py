@@ -58,7 +58,10 @@ class TaskReleaseExporter:
                 "answer_contract",
                 "information_requirements",
                 "gold_claim_ids",
+                "gold_evidence_ids",
                 "acceptable_evidence_sets",
+                "completion_rule",
+                "evidence_catalog_ref",
                 "validation_report_ref",
             }
             leaked = forbidden & set(row)

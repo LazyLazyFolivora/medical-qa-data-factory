@@ -158,6 +158,9 @@ def test_planner_question_input_has_no_gold_fields():
     assert "answer_contract" not in payload
     assert "information_requirements" not in payload
     assert "gold_claim_ids" not in payload
+    assert "gold_evidence_ids" not in payload
+    assert "completion_rule" not in payload
+    assert "evidence_catalog_ref" not in payload
 
     with pytest.raises(ValidationError):
         PlannerQuestionInput.model_validate(

@@ -89,6 +89,14 @@ class PublishedTask(ContractModel):
             result_complete=self.validation_report.result_complete,
             reason_codes=self.validation_report.reason_codes,
             rows_examined=self.validation_report.rows_examined,
+            matched_claim_ids=self.validation_report.matched_claim_ids,
+            supporting_evidence_ids=(
+                self.validation_report.supporting_evidence_ids
+            ),
+            competitor_outcomes=self.validation_report.competitor_outcomes,
+            evidence_dependency_digest=(
+                self.validation_report.evidence_dependency_digest
+            ),
         )
         if self.validation_report.report_id != expected_report_id:
             raise ValueError("validation report content identity is invalid")

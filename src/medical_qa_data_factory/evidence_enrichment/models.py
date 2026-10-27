@@ -36,6 +36,7 @@ class EvidencePolarity(str, Enum):
 
 class QuestionIntent(str, Enum):
     ASSOCIATION_RESEARCH = "association_research"
+    BIOMARKER_RESEARCH = "biomarker_research"
     THERAPEUTIC_RESEARCH = "therapeutic_research"
     MECHANISM_RESEARCH = "mechanism_research"
     RISK_INCREASE = "risk_increase"

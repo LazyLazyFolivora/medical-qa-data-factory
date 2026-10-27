@@ -82,6 +82,10 @@ def test_release_separates_public_questions_from_hidden_evaluation_truth(tmp_pat
     }
     assert all("answer_contract" not in row for row in planner_rows)
     assert all("information_requirements" not in row for row in planner_rows)
+    assert all("gold_claim_ids" not in row for row in planner_rows)
+    assert all("gold_evidence_ids" not in row for row in planner_rows)
+    assert all("completion_rule" not in row for row in planner_rows)
+    assert all("evidence_catalog_ref" not in row for row in planner_rows)
     assert all(row["answer_contract"] for row in target_rows)
     assert summary.published_count == len(planner_rows)
     manifest = json.loads(

@@ -17,7 +17,25 @@ from ..domain.common import ContractModel, UtcDateTime, utc_now
 from .logical_query import LogicalQuery, QueryConstraint, QueryStep
 
 
-TASK_CONTRACT_SCHEMA_VERSION = "task-construction-v1"
+TASK_CONTRACT_SCHEMA_VERSION = "task-construction-v2"
+
+
+TaskQuestionType = Literal[
+    "single_relation_entity",
+    "constrained_entity",
+    "hidden_bridge_two_hop",
+    "explicit_bridge_two_hop",
+    "study_context_qualified_disease",
+]
+
+StudyRelationIntent = Literal[
+    "association_research",
+    "biomarker_research",
+    "therapeutic_research",
+    "risk_increase",
+    "risk_decrease",
+    "safety",
+]
 
 
 class ProviderSnapshotRef(ContractModel):
@@ -90,6 +108,60 @@ class AcceptableEvidenceSet(ContractModel):
         return self
 
 
+class CompletionRule(ContractModel):
+    """Deterministic rule for deciding whether a task is complete."""
+
+    mode: Literal["any_acceptable_set_satisfied"] = (
+        "any_acceptable_set_satisfied"
+    )
+    require_answer_contract_match: Literal[True] = True
+    require_complete_validation: Literal[True] = True
+
+
+class StudyContext(ContractModel):
+    """Biomedical qualifiers that must be visible in the public question."""
+
+    population: str | None = None
+    exposure_context: str | None = None
+    dose_or_regimen: str | None = None
+    exposure_duration: str | None = None
+    study_type: str | None = None
+    sample_type: str | None = None
+    disease_category: str = Field(min_length=1)
+    temporal_scope: str | None = None
+    relation_intent: StudyRelationIntent
+    polarity: Literal["increase", "decrease", "neutral", "unknown"] = (
+        "unknown"
+    )
+    additional_qualifiers: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def has_public_disambiguator(self) -> "StudyContext":
+        values = (
+            self.population,
+            self.exposure_context,
+            self.dose_or_regimen,
+            self.exposure_duration,
+            self.study_type,
+            self.sample_type,
+            self.temporal_scope,
+        )
+        if not any(values) and not self.additional_qualifiers:
+            raise ValueError(
+                "study context needs a public disambiguator beyond the "
+                "disease category and relation"
+            )
+        expected_polarity = {
+            "risk_increase": "increase",
+            "risk_decrease": "decrease",
+        }.get(self.relation_intent)
+        if expected_polarity and self.polarity != expected_polarity:
+            raise ValueError(
+                f"{self.relation_intent} requires {expected_polarity} polarity"
+            )
+        return self
+
+
 class AnswerContract(ContractModel):
     """The normalized answer and its declared cardinality."""
 
@@ -118,12 +190,7 @@ class TaskCandidate(ContractModel):
     schema_version: str = TASK_CONTRACT_SCHEMA_VERSION
     candidate_id: str = Field(min_length=1)
     seed_entity_id: str = Field(min_length=1)
-    question_type: Literal[
-        "single_relation_entity",
-        "constrained_entity",
-        "hidden_bridge_two_hop",
-        "explicit_bridge_two_hop",
-    ]
+    question_type: TaskQuestionType
     steps: list[QueryStep] = Field(min_length=1)
     constraints: list[QueryConstraint] = Field(default_factory=list)
     proposed_answer_ids: list[str] = Field(min_length=1)
@@ -131,6 +198,8 @@ class TaskCandidate(ContractModel):
     answer_entity_type: str | None = None
     snapshot_id: str = Field(min_length=1)
     evidence_ids: list[str] = Field(min_length=1)
+    candidate_claim_ids: list[str] = Field(default_factory=list)
+    public_study_context: StudyContext | None = None
     public_entity_names: dict[str, str] = Field(default_factory=dict)
     discovery_source: str = Field(min_length=1)
     generator_version: str = Field(min_length=1)
@@ -145,6 +214,19 @@ class TaskCandidate(ContractModel):
         }
         if hidden_names & public_names:
             raise ValueError("answer names cannot appear in the public name map")
+        if self.question_type == "study_context_qualified_disease":
+            if self.public_study_context is None:
+                raise ValueError(
+                    "a study-context task needs a public study context"
+                )
+            if not self.candidate_claim_ids:
+                raise ValueError(
+                    "a study-context task needs candidate claims"
+                )
+            if self.answer_entity_type != "disease":
+                raise ValueError(
+                    "a study-context disease task needs disease answers"
+                )
         return self
 
     def semantic_digest(self) -> str:
@@ -157,6 +239,11 @@ class TaskCandidate(ContractModel):
             ],
             "answer_entity_type": self.answer_entity_type,
             "snapshot_id": self.snapshot_id,
+            "public_study_context": (
+                self.public_study_context.model_dump(mode="json")
+                if self.public_study_context is not None
+                else None
+            ),
         }
         return hashlib.sha256(
             json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
@@ -170,18 +257,16 @@ class TaskSpec(ContractModel):
     task_id: str = Field(min_length=1)
     candidate_id: str = Field(min_length=1)
     seed_entity_id: str = Field(min_length=1)
-    question_type: Literal[
-        "single_relation_entity",
-        "constrained_entity",
-        "hidden_bridge_two_hop",
-        "explicit_bridge_two_hop",
-    ]
+    question_type: TaskQuestionType
     query: LogicalQuery
     proposed_answer_contract: AnswerContract
     information_requirements: list[InformationRequirement] = Field(min_length=1)
     acceptable_evidence_sets: list[AcceptableEvidenceSet] = Field(min_length=1)
+    completion_rule: CompletionRule = Field(default_factory=CompletionRule)
     validation_environment: ValidationEnvironment
+    candidate_claim_ids: list[str] = Field(default_factory=list)
     candidate_evidence_ids: list[str] = Field(default_factory=list)
+    public_study_context: StudyContext | None = None
     public_entity_names: dict[str, str] = Field(default_factory=dict)
     generator_version: str = "unknown"
 
@@ -203,6 +288,83 @@ class TaskSpec(ContractModel):
             item.snapshot_id for item in self.validation_environment.providers
         }:
             raise ValueError("logical query snapshot is outside the validation world")
+        if self.question_type == "study_context_qualified_disease":
+            if self.public_study_context is None:
+                raise ValueError(
+                    "a study-context task needs a public study context"
+                )
+            if not self.candidate_claim_ids:
+                raise ValueError(
+                    "a study-context task needs candidate claims"
+                )
+            if not self.candidate_evidence_ids:
+                raise ValueError(
+                    "a study-context task needs candidate evidence"
+                )
+            if self.query.answer_entity_type != "disease":
+                raise ValueError(
+                    "a study-context disease task needs disease answers"
+                )
+        return self
+
+    def evidence_dependency_digest(self) -> str:
+        """Return the identity of hidden evidence dependencies and semantics."""
+
+        payload = {
+            "task_id": self.task_id,
+            "environment_id": self.validation_environment.environment_id,
+            "provider_snapshots": [
+                item.model_dump(mode="json")
+                for item in self.validation_environment.providers
+            ],
+            "candidate_claim_ids": sorted(set(self.candidate_claim_ids)),
+            "candidate_evidence_ids": sorted(set(self.candidate_evidence_ids)),
+            "information_requirements": [
+                item.model_dump(mode="json")
+                for item in self.information_requirements
+            ],
+            "acceptable_evidence_sets": [
+                item.model_dump(mode="json")
+                for item in self.acceptable_evidence_sets
+            ],
+            "completion_rule": self.completion_rule.model_dump(mode="json"),
+            "public_study_context": (
+                self.public_study_context.model_dump(mode="json")
+                if self.public_study_context is not None
+                else None
+            ),
+        }
+        return hashlib.sha256(
+            json.dumps(payload, sort_keys=True, ensure_ascii=False).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+
+
+class AnswerCandidateOutcome(ContractModel):
+    """Validation outcome for one entity in the declared candidate universe."""
+
+    answer_id: str = Field(min_length=1)
+    status: Literal[
+        "matched",
+        "not_matched",
+        "ambiguous",
+        "unreadable",
+        "provider_failed",
+        "not_evaluated",
+    ]
+    claim_ids: list[str] = Field(default_factory=list)
+    evidence_ids: list[str] = Field(default_factory=list)
+    reason_codes: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def matched_outcome_has_support(self) -> "AnswerCandidateOutcome":
+        if self.status == "matched" and (
+            not self.claim_ids or not self.evidence_ids
+        ):
+            raise ValueError(
+                "a matched answer candidate needs claim and evidence references"
+            )
         return self
 
 
@@ -221,6 +383,12 @@ class ValidationReport(ContractModel):
     world_answer_ids: list[str] = Field(default_factory=list)
     result_complete: bool
     rows_examined: int = Field(default=0, ge=0)
+    matched_claim_ids: list[str] = Field(default_factory=list)
+    supporting_evidence_ids: list[str] = Field(default_factory=list)
+    competitor_outcomes: list[AnswerCandidateOutcome] = Field(
+        default_factory=list
+    )
+    evidence_dependency_digest: str | None = None
     validator_version: str = Field(min_length=1)
     validated_at: UtcDateTime = Field(default_factory=utc_now)
 
@@ -232,6 +400,32 @@ class ValidationReport(ContractModel):
             raise ValueError("an incomplete result cannot pass validation")
         if not self.passed and not self.reason_codes:
             raise ValueError("a failed validation report needs a reason code")
+        if self.passed and self.competitor_outcomes:
+            unknown_statuses = {
+                "ambiguous",
+                "unreadable",
+                "provider_failed",
+                "not_evaluated",
+            }
+            if any(
+                item.status in unknown_statuses
+                for item in self.competitor_outcomes
+            ):
+                raise ValueError(
+                    "a passing validation report cannot contain an "
+                    "unknown competitor"
+                )
+            matched = sorted(
+                {
+                    item.answer_id
+                    for item in self.competitor_outcomes
+                    if item.status == "matched"
+                }
+            )
+            if matched != sorted(set(self.world_answer_ids)):
+                raise ValueError(
+                    "matched competitor outcomes must equal world answers"
+                )
         return self
 
 
@@ -242,6 +436,8 @@ class ValidatedTask(ContractModel):
     task: TaskSpec
     answer_contract: AnswerContract
     validation_report_id: str = Field(min_length=1)
+    gold_claim_ids: list[str] = Field(default_factory=list)
+    gold_evidence_ids: list[str] = Field(default_factory=list)
     validated_at: UtcDateTime
 
 
@@ -262,6 +458,30 @@ def promote_validated_task(
         raise ValueError("validation report query digest does not match")
     if report.environment_id != task.validation_environment.environment_id:
         raise ValueError("validation report environment does not match")
+    if task.question_type == "study_context_qualified_disease":
+        if (
+            report.evidence_dependency_digest
+            != task.evidence_dependency_digest()
+        ):
+            raise ValueError(
+                "validation report evidence dependency digest does not match"
+            )
+        if not report.competitor_outcomes:
+            raise ValueError(
+                "study-context validation needs competitor outcomes"
+            )
+        if not report.matched_claim_ids or not report.supporting_evidence_ids:
+            raise ValueError(
+                "study-context validation needs gold claim and evidence references"
+            )
+        if not set(report.matched_claim_ids).issubset(
+            task.candidate_claim_ids
+        ) or not set(report.supporting_evidence_ids).issubset(
+            task.candidate_evidence_ids
+        ):
+            raise ValueError(
+                "validation report gold references are outside task dependencies"
+            )
 
     answer_contract = task.proposed_answer_contract.model_copy(
         update={"canonical_answer_ids": list(report.world_answer_ids)}
@@ -275,6 +495,8 @@ def promote_validated_task(
         task=task,
         answer_contract=answer_contract,
         validation_report_id=report.report_id,
+        gold_claim_ids=list(report.matched_claim_ids),
+        gold_evidence_ids=list(report.supporting_evidence_ids),
         validated_at=report.validated_at,
     )
 
@@ -302,6 +524,10 @@ class EvaluationTarget(ContractModel):
     answer_contract: AnswerContract
     information_requirements: list[InformationRequirement]
     acceptable_evidence_sets: list[AcceptableEvidenceSet]
+    completion_rule: CompletionRule = Field(default_factory=CompletionRule)
+    gold_claim_ids: list[str] = Field(default_factory=list)
+    gold_evidence_ids: list[str] = Field(default_factory=list)
+    evidence_catalog_ref: str | None = None
     validation_environment: ValidationEnvironment
     validation_report_ref: str = Field(min_length=1)
 
@@ -318,6 +544,14 @@ class EvaluationTarget(ContractModel):
             ),
             acceptable_evidence_sets=list(
                 validated.task.acceptable_evidence_sets
+            ),
+            completion_rule=validated.task.completion_rule,
+            gold_claim_ids=list(validated.gold_claim_ids),
+            gold_evidence_ids=list(validated.gold_evidence_ids),
+            evidence_catalog_ref=(
+                f"evidence-catalog:{validated.task.task_id}"
+                if validated.gold_evidence_ids
+                else None
             ),
             validation_environment=validated.task.validation_environment,
             validation_report_ref=validated.validation_report_id,

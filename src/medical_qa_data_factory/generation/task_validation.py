@@ -6,7 +6,11 @@ import json
 from collections.abc import Sequence
 
 from .logical_query import QueryEvaluator
-from .task_contracts import TaskSpec, ValidationReport
+from .task_contracts import (
+    AnswerCandidateOutcome,
+    TaskSpec,
+    ValidationReport,
+)
 
 
 TASK_VALIDATOR_VERSION = "task-validator-v2"
@@ -20,6 +24,10 @@ def validation_report_id_for(
     result_complete: bool,
     reason_codes: list[str],
     rows_examined: int,
+    matched_claim_ids: Sequence[str] = (),
+    supporting_evidence_ids: Sequence[str] = (),
+    competitor_outcomes: Sequence[AnswerCandidateOutcome] = (),
+    evidence_dependency_digest: str | None = None,
 ) -> str:
     """Return the content identity of a validation result."""
 
@@ -36,6 +44,16 @@ def validation_report_id_for(
         "result_complete": result_complete,
         "reason_codes": reason_codes,
         "rows_examined": rows_examined,
+        "matched_claim_ids": sorted(set(matched_claim_ids)),
+        "supporting_evidence_ids": sorted(set(supporting_evidence_ids)),
+        "competitor_outcomes": [
+            item.model_dump(mode="json")
+            for item in sorted(
+                competitor_outcomes,
+                key=lambda outcome: (outcome.answer_id, outcome.status),
+            )
+        ],
+        "evidence_dependency_digest": evidence_dependency_digest,
     }
     digest = hashlib.sha256(
         json.dumps(payload, sort_keys=True).encode("utf-8")
