@@ -113,6 +113,9 @@ class TaskReleaseExporter:
             hidden_data["generation_episodes.jsonl"] = [
                 result.episode.model_dump(mode="json")
             ]
+        pubmed_json_files = self._add_pubmed_artifacts(
+            result, hidden_data, hidden_dir
+        )
         for filename, rows in public_data.items():
             self._write_jsonl(public_dir / filename, rows)
         for filename, rows in hidden_data.items():
@@ -140,7 +143,11 @@ class TaskReleaseExporter:
             }
             for name in sorted(public_data)
         }
-        hidden_artifact_names = [*hidden_data, "quality_report.json"]
+        hidden_artifact_names = [
+            *hidden_data,
+            *pubmed_json_files,
+            "quality_report.json",
+        ]
         hidden_files = {
             name: {
                 "sha256": self._sha256(hidden_dir / name),
@@ -195,6 +202,120 @@ class TaskReleaseExporter:
             rejected_count=len(result.rejections),
             validation_report_count=len(result.validation_reports),
         )
+
+    @staticmethod
+    def _add_pubmed_artifacts(
+        result: TaskGenerationResult,
+        hidden_data: dict[str, list[dict[str, Any]]],
+        hidden_dir: Path,
+    ) -> list[str]:
+        entries = [
+            item
+            for item in result.evidence_catalog
+            if isinstance(item, CtdEvidenceCatalogEntry)
+        ]
+        manifests = {
+            item.pubmed_corpus.manifest_id: item.pubmed_corpus
+            for item in entries
+            if item.pubmed_corpus is not None
+        }
+        if not manifests:
+            return []
+        assessments = {
+            (assessment.pmid, assessment.evidence_id): assessment
+            for item in entries
+            if item.fusion is not None
+            for assessment in item.fusion.pubmed_assessments
+        }
+        documents = {
+            evidence.evidence_id: evidence
+            for item in entries
+            if item.fusion is not None
+            for evidence in item.fusion.evidence_records
+            if evidence.provider_id == "pubmed"
+        }
+        spans = {
+            assessment.span.span_id: assessment.span
+            for assessment in assessments.values()
+        }
+        competitors = {
+            (
+                outcome.answer_id,
+                outcome.status,
+                tuple(outcome.reason_codes),
+            ): outcome
+            for item in entries
+            for outcome in item.competitor_outcomes
+        }
+        fusions = {
+            item.fusion.fusion_id: item.fusion
+            for item in entries
+            if item.fusion is not None
+        }
+        identity_rows = {
+            (
+                item.primekg_subject_id,
+                item.primekg_object_id,
+                item.mapping_status.value if item.mapping_status else None,
+                item.record.disease_id,
+            ): {
+                "primekg_subject_id": item.primekg_subject_id,
+                "primekg_object_id": item.primekg_object_id,
+                "ctd_chemical_id": item.record.chemical_id,
+                "ctd_disease_id": item.record.disease_id,
+                "mapping_status": (
+                    item.mapping_status.value
+                    if item.mapping_status is not None
+                    else None
+                ),
+                "source_snapshot_id": item.snapshot_id,
+            }
+            for item in entries
+            if item.primekg_subject_id is not None
+            and item.primekg_object_id is not None
+        }
+        TaskReleaseExporter._write_json(
+            hidden_dir / "pubmed_corpus_manifest.json",
+            {
+                "schema_version": "pubmed-corpus-manifest-set-v1",
+                "manifests": [
+                    manifests[key].model_dump(mode="json")
+                    for key in sorted(manifests)
+                ],
+            },
+        )
+        TaskReleaseExporter._write_json(
+            hidden_dir / "primekg_ctd_identity_map.snapshot.json",
+            {
+                "schema_version": "primekg-ctd-identity-snapshot-v1",
+                "entries": [
+                    identity_rows[key] for key in sorted(identity_rows)
+                ],
+            },
+        )
+        hidden_data["pubmed_documents.jsonl"] = [
+            documents[key].model_dump(mode="json")
+            for key in sorted(documents)
+        ]
+        hidden_data["pubmed_spans.jsonl"] = [
+            spans[key].model_dump(mode="json") for key in sorted(spans)
+        ]
+        hidden_data["pubmed_assessments.jsonl"] = [
+            assessments[key].model_dump(mode="json")
+            for key in sorted(assessments)
+        ]
+        hidden_data["ctd_pubmed_fusions.jsonl"] = [
+            fusions[key].model_dump(mode="json")
+            for key in sorted(fusions)
+        ]
+        hidden_data["competitor_reports.jsonl"] = [
+            competitors[key].model_dump(mode="json")
+            for key in sorted(competitors)
+        ]
+        return [
+            "pubmed_corpus_manifest.json",
+            "primekg_ctd_identity_map.snapshot.json",
+        ]
 
     @staticmethod
     def _write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:

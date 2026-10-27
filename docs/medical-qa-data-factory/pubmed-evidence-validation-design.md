@@ -68,9 +68,31 @@ PrimeKG edge / candidate
 |---|---|---|---|
 | `generate validated --profile primekg-ctd` | 用 PrimeKG `source=CTD` 边发现候选，在 PrimeKG 中验证 | 没有读取 CTD DirectEvidence/PMID/PubMed | 图结构探索 |
 | `generate ctd-direct` | 枚举 CTD direct evidence，并用 CTD disease ID 作为答案 | 没有 PrimeKG canonical entity，也没有 PubMed 原文验证 | CTD 审计/候选发现 |
-| 本设计目标路径 | PrimeKG entities + CTD evidence + PubMed span + PrimeKG final world | 尚未实现 | 正式数据生成 |
+| 本设计目标路径 | PrimeKG entities + CTD evidence + PubMed span + PrimeKG final world | 已实现基础纵切；真实 crosswalk/pilot 尚未完成 | 正式数据生成入口 |
 
 不允许把前两条路径的 public release 直接当作本设计完成后的正式 gold。
+
+基础联合纵切已由以下代码实现：
+
+```text
+PrimeKGCtdPubmedTaskService
+  -> complete PrimeKG candidate enumeration
+  -> per-candidate CTD/PubMed validation
+  -> complete competition report
+  -> ValidatedTask
+  -> prompt question writer
+  -> independent semantic verifier
+  -> public/hidden release
+```
+
+入口：
+
+```powershell
+python -m medical_qa_data_factory generate primekg-ctd-pubmed ...
+```
+
+这证明代码路径可用，不证明真实生产 crosswalk、真实 PubMed corpus 或 pilot
+人工验收已经完成。
 
 ## 2. 设计边界
 

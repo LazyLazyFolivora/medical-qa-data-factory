@@ -46,6 +46,9 @@ from .generation.primekg_ctd_pubmed import (
     PrimeKgCtdDiseaseMapping,
     PrimeKgCtdPubMedResult,
 )
+from .generation.primekg_ctd_pubmed_task import (
+    PrimeKgCtdPubmedTaskOutcome,
+)
 from .generation.prompt_writing import (
     GeneratedQuestionText,
     QuestionSemanticView,
@@ -79,6 +82,9 @@ SCHEMA_MODELS = {
     "ctd-task-run-spec.schema.json": CtdTaskRunSpec,
     "primekg-ctd-disease-mapping.schema.json": PrimeKgCtdDiseaseMapping,
     "primekg-ctd-pubmed-result.schema.json": PrimeKgCtdPubMedResult,
+    "primekg-ctd-pubmed-task-outcome.schema.json": (
+        PrimeKgCtdPubmedTaskOutcome
+    ),
     "generated-question-text.schema.json": GeneratedQuestionText,
     "question-semantic-view.schema.json": QuestionSemanticView,
     "question-spec.schema.json": QuestionSpec,

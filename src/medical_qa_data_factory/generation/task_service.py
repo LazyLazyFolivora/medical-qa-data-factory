@@ -9,6 +9,8 @@ from pydantic import Field, model_validator
 
 from ..domain.common import ContractModel
 from ..evidence_enrichment.models import CtdEvidenceRecord
+from ..evidence_enrichment.ctd import CtdMappingStatus
+from ..evidence_enrichment.pubmed_evidence import PubMedCorpusManifest
 from ..knowledge_graph.contracts import (
     GraphEdge,
     GraphEntity,
@@ -31,6 +33,7 @@ from .task_candidates import (
 )
 from .task_compiler import TaskCompiler
 from .task_contracts import (
+    AnswerCandidateOutcome,
     EvaluationTarget,
     PlannerQuestionInput,
     StudyContext,
@@ -164,6 +167,13 @@ class CtdEvidenceCatalogEntry(ContractModel):
     snapshot_id: str = Field(min_length=1)
     record: CtdEvidenceRecord
     fusion: CtdEvidenceFusion | None = None
+    primekg_subject_id: str | None = None
+    primekg_object_id: str | None = None
+    mapping_status: CtdMappingStatus | None = None
+    pubmed_corpus: PubMedCorpusManifest | None = None
+    competitor_outcomes: list[AnswerCandidateOutcome] = Field(
+        default_factory=list
+    )
 
 
 class CtdGenerationEpisode(ContractModel):

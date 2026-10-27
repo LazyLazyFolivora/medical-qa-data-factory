@@ -359,6 +359,40 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
     )
 
+    pubmed_task = generate_commands.add_parser(
+        "primekg-ctd-pubmed",
+        help="Generate a PubMed-verified task from a PrimeKG CTD edge",
+    )
+    pubmed_task.add_argument("--output", required=True)
+    pubmed_task.add_argument("--provider", default="primekg")
+    pubmed_task.add_argument("--kg-config", dest="kg_config")
+    pubmed_task.add_argument("--entity-name", dest="entity_name", required=True)
+    pubmed_task.add_argument("--entity-id", dest="entity_id", required=True)
+    pubmed_task.add_argument("--entity-type", dest="entity_type", required=True)
+    pubmed_task.add_argument("--target-name", dest="target_name", required=True)
+    pubmed_task.add_argument("--target-id", dest="target_id", required=True)
+    pubmed_task.add_argument(
+        "--target-type",
+        dest="target_type",
+        default="disease",
+    )
+    pubmed_task.add_argument(
+        "--evidence-kind",
+        choices=["marker/mechanism", "therapeutic"],
+        required=True,
+    )
+    pubmed_task.add_argument("--ctd-index", required=True)
+    pubmed_task.add_argument("--crosswalk", required=True)
+    pubmed_task.add_argument("--pubmed-snapshot-id", required=True)
+    pubmed_task.add_argument("--model-config", dest="model_config")
+    pubmed_task.add_argument("--model-provider", dest="model_provider")
+    pubmed_task.add_argument(
+        "--page-size",
+        dest="page_size",
+        type=int,
+        default=500,
+    )
+
     resume = generate_commands.add_parser(
         "resume", help="Resume a previous generation episode"
     )
@@ -527,6 +561,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_validated_generation_command(args)
         if args.generate_command == "ctd-direct":
             return _run_ctd_direct_generation_command(args)
+        if args.generate_command == "primekg-ctd-pubmed":
+            return _run_primekg_ctd_pubmed_generation_command(args)
         return _run_generate_command(args)
     raise AssertionError("unreachable command")
 
@@ -772,6 +808,186 @@ def _run_ctd_direct_generation_command(
             "published_count": summary.published_count,
             "rejected_count": summary.rejected_count,
             "validation_report_count": summary.validation_report_count,
+        }
+    )
+    return 0
+
+
+def _run_primekg_ctd_pubmed_generation_command(
+    args: argparse.Namespace,
+) -> int:
+    from .evidence_enrichment.ctd import (
+        CtdDiseaseCrosswalk,
+        CtdEvidenceIndex,
+    )
+    from .evidence_enrichment.pubmed import PubMedClient
+    from .generation.primekg_ctd_pubmed import PrimeKgCtdDiseaseMapper
+    from .generation.primekg_ctd_pubmed_task import (
+        PrimeKGCtdPubmedTaskService,
+    )
+    from .generation.task_contracts import (
+        ProviderSnapshotRef,
+        ValidationEnvironment,
+    )
+    from .generation.task_release import TaskReleaseExporter
+    from .knowledge_graph import EntityLookup, NeighborQuery
+    from .knowledge_graph.errors import KnowledgeGraphError
+    from .knowledge_graph.registry import provider_from_config
+    from .llm.errors import ModelError
+    from .llm.registry import ProviderRegistry
+
+    provider = None
+    try:
+        provider = provider_from_config(
+            args.provider,
+            config_path=args.kg_config,
+        )
+        seed_resolution = provider.resolve_entity(
+            EntityLookup(
+                mention=args.entity_name,
+                native_id=args.entity_id,
+                entity_types=[args.entity_type],
+                limit=10,
+            )
+        )
+        target_resolution = provider.resolve_entity(
+            EntityLookup(
+                mention=args.target_name,
+                native_id=args.target_id,
+                entity_types=[args.target_type],
+                limit=10,
+            )
+        )
+        if (
+            seed_resolution.selected is None
+            or target_resolution.selected is None
+            or seed_resolution.ambiguous
+            or target_resolution.ambiguous
+        ):
+            raise ValueError(
+                "seed and target must each resolve to one PrimeKG entity"
+            )
+        seed = seed_resolution.selected
+        target = target_resolution.selected
+        cursor = None
+        candidate_edge = None
+        while True:
+            page = provider.neighbors(
+                NeighborQuery(
+                    entity=seed,
+                    direction="outgoing",
+                    relations=["exposure_disease"],
+                    target_types=[args.target_type],
+                    limit=args.page_size,
+                    cursor=cursor,
+                )
+            )
+            candidate_edge = next(
+                (
+                    edge
+                    for edge in page.edges
+                    if edge.head.canonical_id == seed.canonical_id
+                    and edge.tail.canonical_id == target.canonical_id
+                    and str(edge.source or "").casefold() == "ctd"
+                ),
+                None,
+            )
+            if candidate_edge is not None or not page.truncated:
+                break
+            if not page.next_cursor or page.next_cursor == cursor:
+                raise ValueError(
+                    "PrimeKG returned an incomplete neighbor page"
+                )
+            cursor = page.next_cursor
+        if candidate_edge is None:
+            raise ValueError(
+                "no CTD-sourced exposure_disease edge connects the entities"
+            )
+
+        kg_snapshot = provider.snapshot()
+        index = CtdEvidenceIndex(args.ctd_index)
+        ctd_snapshot = index.metadata()["snapshot_id"]
+        environment = ValidationEnvironment(
+            environment_id=(
+                f"primekg-ctd-pubmed-{kg_snapshot.data_snapshot_id}-"
+                f"{ctd_snapshot}-{args.pubmed_snapshot_id}"
+            ),
+            providers=[
+                ProviderSnapshotRef(
+                    provider_id=kg_snapshot.provider_id,
+                    snapshot_id=kg_snapshot.data_snapshot_id,
+                    schema_version=kg_snapshot.adapter_version,
+                    manifest_hash=kg_snapshot.sha256,
+                    completeness="complete_paginated_snapshot_query",
+                ),
+                ProviderSnapshotRef(
+                    provider_id="ctd",
+                    snapshot_id=ctd_snapshot,
+                    schema_version=index.metadata().get("schema_version"),
+                    manifest_hash=index.metadata().get("source_sha256"),
+                    completeness="all_ctd_rows_for_the_chemical",
+                ),
+                ProviderSnapshotRef(
+                    provider_id="pubmed",
+                    snapshot_id=args.pubmed_snapshot_id,
+                    completeness="all_ctd_cited_pmids_retrieved",
+                ),
+            ],
+            completeness_scope=(
+                "all PrimeKG exposure answers under the public study context; "
+                "all CTD direct records and all CTD-cited PubMed documents"
+            ),
+        )
+        model = ProviderRegistry.from_config(
+            args.model_config
+        ).build(args.model_provider)
+        service = PrimeKGCtdPubmedTaskService(
+            provider=provider,
+            ctd_index=index,
+            pubmed=PubMedClient(
+                snapshot_id=args.pubmed_snapshot_id
+            ),
+            disease_mapper=PrimeKgCtdDiseaseMapper(
+                CtdDiseaseCrosswalk.from_json(args.crosswalk)
+            ),
+            model=model,
+            page_size=args.page_size,
+        )
+        result = service.generate(
+            edge=candidate_edge,
+            evidence_kind=args.evidence_kind,
+            environment=environment,
+        )
+        summary = TaskReleaseExporter().export(result, args.output)
+    except FileExistsError as exc:
+        _generation_error("output_exists", str(exc))
+        return 2
+    except ModelError as exc:
+        _generation_error(exc.code.value, exc.message, retryable=exc.retryable)
+        return 3
+    except KnowledgeGraphError as exc:
+        _generation_error(exc.code, exc.message, retryable=exc.retryable)
+        return GENERATION_EXIT_CODES.get(exc.code, 1)
+    except (TypeError, ValueError) as exc:
+        _generation_error("invalid_arguments", str(exc))
+        return 2
+    finally:
+        if provider is not None:
+            provider.close()
+
+    report = result.validation_reports[0] if result.validation_reports else None
+    _emit(
+        {
+            "status": "exported",
+            "profile": "primekg-ctd-pubmed",
+            "release_id": summary.release_id,
+            "output": summary.output_dir,
+            "published_count": summary.published_count,
+            "rejected_count": summary.rejected_count,
+            "validation_report_count": summary.validation_report_count,
+            "validation_complete": (
+                report.result_complete if report is not None else False
+            ),
         }
     )
     return 0

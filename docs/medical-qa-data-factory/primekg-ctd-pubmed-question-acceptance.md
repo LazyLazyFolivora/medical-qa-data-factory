@@ -40,7 +40,9 @@ machine_validated
 | `generate validated --profile primekg-ctd` | 只用 PrimeKG `source=CTD` 标签，未读 CTD/PubMed | 仅图结构探索 |
 | 固定题面模板 | 如“X 在 CTD 中对应哪种疾病” | 仅 smoke/test |
 
-因此在新的联合流程实现前，现有 CTD public release 不得作为正式 gold 数据集。
+联合流程基础纵切现已实现，但生产 crosswalk、真实 PubMed corpus 和 pilot
+人工盲审尚未完成。现有 CTD-only 或 PrimeKG-标签 public release 仍不得作为
+本验收标准下的正式 gold 数据集。
 
 ## 3. 第一阶段允许的正式题型
 

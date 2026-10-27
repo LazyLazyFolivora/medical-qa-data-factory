@@ -1,7 +1,8 @@
 # CTD 正式接入实施状态
 
 > 更新日期：2026-10-27  
-> 状态：Step 1-7 已实现并通过自动化回归；Step 8 真实 pilot 尚未通过。
+> 状态：CTD-only Step 1-7 与 PrimeKG+CTD+PubMed 基础联合纵切已实现；
+> 真实 crosswalk 和 Step 8 pilot 尚未通过。
 
 ## 1. 结论
 
@@ -16,6 +17,9 @@
 - study-context qualifier 判别价值与 shortcut 检查；
 - `ValidatedTask`、requirement matcher、promotion 和 evidence dependency digest；
 - CTD service、`generate validated --profile ctd`、public/hidden release；
+- PrimeKG canonical answer + 完整 PrimeKG 竞争集 + CTD/PubMed 联合服务；
+- Prompt Writer、独立语义 Verifier 和联合 public/hidden release；
+- `generate primekg-ctd-pubmed` 单候选正式入口；
 - 六类 intent 的确定性题面和语义回环；
 - CTD 定向测试、默认回归和 PrimeKG 回归。
 
@@ -28,35 +32,49 @@
 - 全部 pilot 题的人工盲审；
 - 由真实运行生成的质量报告。
 
-## 2. 自动化事实
+### 1.1 联合纵切当前边界
 
-实现提交截至：
+联合服务要求：
 
 ```text
-eac5a5a feat: realize and verify CTD-backed questions
+PrimeKG source=CTD 候选边
+  -> 枚举同一 public query 下全部 PrimeKG disease answers
+  -> 每个 answer 解析 CTD disease crosswalk
+  -> 每个 answer 读取 CTD direct records 和全部 PMID
+  -> 每个 PMID 生成可回读 span/assessment
+  -> 完整 competition report
+  -> ValidatedTask
+  -> Prompt 生成自然题面
+  -> 独立 verifier 回读题面语义
+```
+
+任一 candidate 出现 `ambiguous / unmapped / unreadable / provider_failed /
+not_evaluated`，或出现两个 `matched` answer，都不会发布。正式答案始终保留
+PrimeKG canonical ID，CTD disease ID 只进入 hidden lineage。
+
+当前 `marker/mechanism` 对 disease answer 的机制题仍按 fail-closed 拒绝；第一版
+只允许 therapeutic research disease 和 association。机制题后续必须把答案世界
+扩展到 PrimeKG gene/pathway 等机制实体，不能把“有机制证据的疾病”当作机制答案。
+
+## 2. 自动化事实
+
+实现基线：
+
+```text
+b1d0892 feat: add PrimeKG CTD PubMed evidence foundation
++ 当前 PrimeKG/CTD/PubMed 联合 task service、release 与 CLI
 ```
 
 最终验证：
 
 ```text
-939 passed, 13 deselected
-13 passed, 939 deselected    # primekg_integration
+971 passed, 13 deselected
+13 passed, 971 deselected    # primekg_integration
 ```
 
-核心新增模块覆盖率：
-
-```text
-ctd_world_evaluation.py   81%
-task_candidates.py        90%
-task_compiler.py          88%
-task_validation.py        88%
-task_service.py           92%
-task_release.py           96%
-task_realization.py       87%
-```
-
-覆盖率使用标准库 `trace` 对相关单元、集成和回归测试统计；默认测试环境未安装
-`pytest-cov`。
+默认测试环境未安装 `pytest-cov`，本文不声明当前分支的精确行覆盖率。联合服务的
+正例、双答案、mapping unknown、模型/provider failure、PubMed snapshot mismatch、
+答案泄漏、PrimeKG source 伪造和 public/hidden 发布均有定向测试。
 
 ## 3. 真实 CTD 快照
 

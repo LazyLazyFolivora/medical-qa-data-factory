@@ -114,6 +114,45 @@ hidden/
 [CTD 正式接入实施状态](ctd-implementation-status.md)，不能用 fixture release 代替 20-seed
 真实验收。
 
+### PrimeKG + CTD + PubMed validated profile
+
+联合入口从一个真实 `source=CTD` 的 PrimeKG candidate edge 出发，枚举同一
+public query 下的全部 PrimeKG 答案，再逐个执行 CTD mapping、CTD direct
+evidence 和 PubMed 全文引用验证：
+
+```powershell
+python -m medical_qa_data_factory generate primekg-ctd-pubmed `
+  --output data/runs/primekg-ctd-pubmed/release `
+  --provider primekg `
+  --entity-name "triphenyl phosphate" `
+  --entity-id C005445 `
+  --entity-type exposure `
+  --target-name "hyperglycemia" `
+  --target-id 2909 `
+  --target-type disease `
+  --evidence-kind marker/mechanism `
+  --ctd-index data/cache/ctd-evidence.sqlite `
+  --crosswalk data/cache/primekg-ctd-disease-crosswalk.json `
+  --pubmed-snapshot-id pubmed:2026-10-27 `
+  --model-config config/models.json
+```
+
+该命令不会把 PrimeKG 的 `source=CTD` 标签当成证据。所有竞争答案都必须完成
+CTD/PubMed 检查；任一未知竞争者或第二个 matched 答案都会阻止发布。没有真实
+crosswalk 时命令应失败，不能用名称模糊匹配代替。
+
+联合 release 在通用 hidden 文件之外还会写出：
+
+```text
+primekg_ctd_identity_map.snapshot.json
+pubmed_corpus_manifest.json
+pubmed_documents.jsonl
+pubmed_spans.jsonl
+pubmed_assessments.jsonl
+ctd_pubmed_fusions.jsonl
+competitor_reports.jsonl
+```
+
 ## 旧生成/审核兼容入口
 
 下列 `generate entity` 仍用于历史探索、Web 审核和兼容测试；它尚未迁移到新的 `ValidatedTask` 发布契约，其 `PlannerTrajectory` 记录造题过程，不能作为 Query Planner 的正确动作训练标签：

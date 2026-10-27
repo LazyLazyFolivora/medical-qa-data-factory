@@ -18,6 +18,7 @@ from .task_contracts import (
     TaskSpec,
     ValidationEnvironment,
     StudyContext,
+    PRIMEKG_CTD_PUBMED_DISEASE_QUESTION_TYPES,
 )
 
 
@@ -35,7 +36,10 @@ class TaskCompiler:
         candidate: TaskCandidate,
         environment: ValidationEnvironment,
     ) -> TaskSpec:
-        if candidate.question_type == "study_context_qualified_disease":
+        if candidate.question_type in {
+            "study_context_qualified_disease",
+            *PRIMEKG_CTD_PUBMED_DISEASE_QUESTION_TYPES,
+        }:
             return self._compile_study_context(candidate, environment)
         if candidate.question_type != "constrained_entity":
             raise TaskCompilationError(
@@ -253,7 +257,7 @@ class TaskCompiler:
             ),
             candidate_id=candidate.candidate_id,
             seed_entity_id=candidate.seed_entity_id,
-            question_type="study_context_qualified_disease",
+            question_type=candidate.question_type,
             query=query,
             proposed_answer_contract=AnswerContract(
                 answer_type="entity",

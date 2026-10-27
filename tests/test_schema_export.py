@@ -57,4 +57,4 @@ def test_schema_export_cli(tmp_path, capsys):
 
     assert exit_code == 0
     assert (tmp_path / "generation-task.schema.json").exists()
-    assert "Exported 36 schemas" in capsys.readouterr().out
+    assert "Exported 37 schemas" in capsys.readouterr().out

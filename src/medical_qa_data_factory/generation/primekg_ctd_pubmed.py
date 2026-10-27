@@ -159,6 +159,36 @@ class PrimeKgCtdPubMedService:
                 ["primekg_edge_mismatch"],
             )
 
+        return self.evaluate_answer(
+            seed_entity_id=seed_entity_id,
+            answer_entity_id=answer_entity_id,
+            subject_name=edge.head.canonical_name or seed_entity_id,
+            object_name=edge.tail.canonical_name or answer_entity_id,
+            evidence_kind=evidence_kind,
+            source_edge_id=edge.evidence_id,
+            retrieved_at=edge.retrieved_at,
+        )
+
+    def evaluate_answer(
+        self,
+        *,
+        seed_entity_id: str,
+        answer_entity_id: str,
+        subject_name: str,
+        object_name: str,
+        evidence_kind: EvidenceKind,
+        source_edge_id: str,
+        retrieved_at,
+    ) -> PrimeKgCtdPubMedResult:
+        """Assess one graph answer without requiring that edge's source.
+
+        Candidate discovery separately requires a CTD-sourced PrimeKG edge.
+        Competitor evaluation must still inspect every PrimeKG answer,
+        including answers reached through other PrimeKG sources.
+        """
+
+        if evidence_kind not in {"marker/mechanism", "therapeutic"}:
+            raise ValueError(f"unsupported evidence kind: {evidence_kind}")
         mapping = self.disease_mapper.resolve(answer_entity_id)
         if mapping.status is not CtdMappingStatus.MAPPED_CROSSWALK:
             return self._reject(
@@ -225,7 +255,7 @@ class PrimeKgCtdPubMedService:
             invocation_id=(
                 "primekg-ctd-pubmed."
                 + hashlib.sha256(
-                    f"{edge.evidence_id}|{evidence_kind}".encode("utf-8")
+                    f"{source_edge_id}|{evidence_kind}".encode("utf-8")
                 ).hexdigest()[:16]
             ),
             role="evidence_curator",
@@ -234,8 +264,8 @@ class PrimeKgCtdPubMedService:
                 "primekg_edge": {
                     "subject_id": seed_entity_id,
                     "object_id": answer_entity_id,
-                    "subject_name": edge.head.canonical_name,
-                    "object_name": edge.tail.canonical_name,
+                    "subject_name": subject_name,
+                    "object_name": object_name,
                 },
                 "ctd_disease_ids": mapping.ctd_disease_ids,
                 "allowed_evidence_kind": evidence_kind,
@@ -253,7 +283,7 @@ class PrimeKgCtdPubMedService:
                 ],
             },
             idempotency_key=(
-                f"{edge.evidence_id}:{evidence_kind}:"
+                f"{source_edge_id}:{evidence_kind}:"
                 f"{','.join(pmids)}"
             ),
         )
@@ -268,7 +298,7 @@ class PrimeKgCtdPubMedService:
             extraction=extraction,
             seed_entity_id=seed_entity_id,
             answer_entity_id=answer_entity_id,
-            ctd_retrieved_at=edge.retrieved_at,
+            ctd_retrieved_at=retrieved_at,
         )
         if fusion.status is not CtdEvidenceFusionStatus.ELIGIBLE:
             return self._reject(

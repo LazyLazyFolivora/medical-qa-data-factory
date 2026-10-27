@@ -19,6 +19,14 @@ from .logical_query import LogicalQuery, QueryConstraint, QueryStep
 
 TASK_CONTRACT_SCHEMA_VERSION = "task-construction-v2"
 
+PRIMEKG_CTD_PUBMED_DISEASE_QUESTION_TYPES = frozenset(
+    {
+        "primekg_ctd_pubmed_therapeutic_research_disease",
+        "primekg_ctd_pubmed_marker_mechanism",
+        "primekg_ctd_pubmed_association",
+    }
+)
+
 
 TaskQuestionType = Literal[
     "single_relation_entity",
@@ -27,6 +35,9 @@ TaskQuestionType = Literal[
     "explicit_bridge_two_hop",
     "study_context_qualified_disease",
     "ctd_direct_evidence_disease",
+    "primekg_ctd_pubmed_therapeutic_research_disease",
+    "primekg_ctd_pubmed_marker_mechanism",
+    "primekg_ctd_pubmed_association",
 ]
 
 StudyRelationIntent = Literal[
@@ -215,7 +226,10 @@ class TaskCandidate(ContractModel):
         }
         if hidden_names & public_names:
             raise ValueError("answer names cannot appear in the public name map")
-        if self.question_type == "study_context_qualified_disease":
+        if self.question_type in {
+            "study_context_qualified_disease",
+            *PRIMEKG_CTD_PUBMED_DISEASE_QUESTION_TYPES,
+        }:
             if self.public_study_context is None:
                 raise ValueError(
                     "a study-context task needs a public study context"
@@ -289,7 +303,10 @@ class TaskSpec(ContractModel):
             item.snapshot_id for item in self.validation_environment.providers
         }:
             raise ValueError("logical query snapshot is outside the validation world")
-        if self.question_type == "study_context_qualified_disease":
+        if self.question_type in {
+            "study_context_qualified_disease",
+            *PRIMEKG_CTD_PUBMED_DISEASE_QUESTION_TYPES,
+        }:
             if self.public_study_context is None:
                 raise ValueError(
                     "a study-context task needs a public study context"
@@ -459,7 +476,10 @@ def promote_validated_task(
         raise ValueError("validation report query digest does not match")
     if report.environment_id != task.validation_environment.environment_id:
         raise ValueError("validation report environment does not match")
-    if task.question_type == "study_context_qualified_disease":
+    if task.question_type in {
+        "study_context_qualified_disease",
+        *PRIMEKG_CTD_PUBMED_DISEASE_QUESTION_TYPES,
+    }:
         if (
             report.evidence_dependency_digest
             != task.evidence_dependency_digest()
