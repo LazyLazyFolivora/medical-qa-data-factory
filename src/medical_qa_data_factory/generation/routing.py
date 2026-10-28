@@ -18,7 +18,11 @@ class Route:
 
 
 def after_verify_seed(state: EntityGenerationState) -> str:
-    if state.get("stop_reason") == StopReason.INVALID_UPSTREAM_IDENTITY.value:
+    if state.get("stop_reason") in (
+        StopReason.INVALID_UPSTREAM_IDENTITY.value,
+        StopReason.PROVIDER_ERROR.value,
+        StopReason.FATAL_ERROR.value,
+    ):
         return Route.FAIL
     return Route.NEXT
 
