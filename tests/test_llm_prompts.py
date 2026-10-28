@@ -54,5 +54,11 @@ def test_the_writer_template_forbids_stating_the_answer() -> None:
     assert "answer" in body
 
 
+def test_entity_planner_prompt_requires_one_executable_choice() -> None:
+    body = template_for("entity_question_exploration_planner").body.lower()
+    assert "exactly one of next_action and selected_skill_id" in body
+    assert "never leave both empty" in body
+
+
 def test_the_separated_role_pairs_are_declared() -> None:
     assert ("question_writer", "answer_verifier") in SEPARATED_ROLE_PAIRS
