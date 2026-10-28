@@ -17,6 +17,7 @@ from medical_qa_data_factory.generation.service import (
     checkpoint_path,
     episode_id_for,
 )
+from medical_qa_data_factory.knowledge_graph.errors import GraphQueryTimeoutError
 from medical_qa_data_factory.knowledge_graph.providers.primekg import (
     PrimeKGSQLiteProvider,
 )
@@ -367,6 +368,24 @@ def test_missing_native_id_fails_fast(tmp_path, primekg_db, monkeypatch) -> None
     )
     assert result.status == "failed"
     assert result.stop_reason == StopReason.INVALID_UPSTREAM_IDENTITY.value
+
+
+def test_seed_query_timeout_fails_without_entering_exploration(
+    tmp_path, primekg_db, monkeypatch
+) -> None:
+    def timeout(self, query):
+        raise GraphQueryTimeoutError("primekg seed lookup timed out")
+
+    monkeypatch.setattr(PrimeKGSQLiteProvider, "resolve_entity", timeout)
+
+    result = _service(tmp_path, primekg_db, monkeypatch).run(_request(tmp_path))
+
+    assert result.status == "failed"
+    assert result.stop_reason == StopReason.PROVIDER_ERROR.value
+    steps = GenerationRepository(tmp_path / "ws").list_steps_by_episode(
+        result.episode_id
+    )
+    assert {step.node for step in steps} == {"verify_seed", "fail"}
 
 
 def test_provider_is_closed_on_success(tmp_path, primekg_db, monkeypatch) -> None:
