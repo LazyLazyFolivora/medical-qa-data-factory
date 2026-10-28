@@ -38,6 +38,16 @@ def test_valid_seed_routes_forward() -> None:
     assert after_verify_seed(_state()) == Route.NEXT
 
 
+def test_seed_provider_error_routes_to_fail() -> None:
+    state = _state(stop_reason=StopReason.PROVIDER_ERROR.value)
+    assert after_verify_seed(state) == Route.FAIL
+
+
+def test_seed_fatal_error_routes_to_fail() -> None:
+    state = _state(stop_reason=StopReason.FATAL_ERROR.value)
+    assert after_verify_seed(state) == Route.FAIL
+
+
 def test_provider_error_routes_to_fail() -> None:
     state = _state(stop_reason=StopReason.PROVIDER_ERROR.value)
     assert after_collect_neighbors(state) == Route.FAIL
