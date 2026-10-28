@@ -323,6 +323,26 @@ def test_the_repair_prompt_is_added_to_the_second_request() -> None:
     assert any("did not satisfy the required JSON schema" in item for item in contents)
 
 
+def test_the_repair_request_includes_the_specific_validation_error() -> None:
+    with _Server(
+        [
+            {"status": 200, "body": _envelope(json.dumps({"value": ""}))},
+            {"status": 200, "body": _envelope(json.dumps({"value": "fixed"}))},
+        ]
+    ) as server:
+        model = OpenAICompatibleModel(config=_config(server.url))
+        result = model.generate_structured(_request(), Answer)
+
+    assert result.parsed["value"] == "fixed"
+    repair_messages = [
+        item["content"] for item in server.requests[1]["messages"]
+    ]
+    assert any(
+        "String should have at least 1 character" in item
+        for item in repair_messages
+    )
+
+
 def test_a_second_failure_is_not_repaired_again() -> None:
     with _Server(
         [
