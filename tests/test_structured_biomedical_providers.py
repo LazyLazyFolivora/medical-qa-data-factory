@@ -16,6 +16,10 @@ from medical_qa_data_factory.generation.structured_biomedical_providers import (
     HgncMaterialProvider,
     NcbiGeneMaterialProvider,
 )
+from medical_qa_data_factory.generation.subagent_contracts import (
+    SubagentRole,
+    default_objective_role_registry,
+)
 
 
 NOW = datetime(2026, 10, 29, tzinfo=timezone.utc)
@@ -39,6 +43,14 @@ def test_gene_location_routes_to_hgnc_then_structured_verifiers() -> None:
     assert route.primary_providers == ("hgnc",)
     assert route.verification_providers == ("ncbi_gene", "ensembl")
     assert "pubmed" in route.supporting_providers
+
+
+def test_material_retrieval_role_allows_structured_gene_providers() -> None:
+    capability = default_objective_role_registry()[
+        SubagentRole.MATERIAL_RETRIEVAL
+    ]
+
+    assert {"hgnc", "ncbi_gene", "ensembl"} <= capability.allowed_tools
 
 
 def test_hgnc_provider_returns_location_classification_and_cross_ids() -> None:
