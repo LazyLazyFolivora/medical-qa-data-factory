@@ -1,0 +1,61 @@
+{
+  "$defs": {
+    "ObjectiveVerdict": {
+      "enum": [
+        "PASS",
+        "REJECT",
+        "INDETERMINATE"
+      ],
+      "title": "ObjectiveVerdict",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "contradiction_checked": {
+      "title": "Contradiction Checked",
+      "type": "boolean"
+    },
+    "independently_supported": {
+      "title": "Independently Supported",
+      "type": "boolean"
+    },
+    "question_answer_contract_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Question Answer Contract Digest",
+      "type": "string"
+    },
+    "relation_strength_preserved": {
+      "title": "Relation Strength Preserved",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "default": "objective-question-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "task_id": {
+      "minLength": 1,
+      "title": "Task Id",
+      "type": "string"
+    },
+    "unique_or_closed": {
+      "title": "Unique Or Closed",
+      "type": "boolean"
+    },
+    "verdict": {
+      "$ref": "#/$defs/ObjectiveVerdict"
+    }
+  },
+  "required": [
+    "task_id",
+    "question_answer_contract_digest",
+    "independently_supported",
+    "unique_or_closed",
+    "contradiction_checked",
+    "relation_strength_preserved",
+    "verdict"
+  ],
+  "title": "AnswerEvidenceAuditResult",
+  "type": "object"
+}

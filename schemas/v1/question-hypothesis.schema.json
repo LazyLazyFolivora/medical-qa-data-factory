@@ -1,0 +1,91 @@
+{
+  "$defs": {
+    "AnswerCardinality": {
+      "enum": [
+        "EXACTLY_ONE",
+        "ONE_OR_MORE",
+        "EXACT_SET"
+      ],
+      "title": "AnswerCardinality",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "candidate_claim_ids": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Candidate Claim Ids",
+      "type": "array"
+    },
+    "discovery_anchor_ids": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Discovery Anchor Ids",
+      "type": "array"
+    },
+    "hypothesis_id": {
+      "minLength": 1,
+      "title": "Hypothesis Id",
+      "type": "string"
+    },
+    "proposed_answer_type": {
+      "minLength": 1,
+      "title": "Proposed Answer Type",
+      "type": "string"
+    },
+    "proposed_answer_values": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Proposed Answer Values",
+      "type": "array"
+    },
+    "proposed_cardinality": {
+      "$ref": "#/$defs/AnswerCardinality"
+    },
+    "proposed_public_scope": {
+      "minLength": 1,
+      "title": "Proposed Public Scope",
+      "type": "string"
+    },
+    "question_intent": {
+      "minLength": 1,
+      "title": "Question Intent",
+      "type": "string"
+    },
+    "risk_flags": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Risk Flags",
+      "type": "array"
+    },
+    "schema_version": {
+      "default": "objective-question-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "const": "PROPOSED",
+      "default": "PROPOSED",
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "hypothesis_id",
+    "candidate_claim_ids",
+    "question_intent",
+    "proposed_public_scope",
+    "proposed_answer_type",
+    "proposed_cardinality",
+    "discovery_anchor_ids"
+  ],
+  "title": "QuestionHypothesis",
+  "type": "object"
+}

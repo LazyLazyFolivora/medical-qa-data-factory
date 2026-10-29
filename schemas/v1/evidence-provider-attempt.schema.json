@@ -1,0 +1,86 @@
+{
+  "$defs": {
+    "ProviderTerminalStatus": {
+      "enum": [
+        "SUCCEEDED",
+        "EMPTY",
+        "FAILED",
+        "UNKNOWN"
+      ],
+      "title": "ProviderTerminalStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "attempt_id": {
+      "minLength": 1,
+      "title": "Attempt Id",
+      "type": "string"
+    },
+    "error_category": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error Category"
+    },
+    "finished_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Finished At"
+    },
+    "operation_key": {
+      "minLength": 1,
+      "title": "Operation Key",
+      "type": "string"
+    },
+    "provider_id": {
+      "minLength": 1,
+      "title": "Provider Id",
+      "type": "string"
+    },
+    "provider_version": {
+      "minLength": 1,
+      "title": "Provider Version",
+      "type": "string"
+    },
+    "retry_ordinal": {
+      "minimum": 0,
+      "title": "Retry Ordinal",
+      "type": "integer"
+    },
+    "started_at": {
+      "format": "date-time",
+      "title": "Started At",
+      "type": "string"
+    },
+    "terminal_status": {
+      "$ref": "#/$defs/ProviderTerminalStatus"
+    }
+  },
+  "required": [
+    "attempt_id",
+    "operation_key",
+    "retry_ordinal",
+    "provider_id",
+    "provider_version",
+    "started_at",
+    "terminal_status"
+  ],
+  "title": "EvidenceProviderAttempt",
+  "type": "object"
+}

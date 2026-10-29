@@ -7,6 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from medical_qa_data_factory.generation.evidence_provider import (
+    EvidenceProviderAttempt,
     EvidenceProviderCapability,
     EvidenceProviderRequest,
     EvidenceProviderResult,
@@ -41,6 +42,7 @@ def test_failed_or_unknown_result_requires_error_category() -> None:
         request_id="request-1",
         provider_id="pubmed",
         provider_version="v1",
+        operation_key="run-1|retrieve|operation-1",
         query={"term": "BRCA1 chromosome"},
         requested_at=NOW,
         material_limit=10,
@@ -60,6 +62,7 @@ def test_empty_and_failure_are_distinct_terminal_outcomes() -> None:
         request_id="request-1",
         provider_id="pubmed",
         provider_version="v1",
+        operation_key="run-1|retrieve|operation-2",
         query={"term": "no results"},
         requested_at=NOW,
         material_limit=10,
@@ -72,3 +75,42 @@ def test_empty_and_failure_are_distinct_terminal_outcomes() -> None:
         error_category=None,
     )
     assert empty.terminal_status is ProviderTerminalStatus.EMPTY
+
+
+def test_provider_request_requires_a_stable_operation_key() -> None:
+    with pytest.raises(ValidationError):
+        EvidenceProviderRequest(
+            request_id="request-1",
+            provider_id="pubmed",
+            provider_version="v1",
+            query={"term": "BRCA1"},
+            requested_at=NOW,
+            material_limit=10,
+        )
+
+
+def test_provider_attempt_keeps_retry_identity_and_unknown_outcome_explicit() -> None:
+    attempt = EvidenceProviderAttempt(
+        attempt_id="attempt-2",
+        operation_key="run-1|retrieve|operation-1",
+        retry_ordinal=1,
+        provider_id="pubmed",
+        provider_version="v1",
+        started_at=NOW,
+        terminal_status=ProviderTerminalStatus.UNKNOWN,
+        error_category="TIMEOUT_UNKNOWN_OUTCOME",
+    )
+
+    assert attempt.operation_key == "run-1|retrieve|operation-1"
+    assert attempt.retry_ordinal == 1
+    with pytest.raises(ValidationError, match="error_category"):
+        EvidenceProviderAttempt(
+            attempt_id="attempt-3",
+            operation_key=attempt.operation_key,
+            retry_ordinal=2,
+            provider_id="pubmed",
+            provider_version="v1",
+            started_at=NOW,
+            terminal_status=ProviderTerminalStatus.UNKNOWN,
+            error_category=None,
+        )

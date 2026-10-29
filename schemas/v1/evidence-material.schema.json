@@ -1,0 +1,84 @@
+{
+  "$defs": {
+    "ProviderTerminalStatus": {
+      "enum": [
+        "SUCCEEDED",
+        "EMPTY",
+        "FAILED",
+        "UNKNOWN"
+      ],
+      "title": "ProviderTerminalStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "content_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Content Hash",
+      "type": "string"
+    },
+    "material_id": {
+      "minLength": 1,
+      "title": "Material Id",
+      "type": "string"
+    },
+    "material_type": {
+      "minLength": 1,
+      "title": "Material Type",
+      "type": "string"
+    },
+    "provider_id": {
+      "minLength": 1,
+      "title": "Provider Id",
+      "type": "string"
+    },
+    "provider_version": {
+      "minLength": 1,
+      "title": "Provider Version",
+      "type": "string"
+    },
+    "raw_content_ref": {
+      "minLength": 1,
+      "title": "Raw Content Ref",
+      "type": "string"
+    },
+    "retrieval_request_id": {
+      "minLength": 1,
+      "title": "Retrieval Request Id",
+      "type": "string"
+    },
+    "retrieved_at": {
+      "format": "date-time",
+      "title": "Retrieved At",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": "objective-question-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_record_id": {
+      "minLength": 1,
+      "title": "Source Record Id",
+      "type": "string"
+    },
+    "terminal_status": {
+      "$ref": "#/$defs/ProviderTerminalStatus"
+    }
+  },
+  "required": [
+    "material_id",
+    "provider_id",
+    "provider_version",
+    "source_record_id",
+    "retrieved_at",
+    "content_hash",
+    "raw_content_ref",
+    "material_type",
+    "retrieval_request_id",
+    "terminal_status"
+  ],
+  "title": "EvidenceMaterial",
+  "type": "object"
+}

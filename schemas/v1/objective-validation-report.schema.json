@@ -1,0 +1,97 @@
+{
+  "$defs": {
+    "ObjectiveVerdict": {
+      "enum": [
+        "PASS",
+        "REJECT",
+        "INDETERMINATE"
+      ],
+      "title": "ObjectiveVerdict",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "answer_audit_id": {
+      "minLength": 1,
+      "title": "Answer Audit Id",
+      "type": "string"
+    },
+    "blocking_findings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Blocking Findings",
+      "type": "array"
+    },
+    "evidence_used": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence Used",
+      "type": "array"
+    },
+    "input_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Input Digest",
+      "type": "string"
+    },
+    "primary_reason": {
+      "minLength": 1,
+      "title": "Primary Reason",
+      "type": "string"
+    },
+    "public_question_audit_id": {
+      "minLength": 1,
+      "title": "Public Question Audit Id",
+      "type": "string"
+    },
+    "question_id": {
+      "minLength": 1,
+      "title": "Question Id",
+      "type": "string"
+    },
+    "release_allowed": {
+      "title": "Release Allowed",
+      "type": "boolean"
+    },
+    "report_id": {
+      "minLength": 1,
+      "title": "Report Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": "objective-question-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "secondary_reasons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Secondary Reasons",
+      "type": "array"
+    },
+    "validator_version": {
+      "minLength": 1,
+      "title": "Validator Version",
+      "type": "string"
+    },
+    "verdict": {
+      "$ref": "#/$defs/ObjectiveVerdict"
+    }
+  },
+  "required": [
+    "report_id",
+    "question_id",
+    "verdict",
+    "release_allowed",
+    "primary_reason",
+    "public_question_audit_id",
+    "answer_audit_id",
+    "validator_version",
+    "input_digest"
+  ],
+  "title": "ObjectiveValidationReport",
+  "type": "object"
+}

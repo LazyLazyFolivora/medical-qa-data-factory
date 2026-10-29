@@ -1,0 +1,95 @@
+{
+  "$defs": {
+    "AnswerCardinality": {
+      "enum": [
+        "EXACTLY_ONE",
+        "ONE_OR_MORE",
+        "EXACT_SET"
+      ],
+      "title": "AnswerCardinality",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "allowed_wording_constraints": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Allowed Wording Constraints",
+      "type": "array"
+    },
+    "answer_cardinality": {
+      "$ref": "#/$defs/AnswerCardinality"
+    },
+    "answer_type": {
+      "minLength": 1,
+      "title": "Answer Type",
+      "type": "string"
+    },
+    "answer_values": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Answer Values",
+      "type": "array"
+    },
+    "claim_strength": {
+      "minLength": 1,
+      "title": "Claim Strength",
+      "type": "string"
+    },
+    "contract_id": {
+      "minLength": 1,
+      "title": "Contract Id",
+      "type": "string"
+    },
+    "forbidden_semantic_upgrades": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Forbidden Semantic Upgrades",
+      "type": "array"
+    },
+    "public_scope": {
+      "minLength": 1,
+      "title": "Public Scope",
+      "type": "string"
+    },
+    "question_intent": {
+      "minLength": 1,
+      "title": "Question Intent",
+      "type": "string"
+    },
+    "required_public_conditions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Public Conditions",
+      "type": "array"
+    },
+    "resolution_id": {
+      "minLength": 1,
+      "title": "Resolution Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": "objective-question-v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "contract_id",
+    "question_intent",
+    "public_scope",
+    "answer_type",
+    "answer_values",
+    "answer_cardinality",
+    "claim_strength",
+    "resolution_id"
+  ],
+  "title": "FrozenQuestionContract",
+  "type": "object"
+}

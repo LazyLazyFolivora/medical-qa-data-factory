@@ -1,0 +1,81 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "adjudication_protocol": {
+      "minLength": 1,
+      "title": "Adjudication Protocol",
+      "type": "string"
+    },
+    "aggregation_method": {
+      "minLength": 1,
+      "title": "Aggregation Method",
+      "type": "string"
+    },
+    "confidence_interval_method": {
+      "minLength": 1,
+      "title": "Confidence Interval Method",
+      "type": "string"
+    },
+    "denominator": {
+      "minLength": 1,
+      "title": "Denominator",
+      "type": "string"
+    },
+    "exclusions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Exclusions",
+      "type": "array"
+    },
+    "label_source": {
+      "minLength": 1,
+      "title": "Label Source",
+      "type": "string"
+    },
+    "metric_id": {
+      "minLength": 1,
+      "title": "Metric Id",
+      "type": "string"
+    },
+    "minimum_sample_size": {
+      "minimum": 1,
+      "title": "Minimum Sample Size",
+      "type": "integer"
+    },
+    "numerator": {
+      "minLength": 1,
+      "title": "Numerator",
+      "type": "string"
+    },
+    "population": {
+      "minLength": 1,
+      "title": "Population",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": "objective-question-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "version": {
+      "minLength": 1,
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "metric_id",
+    "version",
+    "population",
+    "numerator",
+    "denominator",
+    "label_source",
+    "adjudication_protocol",
+    "aggregation_method",
+    "confidence_interval_method",
+    "minimum_sample_size"
+  ],
+  "title": "MetricSpec",
+  "type": "object"
+}

@@ -1,0 +1,59 @@
+{
+  "$defs": {
+    "AnswerCardinality": {
+      "enum": [
+        "EXACTLY_ONE",
+        "ONE_OR_MORE",
+        "EXACT_SET"
+      ],
+      "title": "AnswerCardinality",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "answer_cardinality": {
+      "$ref": "#/$defs/AnswerCardinality"
+    },
+    "answer_type": {
+      "minLength": 1,
+      "title": "Answer Type",
+      "type": "string"
+    },
+    "public_scope": {
+      "minLength": 1,
+      "title": "Public Scope",
+      "type": "string"
+    },
+    "query_id": {
+      "minLength": 1,
+      "title": "Query Id",
+      "type": "string"
+    },
+    "question_intent": {
+      "minLength": 1,
+      "title": "Question Intent",
+      "type": "string"
+    },
+    "required_relation_strength": {
+      "minLength": 1,
+      "title": "Required Relation Strength",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": "objective-question-v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "query_id",
+    "question_intent",
+    "public_scope",
+    "answer_type",
+    "answer_cardinality",
+    "required_relation_strength"
+  ],
+  "title": "BlindAnswerQuery",
+  "type": "object"
+}

@@ -13,6 +13,9 @@ from medical_qa_data_factory.generation.objective_question_contracts import (
     BlindAnswerQuery,
     CompletenessBasis,
     DomainOutcome,
+    EntityResolution,
+    EntityResolutionStatus,
+    EvidenceAnchor,
     ExecutionStatus,
     HypothesisState,
     ObjectiveValidationReport,
@@ -23,6 +26,7 @@ from medical_qa_data_factory.generation.objective_question_contracts import (
     VerificationCoverageReport,
     VerificationVerdict,
     aggregate_generation_run,
+    text_digest,
     transition_hypothesis,
 )
 
@@ -50,6 +54,40 @@ def test_blind_answer_query_cannot_carry_candidate_answer_or_discovery() -> None
         BlindAnswerQuery(
             **query.model_dump(),
             discovery_anchor_ids=["anchor-1"],
+        )
+
+
+def test_anchor_offsets_and_quote_hash_are_checked() -> None:
+    anchor = EvidenceAnchor(
+        anchor_id="anchor-1",
+        material_id="material-1",
+        document_id="document-1",
+        section_or_field="abstract",
+        start_offset=10,
+        end_offset=18,
+        quoted_text="BRCA1 is",
+        quote_hash=text_digest("BRCA1 is"),
+    )
+    assert anchor.quoted_text == "BRCA1 is"
+
+    with pytest.raises(ValidationError, match="quote_hash"):
+        EvidenceAnchor(
+            **{
+                **anchor.model_dump(),
+                "quote_hash": "d" * 64,
+            }
+        )
+    with pytest.raises(ValidationError, match="end_offset"):
+        EvidenceAnchor(**{**anchor.model_dump(), "end_offset": 10})
+
+
+def test_ambiguous_entity_requires_multiple_visible_candidates() -> None:
+    with pytest.raises(ValidationError, match="two candidates"):
+        EntityResolution(
+            resolution_id="resolution-entity-1",
+            mention="BRCA1",
+            resolution_status=EntityResolutionStatus.AMBIGUOUS,
+            candidate_entities=["human BRCA1"],
         )
 
 
@@ -218,8 +256,11 @@ def test_zero_question_completion_is_distinct_from_recovery() -> None:
 
 def test_hypothesis_state_machine_rejects_skipped_verification() -> None:
     assert (
-        transition_hypothesis(HypothesisState.PROPOSED, HypothesisState.VERIFYING)
-        is HypothesisState.VERIFYING
+        transition_hypothesis(
+            HypothesisState.PROPOSED,
+            HypothesisState.VERIFICATION_PLANNED,
+        )
+        is HypothesisState.VERIFICATION_PLANNED
     )
     with pytest.raises(ValueError, match="PROPOSED"):
         transition_hypothesis(
@@ -239,6 +280,7 @@ def test_operation_record_requires_error_category_only_for_failed_execution() ->
         started_at=NOW,
         finished_at=NOW,
         deduplication_status="COMMITTED",
+        commit_sequence=1,
         execution_status="SUCCEEDED",
         domain_outcome="SUPPORTED",
         verdict="VERIFIED",
@@ -252,3 +294,5 @@ def test_operation_record_requires_error_category_only_for_failed_execution() ->
         OperationRecord(
             **{**base, "execution_status": "FAILED", "error_category": None}
         )
+    with pytest.raises(ValidationError, match="commit_sequence"):
+        OperationRecord(**{**base, "commit_sequence": 0})

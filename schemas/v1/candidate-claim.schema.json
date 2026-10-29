@@ -1,0 +1,89 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "claim_id": {
+      "minLength": 1,
+      "title": "Claim Id",
+      "type": "string"
+    },
+    "claim_strength": {
+      "minLength": 1,
+      "title": "Claim Strength",
+      "type": "string"
+    },
+    "contradicting_anchor_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Contradicting Anchor Ids",
+      "type": "array"
+    },
+    "extraction_model_version": {
+      "minLength": 1,
+      "title": "Extraction Model Version",
+      "type": "string"
+    },
+    "object_or_value": {
+      "minLength": 1,
+      "title": "Object Or Value",
+      "type": "string"
+    },
+    "polarity": {
+      "enum": [
+        "POSITIVE",
+        "NEGATIVE",
+        "UNKNOWN"
+      ],
+      "title": "Polarity",
+      "type": "string"
+    },
+    "predicate": {
+      "minLength": 1,
+      "title": "Predicate",
+      "type": "string"
+    },
+    "qualifiers": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Qualifiers",
+      "type": "object"
+    },
+    "schema_version": {
+      "default": "objective-question-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "const": "PROPOSED",
+      "default": "PROPOSED",
+      "title": "Status",
+      "type": "string"
+    },
+    "subject": {
+      "minLength": 1,
+      "title": "Subject",
+      "type": "string"
+    },
+    "supporting_anchor_ids": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Supporting Anchor Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "claim_id",
+    "subject",
+    "predicate",
+    "object_or_value",
+    "claim_strength",
+    "polarity",
+    "supporting_anchor_ids",
+    "extraction_model_version"
+  ],
+  "title": "CandidateClaim",
+  "type": "object"
+}

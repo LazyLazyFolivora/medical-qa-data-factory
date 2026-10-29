@@ -1,0 +1,66 @@
+{
+  "$defs": {
+    "ObjectiveVerdict": {
+      "enum": [
+        "PASS",
+        "REJECT",
+        "INDETERMINATE"
+      ],
+      "title": "ObjectiveVerdict",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "asks_underlying_fact": {
+      "title": "Asks Underlying Fact",
+      "type": "boolean"
+    },
+    "cardinality_clear": {
+      "title": "Cardinality Clear",
+      "type": "boolean"
+    },
+    "entity_unambiguous": {
+      "title": "Entity Unambiguous",
+      "type": "boolean"
+    },
+    "public_question_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Public Question Digest",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": "objective-question-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "self_contained": {
+      "title": "Self Contained",
+      "type": "boolean"
+    },
+    "source_independent": {
+      "title": "Source Independent",
+      "type": "boolean"
+    },
+    "task_id": {
+      "minLength": 1,
+      "title": "Task Id",
+      "type": "string"
+    },
+    "verdict": {
+      "$ref": "#/$defs/ObjectiveVerdict"
+    }
+  },
+  "required": [
+    "task_id",
+    "public_question_digest",
+    "self_contained",
+    "source_independent",
+    "asks_underlying_fact",
+    "entity_unambiguous",
+    "cardinality_clear",
+    "verdict"
+  ],
+  "title": "PublicQuestionAuditResult",
+  "type": "object"
+}

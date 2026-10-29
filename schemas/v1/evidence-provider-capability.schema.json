@@ -1,0 +1,51 @@
+{
+  "$defs": {
+    "SideEffectClass": {
+      "enum": [
+        "READ_ONLY",
+        "IDEMPOTENT_WRITE",
+        "NON_IDEMPOTENT_WRITE"
+      ],
+      "title": "SideEffectClass",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "provider_id": {
+      "minLength": 1,
+      "title": "Provider Id",
+      "type": "string"
+    },
+    "provider_version": {
+      "minLength": 1,
+      "title": "Provider Version",
+      "type": "string"
+    },
+    "safe_to_repeat": {
+      "title": "Safe To Repeat",
+      "type": "boolean"
+    },
+    "side_effect_class": {
+      "$ref": "#/$defs/SideEffectClass"
+    },
+    "supports_idempotency": {
+      "title": "Supports Idempotency",
+      "type": "boolean"
+    },
+    "supports_status_lookup": {
+      "title": "Supports Status Lookup",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "provider_id",
+    "provider_version",
+    "side_effect_class",
+    "supports_idempotency",
+    "supports_status_lookup",
+    "safe_to_repeat"
+  ],
+  "title": "EvidenceProviderCapability",
+  "type": "object"
+}

@@ -1,0 +1,136 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "allowed_tools": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Allowed Tools",
+      "type": "array"
+    },
+    "budget": {
+      "additionalProperties": true,
+      "minProperties": 1,
+      "title": "Budget",
+      "type": "object"
+    },
+    "child_slot_id": {
+      "minLength": 1,
+      "title": "Child Slot Id",
+      "type": "string"
+    },
+    "expected_output_schema": {
+      "minLength": 1,
+      "title": "Expected Output Schema",
+      "type": "string"
+    },
+    "expected_state": {
+      "minLength": 1,
+      "title": "Expected State",
+      "type": "string"
+    },
+    "expected_state_revision": {
+      "minimum": 0,
+      "title": "Expected State Revision",
+      "type": "integer"
+    },
+    "goal": {
+      "additionalProperties": true,
+      "minProperties": 1,
+      "title": "Goal",
+      "type": "object"
+    },
+    "initial_attempt_id": {
+      "minLength": 1,
+      "title": "Initial Attempt Id",
+      "type": "string"
+    },
+    "input_artifact_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Input Artifact Ids",
+      "type": "array"
+    },
+    "input_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Input Digest",
+      "type": "string"
+    },
+    "operation_key": {
+      "minLength": 1,
+      "title": "Operation Key",
+      "type": "string"
+    },
+    "parent_decision_id": {
+      "minLength": 1,
+      "title": "Parent Decision Id",
+      "type": "string"
+    },
+    "role_version": {
+      "minLength": 1,
+      "title": "Role Version",
+      "type": "string"
+    },
+    "runtime_bundle_id": {
+      "minLength": 1,
+      "title": "Runtime Bundle Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": "objective-question-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "stop_conditions": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Stop Conditions",
+      "type": "array"
+    },
+    "subagent_role": {
+      "minLength": 1,
+      "title": "Subagent Role",
+      "type": "string"
+    },
+    "subtask_id": {
+      "minLength": 1,
+      "title": "Subtask Id",
+      "type": "string"
+    },
+    "subtask_revision": {
+      "minimum": 0,
+      "title": "Subtask Revision",
+      "type": "integer"
+    },
+    "visible_field_policy": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Visible Field Policy",
+      "type": "array"
+    }
+  },
+  "required": [
+    "subtask_id",
+    "subtask_revision",
+    "child_slot_id",
+    "parent_decision_id",
+    "subagent_role",
+    "role_version",
+    "goal",
+    "input_digest",
+    "runtime_bundle_id",
+    "expected_state",
+    "expected_state_revision",
+    "operation_key",
+    "initial_attempt_id",
+    "budget",
+    "stop_conditions",
+    "expected_output_schema"
+  ],
+  "title": "SubagentTask",
+  "type": "object"
+}

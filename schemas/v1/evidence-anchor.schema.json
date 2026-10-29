@@ -1,0 +1,62 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "anchor_id": {
+      "minLength": 1,
+      "title": "Anchor Id",
+      "type": "string"
+    },
+    "document_id": {
+      "minLength": 1,
+      "title": "Document Id",
+      "type": "string"
+    },
+    "end_offset": {
+      "exclusiveMinimum": 0,
+      "title": "End Offset",
+      "type": "integer"
+    },
+    "material_id": {
+      "minLength": 1,
+      "title": "Material Id",
+      "type": "string"
+    },
+    "quote_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Quote Hash",
+      "type": "string"
+    },
+    "quoted_text": {
+      "minLength": 1,
+      "title": "Quoted Text",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": "objective-question-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "section_or_field": {
+      "minLength": 1,
+      "title": "Section Or Field",
+      "type": "string"
+    },
+    "start_offset": {
+      "minimum": 0,
+      "title": "Start Offset",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "anchor_id",
+    "material_id",
+    "document_id",
+    "section_or_field",
+    "start_offset",
+    "end_offset",
+    "quoted_text",
+    "quote_hash"
+  ],
+  "title": "EvidenceAnchor",
+  "type": "object"
+}

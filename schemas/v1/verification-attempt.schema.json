@@ -1,0 +1,106 @@
+{
+  "$defs": {
+    "ProviderTerminalStatus": {
+      "enum": [
+        "SUCCEEDED",
+        "EMPTY",
+        "FAILED",
+        "UNKNOWN"
+      ],
+      "title": "ProviderTerminalStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "anchor_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Anchor Ids",
+      "type": "array"
+    },
+    "attempt_id": {
+      "minLength": 1,
+      "title": "Attempt Id",
+      "type": "string"
+    },
+    "error_category": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error Category"
+    },
+    "finished_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Finished At"
+    },
+    "material_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Material Ids",
+      "type": "array"
+    },
+    "plan_id": {
+      "minLength": 1,
+      "title": "Plan Id",
+      "type": "string"
+    },
+    "provider_id": {
+      "minLength": 1,
+      "title": "Provider Id",
+      "type": "string"
+    },
+    "query": {
+      "minLength": 1,
+      "title": "Query",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": "objective-question-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "started_at": {
+      "format": "date-time",
+      "title": "Started At",
+      "type": "string"
+    },
+    "terminal_status": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProviderTerminalStatus"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "attempt_id",
+    "plan_id",
+    "query",
+    "provider_id",
+    "started_at"
+  ],
+  "title": "VerificationAttempt",
+  "type": "object"
+}

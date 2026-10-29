@@ -1,0 +1,88 @@
+{
+  "$defs": {
+    "CoverageStatus": {
+      "enum": [
+        "COMPLETE",
+        "INCOMPLETE"
+      ],
+      "title": "CoverageStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "budget_exhausted": {
+      "title": "Budget Exhausted",
+      "type": "boolean"
+    },
+    "competing_answer_queries": {
+      "minimum": 0,
+      "title": "Competing Answer Queries",
+      "type": "integer"
+    },
+    "contradiction_queries": {
+      "minimum": 0,
+      "title": "Contradiction Queries",
+      "type": "integer"
+    },
+    "coverage_report_id": {
+      "minLength": 1,
+      "title": "Coverage Report Id",
+      "type": "string"
+    },
+    "coverage_status": {
+      "$ref": "#/$defs/CoverageStatus"
+    },
+    "expected_attempt_ids": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Expected Attempt Ids",
+      "type": "array"
+    },
+    "failed_attempt_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Failed Attempt Ids",
+      "type": "array"
+    },
+    "schema_version": {
+      "default": "objective-question-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "successful_attempt_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Successful Attempt Ids",
+      "type": "array"
+    },
+    "terminal_attempt_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Terminal Attempt Ids",
+      "type": "array"
+    },
+    "unknown_attempt_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Unknown Attempt Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "coverage_report_id",
+    "expected_attempt_ids",
+    "budget_exhausted",
+    "competing_answer_queries",
+    "contradiction_queries",
+    "coverage_status"
+  ],
+  "title": "VerificationCoverageReport",
+  "type": "object"
+}

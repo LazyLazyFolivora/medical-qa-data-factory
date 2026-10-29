@@ -1,0 +1,115 @@
+{
+  "$defs": {
+    "EntityResolutionStatus": {
+      "enum": [
+        "RESOLVED",
+        "AMBIGUOUS",
+        "UNRESOLVED"
+      ],
+      "title": "EntityResolutionStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "aliases": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Aliases",
+      "type": "array"
+    },
+    "authority": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Authority"
+    },
+    "candidate_entities": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Candidate Entities",
+      "type": "array"
+    },
+    "canonical_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Canonical Id"
+    },
+    "canonical_name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Canonical Name"
+    },
+    "mention": {
+      "minLength": 1,
+      "title": "Mention",
+      "type": "string"
+    },
+    "namespace": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Namespace"
+    },
+    "resolution_id": {
+      "minLength": 1,
+      "title": "Resolution Id",
+      "type": "string"
+    },
+    "resolution_status": {
+      "$ref": "#/$defs/EntityResolutionStatus"
+    },
+    "schema_version": {
+      "default": "objective-question-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "species": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Species"
+    }
+  },
+  "required": [
+    "resolution_id",
+    "mention",
+    "resolution_status"
+  ],
+  "title": "EntityResolution",
+  "type": "object"
+}

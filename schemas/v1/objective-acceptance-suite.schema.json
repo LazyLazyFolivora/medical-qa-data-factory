@@ -1,0 +1,59 @@
+{
+  "$defs": {
+    "ObjectiveAcceptanceCase": {
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "minLength": 1,
+          "title": "Case Id",
+          "type": "string"
+        },
+        "expected_reason_code": {
+          "minLength": 1,
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "title": "Expected Reason Code",
+          "type": "string"
+        },
+        "expected_verdict": {
+          "minLength": 1,
+          "title": "Expected Verdict",
+          "type": "string"
+        },
+        "scenario": {
+          "minLength": 1,
+          "title": "Scenario",
+          "type": "string"
+        }
+      },
+      "required": [
+        "case_id",
+        "scenario",
+        "expected_verdict",
+        "expected_reason_code"
+      ],
+      "title": "ObjectiveAcceptanceCase",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "cases": {
+      "items": {
+        "$ref": "#/$defs/ObjectiveAcceptanceCase"
+      },
+      "minItems": 1,
+      "title": "Cases",
+      "type": "array"
+    },
+    "schema_version": {
+      "default": "objective-question-acceptance-v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "cases"
+  ],
+  "title": "ObjectiveAcceptanceSuite",
+  "type": "object"
+}

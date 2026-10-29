@@ -1,0 +1,138 @@
+{
+  "$defs": {
+    "AnswerCardinality": {
+      "enum": [
+        "EXACTLY_ONE",
+        "ONE_OR_MORE",
+        "EXACT_SET"
+      ],
+      "title": "AnswerCardinality",
+      "type": "string"
+    },
+    "AnswerStatus": {
+      "enum": [
+        "VERIFIED",
+        "REJECTED",
+        "INDETERMINATE"
+      ],
+      "title": "AnswerStatus",
+      "type": "string"
+    },
+    "CompletenessBasis": {
+      "enum": [
+        "CANONICAL_IDENTITY",
+        "AUTHORITATIVE_DEFINITION",
+        "AUTHORITATIVE_ENUMERATION",
+        "EXPLICIT_PUBLIC_OPTIONS",
+        "DETERMINISTIC_CALCULATION",
+        "NOT_ESTABLISHED"
+      ],
+      "title": "CompletenessBasis",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "answer_cardinality": {
+      "$ref": "#/$defs/AnswerCardinality"
+    },
+    "blind_answer_query_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Blind Answer Query Digest",
+      "type": "string"
+    },
+    "competing_answers_checked": {
+      "title": "Competing Answers Checked",
+      "type": "boolean"
+    },
+    "completeness_basis": {
+      "$ref": "#/$defs/CompletenessBasis"
+    },
+    "conflict_checked": {
+      "title": "Conflict Checked",
+      "type": "boolean"
+    },
+    "contradicting_anchor_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Contradicting Anchor Ids",
+      "type": "array"
+    },
+    "hypothesis_id": {
+      "minLength": 1,
+      "title": "Hypothesis Id",
+      "type": "string"
+    },
+    "public_scope": {
+      "minLength": 1,
+      "title": "Public Scope",
+      "type": "string"
+    },
+    "resolution_id": {
+      "minLength": 1,
+      "title": "Resolution Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": "objective-question-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/AnswerStatus"
+    },
+    "supporting_anchor_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Supporting Anchor Ids",
+      "type": "array"
+    },
+    "verification_coverage_report_id": {
+      "minLength": 1,
+      "title": "Verification Coverage Report Id",
+      "type": "string"
+    },
+    "verification_plan_id": {
+      "minLength": 1,
+      "title": "Verification Plan Id",
+      "type": "string"
+    },
+    "verification_policy_version": {
+      "minLength": 1,
+      "title": "Verification Policy Version",
+      "type": "string"
+    },
+    "verification_sources": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Verification Sources",
+      "type": "array"
+    },
+    "verified_answer_values": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Verified Answer Values",
+      "type": "array"
+    }
+  },
+  "required": [
+    "resolution_id",
+    "hypothesis_id",
+    "status",
+    "answer_cardinality",
+    "public_scope",
+    "competing_answers_checked",
+    "conflict_checked",
+    "completeness_basis",
+    "verification_policy_version",
+    "blind_answer_query_digest",
+    "verification_plan_id",
+    "verification_coverage_report_id"
+  ],
+  "title": "AnswerResolution",
+  "type": "object"
+}

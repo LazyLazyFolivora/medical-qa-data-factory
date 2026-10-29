@@ -1,0 +1,169 @@
+{
+  "$defs": {
+    "DeduplicationStatus": {
+      "enum": [
+        "IN_FLIGHT",
+        "COMMITTED",
+        "RETRYABLE_FAILED",
+        "UNKNOWN",
+        "TERMINAL_FAILED"
+      ],
+      "title": "DeduplicationStatus",
+      "type": "string"
+    },
+    "DomainOutcome": {
+      "enum": [
+        "SUPPORTED",
+        "CONFLICT",
+        "INSUFFICIENT",
+        "NOT_APPLICABLE"
+      ],
+      "title": "DomainOutcome",
+      "type": "string"
+    },
+    "ExecutionStatus": {
+      "enum": [
+        "SUCCEEDED",
+        "FAILED",
+        "UNKNOWN"
+      ],
+      "title": "ExecutionStatus",
+      "type": "string"
+    },
+    "VerificationVerdict": {
+      "enum": [
+        "VERIFIED",
+        "REJECTED",
+        "INDETERMINATE",
+        "NOT_EMITTED"
+      ],
+      "title": "VerificationVerdict",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "attempt_id": {
+      "minLength": 1,
+      "title": "Attempt Id",
+      "type": "string"
+    },
+    "commit_sequence": {
+      "minimum": 0,
+      "title": "Commit Sequence",
+      "type": "integer"
+    },
+    "cost": {
+      "default": 0.0,
+      "minimum": 0,
+      "title": "Cost",
+      "type": "number"
+    },
+    "deduplication_status": {
+      "$ref": "#/$defs/DeduplicationStatus"
+    },
+    "domain_outcome": {
+      "$ref": "#/$defs/DomainOutcome"
+    },
+    "error_category": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error Category"
+    },
+    "execution_status": {
+      "$ref": "#/$defs/ExecutionStatus"
+    },
+    "finished_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Finished At"
+    },
+    "input_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Input Digest",
+      "type": "string"
+    },
+    "latency_ms": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Latency Ms",
+      "type": "integer"
+    },
+    "operation_key": {
+      "minLength": 1,
+      "title": "Operation Key",
+      "type": "string"
+    },
+    "operation_type": {
+      "minLength": 1,
+      "title": "Operation Type",
+      "type": "string"
+    },
+    "output_artifact_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Output Artifact Ids",
+      "type": "array"
+    },
+    "parent_subtask_id": {
+      "minLength": 1,
+      "title": "Parent Subtask Id",
+      "type": "string"
+    },
+    "retry_ordinal": {
+      "minimum": 0,
+      "title": "Retry Ordinal",
+      "type": "integer"
+    },
+    "schema_version": {
+      "default": "objective-question-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "started_at": {
+      "format": "date-time",
+      "title": "Started At",
+      "type": "string"
+    },
+    "usage": {
+      "additionalProperties": true,
+      "title": "Usage",
+      "type": "object"
+    },
+    "verdict": {
+      "$ref": "#/$defs/VerificationVerdict"
+    }
+  },
+  "required": [
+    "operation_key",
+    "attempt_id",
+    "retry_ordinal",
+    "parent_subtask_id",
+    "operation_type",
+    "input_digest",
+    "started_at",
+    "finished_at",
+    "deduplication_status",
+    "commit_sequence",
+    "execution_status",
+    "domain_outcome",
+    "verdict"
+  ],
+  "title": "OperationRecord",
+  "type": "object"
+}

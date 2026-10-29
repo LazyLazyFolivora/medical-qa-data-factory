@@ -1,0 +1,64 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "material_limit": {
+      "minimum": 1,
+      "title": "Material Limit",
+      "type": "integer"
+    },
+    "operation_key": {
+      "minLength": 1,
+      "title": "Operation Key",
+      "type": "string"
+    },
+    "provider_id": {
+      "minLength": 1,
+      "title": "Provider Id",
+      "type": "string"
+    },
+    "provider_version": {
+      "minLength": 1,
+      "title": "Provider Version",
+      "type": "string"
+    },
+    "query": {
+      "additionalProperties": true,
+      "minProperties": 1,
+      "title": "Query",
+      "type": "object"
+    },
+    "request_id": {
+      "minLength": 1,
+      "title": "Request Id",
+      "type": "string"
+    },
+    "requested_at": {
+      "format": "date-time",
+      "title": "Requested At",
+      "type": "string"
+    },
+    "snapshot_policy": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Snapshot Policy"
+    }
+  },
+  "required": [
+    "request_id",
+    "provider_id",
+    "provider_version",
+    "operation_key",
+    "query",
+    "requested_at",
+    "material_limit"
+  ],
+  "title": "EvidenceProviderRequest",
+  "type": "object"
+}

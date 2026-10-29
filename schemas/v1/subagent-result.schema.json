@@ -1,0 +1,100 @@
+{
+  "$defs": {
+    "DomainOutcome": {
+      "enum": [
+        "SUPPORTED",
+        "CONFLICT",
+        "INSUFFICIENT",
+        "NOT_APPLICABLE"
+      ],
+      "title": "DomainOutcome",
+      "type": "string"
+    },
+    "ExecutionStatus": {
+      "enum": [
+        "SUCCEEDED",
+        "FAILED",
+        "UNKNOWN"
+      ],
+      "title": "ExecutionStatus",
+      "type": "string"
+    },
+    "VerificationVerdict": {
+      "enum": [
+        "VERIFIED",
+        "REJECTED",
+        "INDETERMINATE",
+        "NOT_EMITTED"
+      ],
+      "title": "VerificationVerdict",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "domain_outcome": {
+      "$ref": "#/$defs/DomainOutcome"
+    },
+    "error_category": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error Category"
+    },
+    "evidence_need_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence Need Ids",
+      "type": "array"
+    },
+    "execution_status": {
+      "$ref": "#/$defs/ExecutionStatus"
+    },
+    "output_artifact_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Output Artifact Ids",
+      "type": "array"
+    },
+    "schema_version": {
+      "default": "objective-question-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "stop_reason": {
+      "minLength": 1,
+      "title": "Stop Reason",
+      "type": "string"
+    },
+    "subtask_id": {
+      "minLength": 1,
+      "title": "Subtask Id",
+      "type": "string"
+    },
+    "usage": {
+      "additionalProperties": true,
+      "title": "Usage",
+      "type": "object"
+    },
+    "verdict": {
+      "$ref": "#/$defs/VerificationVerdict"
+    }
+  },
+  "required": [
+    "subtask_id",
+    "execution_status",
+    "domain_outcome",
+    "verdict",
+    "stop_reason"
+  ],
+  "title": "SubagentResult",
+  "type": "object"
+}

@@ -1,0 +1,148 @@
+{
+  "$defs": {
+    "EvidenceProviderRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "material_limit": {
+          "minimum": 1,
+          "title": "Material Limit",
+          "type": "integer"
+        },
+        "operation_key": {
+          "minLength": 1,
+          "title": "Operation Key",
+          "type": "string"
+        },
+        "provider_id": {
+          "minLength": 1,
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "provider_version": {
+          "minLength": 1,
+          "title": "Provider Version",
+          "type": "string"
+        },
+        "query": {
+          "additionalProperties": true,
+          "minProperties": 1,
+          "title": "Query",
+          "type": "object"
+        },
+        "request_id": {
+          "minLength": 1,
+          "title": "Request Id",
+          "type": "string"
+        },
+        "requested_at": {
+          "format": "date-time",
+          "title": "Requested At",
+          "type": "string"
+        },
+        "snapshot_policy": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Snapshot Policy"
+        }
+      },
+      "required": [
+        "request_id",
+        "provider_id",
+        "provider_version",
+        "operation_key",
+        "query",
+        "requested_at",
+        "material_limit"
+      ],
+      "title": "EvidenceProviderRequest",
+      "type": "object"
+    },
+    "ProviderTerminalStatus": {
+      "enum": [
+        "SUCCEEDED",
+        "EMPTY",
+        "FAILED",
+        "UNKNOWN"
+      ],
+      "title": "ProviderTerminalStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "anchor_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Anchor Ids",
+      "type": "array"
+    },
+    "error_category": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error Category"
+    },
+    "material_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Material Ids",
+      "type": "array"
+    },
+    "provider_request_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Provider Request Id"
+    },
+    "request": {
+      "$ref": "#/$defs/EvidenceProviderRequest"
+    },
+    "snapshot_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Snapshot Id"
+    },
+    "terminal_status": {
+      "$ref": "#/$defs/ProviderTerminalStatus"
+    },
+    "usage": {
+      "additionalProperties": true,
+      "title": "Usage",
+      "type": "object"
+    }
+  },
+  "required": [
+    "request",
+    "terminal_status"
+  ],
+  "title": "EvidenceProviderResult",
+  "type": "object"
+}

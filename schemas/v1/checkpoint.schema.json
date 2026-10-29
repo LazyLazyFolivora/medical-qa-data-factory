@@ -1,0 +1,63 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "checkpoint_id": {
+      "minLength": 1,
+      "title": "Checkpoint Id",
+      "type": "string"
+    },
+    "confirmed_state": {
+      "minLength": 1,
+      "title": "Confirmed State",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "last_committed_sequence": {
+      "minimum": 0,
+      "title": "Last Committed Sequence",
+      "type": "integer"
+    },
+    "open_operation_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Open Operation Ids",
+      "type": "array"
+    },
+    "run_id": {
+      "minLength": 1,
+      "title": "Run Id",
+      "type": "string"
+    },
+    "runtime_bundle_id": {
+      "minLength": 1,
+      "title": "Runtime Bundle Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": "objective-question-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "state_revision": {
+      "minimum": 0,
+      "title": "State Revision",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "checkpoint_id",
+    "run_id",
+    "runtime_bundle_id",
+    "confirmed_state",
+    "state_revision",
+    "last_committed_sequence",
+    "created_at"
+  ],
+  "title": "Checkpoint",
+  "type": "object"
+}

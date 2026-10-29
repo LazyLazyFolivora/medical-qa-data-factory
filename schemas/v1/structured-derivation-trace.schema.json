@@ -1,0 +1,87 @@
+{
+  "$defs": {
+    "DerivationEdge": {
+      "additionalProperties": false,
+      "properties": {
+        "input_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Input Digest",
+          "type": "string"
+        },
+        "output_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Output Digest",
+          "type": "string"
+        },
+        "relation": {
+          "minLength": 1,
+          "title": "Relation",
+          "type": "string"
+        },
+        "rule_or_prompt_version": {
+          "minLength": 1,
+          "title": "Rule Or Prompt Version",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": "objective-question-v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source_artifact_id": {
+          "minLength": 1,
+          "title": "Source Artifact Id",
+          "type": "string"
+        },
+        "target_artifact_id": {
+          "minLength": 1,
+          "title": "Target Artifact Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_artifact_id",
+        "target_artifact_id",
+        "relation",
+        "rule_or_prompt_version",
+        "input_digest",
+        "output_digest"
+      ],
+      "title": "DerivationEdge",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "edges": {
+      "items": {
+        "$ref": "#/$defs/DerivationEdge"
+      },
+      "minItems": 1,
+      "title": "Edges",
+      "type": "array"
+    },
+    "hypothesis_id": {
+      "minLength": 1,
+      "title": "Hypothesis Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": "objective-question-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "trace_id": {
+      "minLength": 1,
+      "title": "Trace Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "trace_id",
+    "hypothesis_id",
+    "edges"
+  ],
+  "title": "StructuredDerivationTrace",
+  "type": "object"
+}
