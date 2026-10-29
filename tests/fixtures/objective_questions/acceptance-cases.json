@@ -1,0 +1,167 @@
+{
+  "schema_version": "objective-question-acceptance-v1",
+  "cases": [
+    {
+      "case_id": "OBJ-01",
+      "scenario": "A question asks which disease is associated with X in PrimeKG.",
+      "expected_verdict": "REJECT",
+      "expected_reason_code": "SOURCE_RELATIVE"
+    },
+    {
+      "case_id": "OBJ-02",
+      "scenario": "A question asks whether current research supports an association.",
+      "expected_verdict": "REJECT",
+      "expected_reason_code": "META_EVIDENCE_QUESTION"
+    },
+    {
+      "case_id": "OBJ-03",
+      "scenario": "An open question has more than one correct disease answer.",
+      "expected_verdict": "REJECT",
+      "expected_reason_code": "ANSWER_NOT_UNIQUE"
+    },
+    {
+      "case_id": "OBJ-04",
+      "scenario": "Uniqueness relies only on a hidden source filter.",
+      "expected_verdict": "REJECT",
+      "expected_reason_code": "MISSING_PUBLIC_CONTEXT"
+    },
+    {
+      "case_id": "OBJ-05",
+      "scenario": "Association evidence is written as a causal claim.",
+      "expected_verdict": "REJECT",
+      "expected_reason_code": "CAUSAL_OVERCLAIM"
+    },
+    {
+      "case_id": "OBJ-06",
+      "scenario": "PubMed is unavailable or the evidence was not evaluated.",
+      "expected_verdict": "INDETERMINATE",
+      "expected_reason_code": "PROVIDER_FAILURE"
+    },
+    {
+      "case_id": "OBJ-07",
+      "scenario": "Absence from a database is used to prove that no relation exists.",
+      "expected_verdict": "REJECT",
+      "expected_reason_code": "UNSUPPORTED_ANSWER"
+    },
+    {
+      "case_id": "OBJ-08",
+      "scenario": "BRCA1 chromosome location is confirmed by independent authority.",
+      "expected_verdict": "PASS",
+      "expected_reason_code": "OBJECTIVE_FACT_VERIFIED"
+    },
+    {
+      "case_id": "OBJ-09",
+      "scenario": "An insulin-secreting cell type is asked with unambiguous entities.",
+      "expected_verdict": "PASS",
+      "expected_reason_code": "ENTITY_SCOPE_COMPLETE"
+    },
+    {
+      "case_id": "OBJ-10",
+      "scenario": "The public question supplies four options and exactly one is correct.",
+      "expected_verdict": "PASS",
+      "expected_reason_code": "EXPLICIT_PUBLIC_OPTIONS"
+    },
+    {
+      "case_id": "OBJ-11",
+      "scenario": "An exact-set question has only sampled materials and no completeness basis.",
+      "expected_verdict": "REJECT",
+      "expected_reason_code": "INCOMPLETE_CLOSED_SET"
+    },
+    {
+      "case_id": "OBJ-12",
+      "scenario": "The fact is valid but a knowledge-graph shortcut avoids the target reasoning.",
+      "expected_verdict": "PASS",
+      "expected_reason_code": "REASONING_SHORTCUT_NOT_ELIGIBLE"
+    },
+    {
+      "case_id": "OBJ-13",
+      "scenario": "The question omits a population or species condition that changes the answer.",
+      "expected_verdict": "REJECT",
+      "expected_reason_code": "MISSING_PUBLIC_CONTEXT"
+    },
+    {
+      "case_id": "OBJ-14",
+      "scenario": "Verification only rereads the discovery agent's summary.",
+      "expected_verdict": "INDETERMINATE",
+      "expected_reason_code": "INSUFFICIENT_VALIDATION_EVIDENCE"
+    },
+    {
+      "case_id": "OBJ-15",
+      "scenario": "Two questions are semantically identical with different wording.",
+      "expected_verdict": "REJECT",
+      "expected_reason_code": "DUPLICATE_SEMANTIC_IDENTITY"
+    },
+    {
+      "case_id": "OPS-01",
+      "scenario": "A committed operation is delivered twice.",
+      "expected_verdict": "PASS",
+      "expected_reason_code": "COMMITTED_OPERATION_REUSED"
+    },
+    {
+      "case_id": "OPS-02",
+      "scenario": "A child submits with a stale expected state revision.",
+      "expected_verdict": "REJECT",
+      "expected_reason_code": "STALE_INPUT"
+    },
+    {
+      "case_id": "OPS-03",
+      "scenario": "A provider call times out with an unknown external outcome.",
+      "expected_verdict": "INDETERMINATE",
+      "expected_reason_code": "TIMEOUT_UNKNOWN_OUTCOME"
+    },
+    {
+      "case_id": "OPS-04",
+      "scenario": "The process crashes before or after an atomic commit.",
+      "expected_verdict": "PASS",
+      "expected_reason_code": "CHECKPOINT_RECOVERED"
+    },
+    {
+      "case_id": "OPS-05",
+      "scenario": "A new prompt or skill is deployed during an active run.",
+      "expected_verdict": "INDETERMINATE",
+      "expected_reason_code": "RUNTIME_BUNDLE_PINNED"
+    },
+    {
+      "case_id": "OPS-06",
+      "scenario": "A checkpoint does not match its saved artifact digest.",
+      "expected_verdict": "RECOVERY_REQUIRED",
+      "expected_reason_code": "CHECKPOINT_INTEGRITY_ERROR"
+    },
+    {
+      "case_id": "OPS-07",
+      "scenario": "The main agent repeatedly emits the same evidence need.",
+      "expected_verdict": "INDETERMINATE",
+      "expected_reason_code": "LOOP_DETECTED"
+    },
+    {
+      "case_id": "OPS-08",
+      "scenario": "Two concurrent retrieval children return valid materials.",
+      "expected_verdict": "PASS",
+      "expected_reason_code": "CHILD_RESULTS_AGGREGATED"
+    },
+    {
+      "case_id": "OPS-09",
+      "scenario": "A retryable attempt is retried after a terminal failure.",
+      "expected_verdict": "PASS",
+      "expected_reason_code": "NEW_ATTEMPT_CREATED"
+    },
+    {
+      "case_id": "OPS-10",
+      "scenario": "The old runtime bundle can no longer be loaded.",
+      "expected_verdict": "VERSION_INCOMPATIBLE",
+      "expected_reason_code": "VERSION_INCOMPATIBLE"
+    },
+    {
+      "case_id": "EVAL-01",
+      "scenario": "Three architectures are compared on a paired gold set.",
+      "expected_verdict": "PASS",
+      "expected_reason_code": "EVAL_POLICY_COMPARISON_COMPLETE"
+    },
+    {
+      "case_id": "EVAL-02",
+      "scenario": "Blind verification is removed or all contexts are shared.",
+      "expected_verdict": "INDETERMINATE",
+      "expected_reason_code": "ARCHITECTURE_ABLATION_MEASURED"
+    }
+  ]
+}
