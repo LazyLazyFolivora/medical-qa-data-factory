@@ -90,11 +90,16 @@ def _resolution() -> EntityResolution:
 def _task(role: SubagentRole, **goal_overrides) -> SubagentTask:
     registry = default_objective_role_registry()
     capability = registry[role]
-    goal = {
-        "target_entity": "BRCA1",
-        "allowed_fact_types": ["gene_location"],
-        "question_count_upper_bound": 1,
-    }
+    goal = {"target_entity": "BRCA1"}
+    if role is SubagentRole.FACT_UNDERSTANDING:
+        goal["allowed_fact_types"] = ["gene_location"]
+    elif role is SubagentRole.QUESTION_DESIGN:
+        goal.update(
+            {
+                "allowed_fact_types": ["gene_location"],
+                "question_count_upper_bound": 1,
+            }
+        )
     goal.update(goal_overrides)
     return build_objective_subagent_task(
         task_id="subtask-1",
@@ -252,3 +257,24 @@ def test_question_design_cannot_reference_an_unknown_or_contradicting_anchor() -
             claims=[_claim()],
             anchors=[_anchor()],
         )
+
+
+def test_answer_evidence_review_can_see_the_formal_answer_contract() -> None:
+    capability = default_objective_role_registry()[
+        SubagentRole.RELEASE_REVIEW
+    ]
+    task = build_objective_subagent_task(
+        task_id="release-answer-audit",
+        role=SubagentRole.RELEASE_REVIEW,
+        capability=capability,
+        goal={
+            "question_answer_contract": {
+                "contract_id": "contract-brca1",
+                "verified_answer_values": ["chromosome 17"],
+            },
+            "independent_evidence": ["anchor-2"],
+        },
+        input_artifact_ids=["contract-brca1", "anchor-2"],
+    )
+
+    assert "question_answer_contract" in task.visible_field_policy

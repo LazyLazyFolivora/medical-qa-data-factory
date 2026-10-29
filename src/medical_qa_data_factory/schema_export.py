@@ -28,7 +28,9 @@ from .generation.evidence_provider import (
     EvidenceProviderRequest,
     EvidenceProviderResult,
 )
+from .generation.fact_exploration import CandidateClaimBatch
 from .generation.ctd_world_evaluation import CtdWorldEvaluation
+from .generation.question_design import QuestionHypothesisBatch
 from .generation.objective_question_contracts import (
     AnswerEvidenceAuditResult,
     AnswerResolution,
@@ -156,7 +158,9 @@ SCHEMA_MODELS = {
     "evidence-anchor.schema.json": EvidenceAnchor,
     "entity-resolution.schema.json": EntityResolution,
     "candidate-claim.schema.json": CandidateClaim,
+    "candidate-claim-batch.schema.json": CandidateClaimBatch,
     "question-hypothesis.schema.json": QuestionHypothesis,
+    "question-hypothesis-batch.schema.json": QuestionHypothesisBatch,
     "blind-answer-query.schema.json": BlindAnswerQuery,
     "verification-plan.schema.json": VerificationPlan,
     "verification-attempt.schema.json": VerificationAttempt,

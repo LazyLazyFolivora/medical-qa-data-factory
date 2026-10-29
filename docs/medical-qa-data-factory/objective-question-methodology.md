@@ -121,9 +121,16 @@ PROPOSED
 - `generation/evidence_provider.py`
 - `generation/objective_question_contracts.py`
 - `generation/objective_question_persistence.py`
+- `generation/subagent_contracts.py`
+- `generation/fact_exploration.py`
+- `generation/question_design.py`
 
 新链路使用独立 schema family 和 feature flag。旧 `TaskCandidate`、CTD task 和 v2 release 保持原语义，不会因读取新代码而自动升级为 `PASS`。
 
 契约详细字段以 Pydantic 模型为准，外部消费者使用 `schemas/v1` 中导出的 JSON Schema。
 
 材料原文按 SHA-256 内容寻址保存为不可变 blob。anchor 的 offset、引用文本和 quote hash 必须能对回读原文重新校验。provider attempt 只能追加，`operation_key` 标识逻辑操作，`attempt_id` 和 `retry_ordinal` 标识物理尝试；同一 retry ordinal 不能被另一 attempt 复用。
+
+子 Agent 只通过版本化 `SubagentTask` 调用。事实理解角色只能看到成功材料、可回读 anchor、实体消歧和事实类型约束；候选题、proposed answer 和 discovery anchor 均不在其可见字段中。问题设计角色只读取已固化 candidate claim、anchor 位置和公开产品约束，不能回写 claim 或把 proposed answer 标记为 verified。
+
+PubMed、RAG、网页和数据库文本统一放在 `trust_boundary.material_policy=untrusted_data` 内。材料中的指令、工具请求或“发布答案”等文本始终按普通引用数据处理，不能改变角色的 system prompt、工具白名单或输出契约。

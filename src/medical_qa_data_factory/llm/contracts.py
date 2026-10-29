@@ -21,6 +21,11 @@ ModelRole = Literal[
     "question_writer",
     "style_judge",
     "answer_verifier",
+    "material_retrieval",
+    "fact_understanding",
+    "objective_question_design",
+    "objective_answer_verification",
+    "objective_release_review",
 ]
 
 
@@ -30,6 +35,9 @@ ModelRole = Literal[
 SEPARATED_ROLE_PAIRS: tuple[tuple[str, str], ...] = (
     ("question_writer", "answer_verifier"),
     ("question_writer", "style_judge"),
+    ("fact_understanding", "objective_question_design"),
+    ("objective_question_design", "objective_answer_verification"),
+    ("objective_answer_verification", "objective_release_review"),
 )
 
 
