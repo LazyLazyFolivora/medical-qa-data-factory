@@ -223,3 +223,66 @@ def test_structured_agent_fills_a_concise_pubmed_query(tmp_path) -> None:
 
     assert decision.action_parameters["provider_id"] == "pubmed"
     assert decision.action_parameters["query"] == {"term": "BRCA1"}
+
+
+def test_gene_location_route_prefers_hgnc_then_ncbi_gene(tmp_path) -> None:
+    repo = ObjectiveRuntimeRepository.create(
+        tmp_path,
+        manifest=_manifest(),
+        budget=RuntimeBudget(max_cost=10, max_model_calls=10),
+        goal=GenerationGoal(
+            run_id="run-main",
+            target_entity="ZRSR2",
+            target_entity_id="8233",
+            target_entity_type="gene",
+            question_count_upper_bound=1,
+            difficulty_targets=["easy"],
+            style_targets=["concise"],
+            allowed_fact_types=["gene_location"],
+            run_budget={"max_actions": 8},
+            run_manifest_id="manifest-run-main",
+            runtime_bundle_id="runtime-bundle-v1",
+        ),
+    )
+    snapshot = repo.load()
+    proposals = iter(
+        [
+            MainAgentDecisionProposal(
+                action="request_more_evidence",
+                target_subagent_role="material_retrieval",
+                input_artifact_ids=[],
+                requested_budget={},
+                expected_information_gain=0.5,
+                action_parameters={"purpose": "discovery"},
+            ),
+            MainAgentDecisionProposal(
+                action="request_more_evidence",
+                target_subagent_role="material_retrieval",
+                input_artifact_ids=[],
+                requested_budget={},
+                expected_information_gain=0.5,
+                action_parameters={"purpose": "verification"},
+            ),
+        ]
+    )
+    model = FakeStructuredModel(
+        responses={"objective_main_agent": lambda request: next(proposals)}
+    )
+    agent = StructuredMainAgent(
+        model,
+        provider_ids=[
+            "hgnc",
+            "ncbi_gene",
+            "ensembl",
+            "primekg",
+            "pubmed",
+        ],
+    )
+
+    discovery = agent.decide(snapshot)
+    verification = agent.decide(snapshot)
+
+    assert discovery.action_parameters["provider_id"] == "hgnc"
+    assert discovery.action_parameters["query"]["symbol"] == "ZRSR2"
+    assert verification.action_parameters["provider_id"] == "ncbi_gene"
+    assert verification.action_parameters["query"]["symbol"] == "ZRSR2"
