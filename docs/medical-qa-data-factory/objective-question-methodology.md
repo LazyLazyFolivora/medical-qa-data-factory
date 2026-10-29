@@ -127,6 +127,9 @@ PROPOSED
 - `generation/answer_verification_subagent.py`
 - `generation/objective_question_realization.py`
 - `generation/release_review_subagent.py`
+- `generation/objective_question_runtime.py`
+- `generation/main_agent.py`
+- `generation/subagent_dispatch.py`
 
 新链路使用独立 schema family 和 feature flag。旧 `TaskCandidate`、CTD task 和 v2 release 保持原语义，不会因读取新代码而自动升级为 `PASS`。
 
@@ -143,3 +146,5 @@ PubMed、RAG、网页和数据库文本统一放在 `trust_boundary.material_pol
 Writer 使用独立的 realization 调用，只接收 `FrozenQuestionContract`。输出必须携带相同 question intent、scope、answer values、answer cardinality、claim strength 和必要公开条件；出现 answer/scope/strength 漂移、source-relative 或 meta-evidence 措辞、因果或治疗语义升级时，deterministic gate 直接拒绝。
 
 发布复核由两个独立模型调用完成。第一阶段只接收 `PublicQuestionPackage`，不能访问答案、冻结契约、evidence 或内部 metadata；结果和 digest 固化后，第二阶段才接收 `AnswerEvidenceAuditPackage`。deterministic merger 会重新核对题面、contract、独立证据和 skill content hash。任一阶段非 `PASS`、硬门禁 false、超时、解析失败、模型拒绝或 digest 过期时，最终报告均不可发布。
+
+运行态采用状态快照单写。每次 commit 都生成新的 `state_revision` 和单调 `commit_sequence`，并把状态、artifact、budget、operation terminal 和聚合结果放入同一不可变 commit 文件。`operation_key` 相同的已提交 operation 直接复用，不重复扣预算；相同 operation key 携带不同 input digest 时冲突。并行 child 使用独立 slot revision，不因 run revision 变化被丢弃；同一 parent 的 child 聚合只产生一个 commit。主 Agent 的 action、目标角色和 state digest 由 dispatcher 校验，不能直接发布。

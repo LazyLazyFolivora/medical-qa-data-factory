@@ -1,0 +1,33 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "charged_cost": {
+      "default": 0.0,
+      "minimum": 0,
+      "title": "Charged Cost",
+      "type": "number"
+    },
+    "max_cost": {
+      "exclusiveMinimum": 0,
+      "title": "Max Cost",
+      "type": "number"
+    },
+    "max_model_calls": {
+      "minimum": 1,
+      "title": "Max Model Calls",
+      "type": "integer"
+    },
+    "used_model_calls": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Used Model Calls",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "max_cost",
+    "max_model_calls"
+  ],
+  "title": "RuntimeBudget",
+  "type": "object"
+}

@@ -1,0 +1,39 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "artifact_id": {
+      "minLength": 1,
+      "title": "Artifact Id",
+      "type": "string"
+    },
+    "artifact_type": {
+      "minLength": 1,
+      "title": "Artifact Type",
+      "type": "string"
+    },
+    "digest": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Digest"
+    },
+    "payload": {
+      "additionalProperties": true,
+      "title": "Payload",
+      "type": "object"
+    }
+  },
+  "required": [
+    "artifact_id",
+    "artifact_type",
+    "payload"
+  ],
+  "title": "ArtifactEnvelope",
+  "type": "object"
+}

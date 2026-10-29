@@ -13,9 +13,9 @@ from medical_qa_data_factory.generation.objective_question_contracts import (
     ExecutionStatus,
     MainAgentDecision,
     RunManifest,
-    RunState,
     SubagentResult,
     VerificationVerdict,
+    canonical_digest,
 )
 from medical_qa_data_factory.generation.objective_question_runtime import (
     ArtifactEnvelope,
@@ -59,16 +59,16 @@ def _repo(tmp_path) -> ObjectiveRuntimeRepository:
 
 def _decision(
     *,
+    snapshot,
     action: str = "retrieve_materials",
     role: str | None = "material_retrieval",
-    state_digest: str = "b" * 64,
 ) -> MainAgentDecision:
     return MainAgentDecision(
         decision_id="decision-1",
         action=action,
         target_subagent_role=role,
         input_artifact_ids=[],
-        state_digest=state_digest,
+        state_digest=canonical_digest(snapshot.model_dump(mode="json")),
         requested_budget={"provider_calls": 1},
         expected_information_gain=0.5,
     )
@@ -76,12 +76,13 @@ def _decision(
 
 def test_created_run_can_only_start_material_retrieval_or_stop(tmp_path) -> None:
     snapshot = _repo(tmp_path).load()
-    validate_main_agent_decision(snapshot, _decision())
+    validate_main_agent_decision(snapshot, _decision(snapshot=snapshot))
 
     with pytest.raises(IllegalMainAgentAction, match="VERIFY_ANSWER"):
         validate_main_agent_decision(
             snapshot,
             _decision(
+                snapshot=snapshot,
                 action=MainAgentAction.VERIFY_ANSWER.value,
                 role="objective_answer_verification",
             ),
@@ -91,11 +92,17 @@ def test_created_run_can_only_start_material_retrieval_or_stop(tmp_path) -> None
 def test_main_agent_cannot_publish_or_target_the_wrong_role(tmp_path) -> None:
     snapshot = _repo(tmp_path).load()
     with pytest.raises(IllegalMainAgentAction, match="publish"):
-        validate_main_agent_decision(snapshot, _decision(action="publish"))
+        validate_main_agent_decision(
+            snapshot,
+            _decision(snapshot=snapshot, action="publish"),
+        )
     with pytest.raises(IllegalMainAgentAction, match="target_subagent_role"):
         validate_main_agent_decision(
             snapshot,
-            _decision(role="objective_release_review"),
+            _decision(
+                snapshot=snapshot,
+                role="objective_release_review",
+            ),
         )
 
 
@@ -108,7 +115,10 @@ def test_finished_run_rejects_every_new_action(tmp_path) -> None:
     )
 
     with pytest.raises(IllegalMainAgentAction, match="terminal"):
-        validate_main_agent_decision(finished, _decision())
+        validate_main_agent_decision(
+            finished,
+            _decision(snapshot=finished),
+        )
 
 
 def test_dispatcher_rejects_unregistered_or_cross_role_calls() -> None:
@@ -160,5 +170,5 @@ def test_dispatcher_rejects_unregistered_or_cross_role_calls() -> None:
     wrong_task = task.model_copy(
         update={"subagent_role": SubagentRole.FACT_UNDERSTANDING.value}
     )
-    with pytest.raises(ValueError, match="role"):
+    with pytest.raises(KeyError, match="fact_understanding"):
         dispatcher.dispatch(wrong_task, payload={})

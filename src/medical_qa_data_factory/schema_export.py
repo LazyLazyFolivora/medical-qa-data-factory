@@ -72,6 +72,13 @@ from .generation.objective_question_contracts import (
     VerificationCoverageReport,
     VerificationPlan,
 )
+from .generation.objective_question_runtime import (
+    ArtifactEnvelope,
+    ChildResultSlot,
+    ObjectiveRuntimeSnapshot,
+    RuntimeBudget,
+    RuntimeCommitEnvelope,
+)
 from .generation.run_identity import (
     AttemptRecord,
     GenerationPreparationRun,
@@ -209,6 +216,11 @@ SCHEMA_MODELS = {
     "main-agent-decision.schema.json": MainAgentDecision,
     "run-manifest.schema.json": RunManifest,
     "checkpoint.schema.json": Checkpoint,
+    "runtime-budget.schema.json": RuntimeBudget,
+    "artifact-envelope.schema.json": ArtifactEnvelope,
+    "child-result-slot.schema.json": ChildResultSlot,
+    "objective-runtime-snapshot.schema.json": ObjectiveRuntimeSnapshot,
+    "runtime-commit-envelope.schema.json": RuntimeCommitEnvelope,
     "operation-record.schema.json": OperationRecord,
     "metric-spec.schema.json": MetricSpec,
     "objective-acceptance-suite.schema.json": ObjectiveAcceptanceSuite,
