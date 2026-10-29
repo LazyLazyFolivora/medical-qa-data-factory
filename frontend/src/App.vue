@@ -204,7 +204,13 @@ const startGeneration = async (configuration) => {
               entity_type: configuration.entity.entity_type,
               question_count: configuration.questionCount,
               max_actions: 12,
-              providers: ["primekg", "pubmed"],
+              providers: [
+                "hgnc",
+                "ncbi_gene",
+                "ensembl",
+                "primekg",
+                "pubmed",
+              ],
             }
           : {
               run_id: taskId,

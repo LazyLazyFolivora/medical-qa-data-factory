@@ -61,7 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
     objective_generate.add_argument(
         "--provider",
         action="append",
-        choices=["primekg", "ctd", "pubmed"],
+        choices=["primekg", "ctd", "pubmed", "hgnc", "ncbi_gene", "ensembl"],
         default=None,
         help="Provider to enable (repeatable; defaults to primekg and pubmed)",
     )

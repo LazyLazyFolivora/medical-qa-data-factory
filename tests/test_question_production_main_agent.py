@@ -253,7 +253,15 @@ def test_gene_location_route_prefers_hgnc_then_ncbi_gene(tmp_path) -> None:
                 input_artifact_ids=[],
                 requested_budget={},
                 expected_information_gain=0.5,
-                action_parameters={"purpose": "discovery"},
+                action_parameters={
+                    "purpose": "discovery",
+                    "query": {
+                        "primekg": {
+                            "mention": "ZRSR2",
+                            "native_id": "8233",
+                        }
+                    },
+                },
             ),
             MainAgentDecisionProposal(
                 action="request_more_evidence",
@@ -261,7 +269,15 @@ def test_gene_location_route_prefers_hgnc_then_ncbi_gene(tmp_path) -> None:
                 input_artifact_ids=[],
                 requested_budget={},
                 expected_information_gain=0.5,
-                action_parameters={"purpose": "verification"},
+                action_parameters={
+                    "purpose": "verification",
+                    "query": {
+                        "primekg": {
+                            "mention": "ZRSR2",
+                            "native_id": "8233",
+                        }
+                    },
+                },
             ),
         ]
     )

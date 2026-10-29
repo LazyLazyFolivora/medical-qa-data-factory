@@ -14,6 +14,11 @@ from .objective_provider_adapters import (
     PrimeKgMaterialProvider,
     PubMedMaterialProvider,
 )
+from .structured_biomedical_providers import (
+    EnsemblMaterialProvider,
+    HgncMaterialProvider,
+    NcbiGeneMaterialProvider,
+)
 from ..evidence_enrichment.ctd import CtdEvidenceIndex
 from .objective_question_contracts import (
     GenerationGoal,
@@ -31,7 +36,16 @@ def run_objective_generation_command(args) -> int:
     output = Path(args.output)
     workspace = Path(args.workspace)
     providers_requested = list(
-        dict.fromkeys(args.provider or ["primekg", "pubmed"])
+        dict.fromkeys(
+            args.provider
+            or [
+                "hgnc",
+                "ncbi_gene",
+                "ensembl",
+                "primekg",
+                "pubmed",
+            ]
+        )
     )
     kg_provider = None
     try:
@@ -42,6 +56,12 @@ def run_objective_generation_command(args) -> int:
             providers["primekg"] = PrimeKgMaterialProvider(kg_provider)
         if "pubmed" in providers_requested:
             providers["pubmed"] = PubMedMaterialProvider()
+        if "hgnc" in providers_requested:
+            providers["hgnc"] = HgncMaterialProvider()
+        if "ncbi_gene" in providers_requested:
+            providers["ncbi_gene"] = NcbiGeneMaterialProvider()
+        if "ensembl" in providers_requested:
+            providers["ensembl"] = EnsemblMaterialProvider()
         if "ctd" in providers_requested:
             ctd_index_path = args.ctd_index
             if not ctd_index_path:

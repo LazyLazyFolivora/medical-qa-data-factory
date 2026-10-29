@@ -259,4 +259,6 @@ def test_objective_api_runs_the_real_agent_loop(tmp_path) -> None:
 
     progress = client.get("/api/objective/objective-api-e2e")
     assert progress.status_code == 200
-    assert progress.json()["questions"][0]["question_id"] == "draft.contract-brca1"
+    assert progress.json()["questions"][0]["question_id"].startswith(
+        "draft.contract."
+    )

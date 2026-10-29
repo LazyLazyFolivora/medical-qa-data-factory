@@ -109,6 +109,9 @@ class ObjectiveQuestionRealizationSubagent:
         if draft.contract_id != contract.contract_id:
             raise RoleContractViolation("draft references another contract")
         self._validate_semantics(draft, contract)
+        draft = draft.model_copy(
+            update={"draft_id": f"draft.{contract.contract_id}"}
+        )
         result = SubagentResult(
             subtask_id=task.subtask_id,
             execution_status=ExecutionStatus.SUCCEEDED,

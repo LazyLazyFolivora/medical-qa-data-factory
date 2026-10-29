@@ -74,7 +74,15 @@ def default_objective_role_registry() -> dict[
                 }
             ),
             allowed_tools=frozenset(
-                {"primekg", "ctd", "pubmed", "rag"}
+                {
+                    "primekg",
+                    "ctd",
+                    "pubmed",
+                    "rag",
+                    "hgnc",
+                    "ncbi_gene",
+                    "ensembl",
+                }
             ),
         ),
         SubagentRole.FACT_UNDERSTANDING: RoleCapability(

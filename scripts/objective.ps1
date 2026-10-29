@@ -10,7 +10,7 @@ param(
     [string]$EntityType,
     [ValidateRange(1, 20)]
     [int]$QuestionCount = 1,
-    [string[]]$Providers = @("primekg", "pubmed"),
+    [string[]]$Providers = @("hgnc", "ncbi_gene", "ensembl", "primekg", "pubmed"),
     [string]$CtdIndex,
     [string]$HostAddress = "127.0.0.1",
     [ValidateRange(1, 65535)]
@@ -22,6 +22,12 @@ param(
 $ErrorActionPreference = "Stop"
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $pythonPath = Join-Path $projectRoot "src"
+$Providers = @(
+    $Providers |
+        ForEach-Object { "$_" -split "," } |
+        ForEach-Object { $_.Trim() } |
+        Where-Object { $_ }
+)
 
 function Resolve-ProjectPath {
     param([string]$Path, [string]$DefaultRelative)
@@ -50,8 +56,8 @@ if ($RunId -notmatch "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$") {
 if ($Providers.Count -eq 0) {
     throw "At least one provider is required"
 }
-if (($Providers | Where-Object { $_ -notin @("primekg", "ctd", "pubmed") }).Count -gt 0) {
-    throw "Providers must be selected from primekg, ctd and pubmed"
+if (($Providers | Where-Object { $_ -notin @("primekg", "ctd", "pubmed", "hgnc", "ncbi_gene", "ensembl") }).Count -gt 0) {
+    throw "Providers must be selected from primekg, ctd, pubmed, hgnc, ncbi_gene and ensembl"
 }
 if ($Providers -contains "ctd" -and -not $CtdIndex) {
     $evidenceConfig = Join-Path $projectRoot "config\evidence_enrichment.json"

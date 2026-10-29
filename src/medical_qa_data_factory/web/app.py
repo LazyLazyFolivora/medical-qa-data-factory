@@ -56,6 +56,11 @@ from ..generation.objective_provider_adapters import (
     PrimeKgMaterialProvider,
     PubMedMaterialProvider,
 )
+from ..generation.structured_biomedical_providers import (
+    EnsemblMaterialProvider,
+    HgncMaterialProvider,
+    NcbiGeneMaterialProvider,
+)
 from ..generation.objective_question_contracts import (
     EvidenceMaterial,
     GenerationGoal,
@@ -135,6 +140,9 @@ OBJECTIVE_PROVIDER_LABELS = {
     "pubmed": "PubMed",
     "ctd": "CTD",
     "rag": "RAG",
+    "hgnc": "HGNC",
+    "ncbi_gene": "NCBI Gene",
+    "ensembl": "Ensembl",
 }
 
 OBJECTIVE_MATERIAL_LABELS = {
@@ -381,6 +389,12 @@ def _run_objective_web_generation(
         provider_map["primekg"] = PrimeKgMaterialProvider(kg_provider)
     if "pubmed" in providers and "pubmed" not in provider_map:
         provider_map["pubmed"] = PubMedMaterialProvider()
+    if "hgnc" in providers and "hgnc" not in provider_map:
+        provider_map["hgnc"] = HgncMaterialProvider()
+    if "ncbi_gene" in providers and "ncbi_gene" not in provider_map:
+        provider_map["ncbi_gene"] = NcbiGeneMaterialProvider()
+    if "ensembl" in providers and "ensembl" not in provider_map:
+        provider_map["ensembl"] = EnsemblMaterialProvider()
     selected = {name: provider_map[name] for name in providers if name in provider_map}
     if not selected:
         raise ValueError("no usable objective provider configured")
@@ -1549,11 +1563,20 @@ def create_app(
                 raise ValueError("主 Agent 最大动作数必须在 2 到 40 之间")
         except (TypeError, ValueError) as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
-        requested_providers = payload.get("providers", ["primekg", "pubmed"])
+        requested_providers = payload.get(
+            "providers",
+            ["hgnc", "ncbi_gene", "ensembl", "primekg", "pubmed"],
+        )
         if not isinstance(requested_providers, list) or not requested_providers:
             return JSONResponse({"error": "至少选择一个材料 provider"}, status_code=400)
         providers = list(dict.fromkeys(str(item) for item in requested_providers))
-        if not set(providers) <= {"primekg", "pubmed"}:
+        if not set(providers) <= {
+            "primekg",
+            "pubmed",
+            "hgnc",
+            "ncbi_gene",
+            "ensembl",
+        }:
             return JSONResponse(
                 {"error": f"不支持的材料 provider：{providers}"},
                 status_code=400,

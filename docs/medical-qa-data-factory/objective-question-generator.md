@@ -2,7 +2,7 @@
 
 > 状态：可运行 MVP
 > 主链：有界主 Agent 决策循环
-> 当前 provider：PrimeKG、PubMed、可选 CTD；RAG adapter 暂未启用
+> 当前 provider：HGNC、NCBI Gene、Ensembl、PrimeKG、PubMed、可选 CTD；RAG adapter 暂未启用
 
 ## 运行条件
 
@@ -10,7 +10,8 @@
 2. 配置 `config/models.json`，并设置其中的 `api_key_env`；
 3. PrimeKG 配置通过 `config/knowledge_graphs.json` 或 `MEDICAL_QA_KG_CONFIG` 指定；
 4. PubMed 可通过公网访问；设置 `NCBI_API_KEY` 可提高限额。
-5. 使用 CTD 时传入 `--provider ctd --ctd-index <index>`，或配置
+5. HGNC、NCBI Gene、Ensembl 用于基因身份、分类和染色体位置等结构化事实。
+6. 使用 CTD 时传入 `--provider ctd --ctd-index <index>`，或配置
    `config/evidence_enrichment.json` 的 `ctd_index_path`。
 
 ## 启动命令
@@ -36,6 +37,31 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/objective.ps1 `
 
 脚本自动设置 `PYTHONPATH`，检查 Python、模型 API key、provider 和 CTD index；
 生成模式默认创建 `data/runs/<run-id>` 与 `data/releases/<run-id>`。
+
+## 事实类型与数据源
+
+主 Agent 同时看到 `allowed_fact_types` 和 `fact_source_routes`，不会把所有事实都送去
+PubMed：
+
+| 事实类型 | 主来源 | 独立验证 |
+|---|---|---|
+| 基因身份、分类、染色体位置 | HGNC | NCBI Gene、Ensembl |
+| 蛋白功能与结构域 | UniProt | NCBI Gene、Ensembl |
+| 疾病关联 | CTD、Open Targets | PubMed |
+| 通路成员关系 | Reactome、KEGG | 第二通路来源 |
+| 文献结论、冲突、人群与剂量 | PubMed | 原文或独立研究 |
+
+当前默认启用 `hgnc`、`ncbi_gene`、`ensembl`、`primekg`、`pubmed`。结构化来源失败会保留
+`FAILED` 或 `UNKNOWN` 终态，不会被解释成“该事实不存在”。
+
+例如 ZRSR2 的 `gene_location` 需求会优先执行：
+
+```text
+HGNC: ZRSR2           -> Xp22.2, protein-coding gene, cross IDs
+NCBI Gene: 8233       -> chromosome X, map location, description
+Ensembl: ENSG...      -> assembly location and biotype
+PubMed: ZRSR2 chromosome -> optional literature support
+```
 
 底层命令如下。
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from enum import Enum
 from typing import Any
+from dataclasses import asdict
 
 from pydantic import Field
 
@@ -15,6 +16,10 @@ from .objective_question_contracts import (
     canonical_digest,
 )
 from .objective_question_runtime import ObjectiveRuntimeSnapshot
+from .fact_source_policy import (
+    objective_fact_source_route,
+    objective_fact_source_routes,
+)
 
 
 class MainAgentAction(str, Enum):
@@ -74,6 +79,12 @@ class StructuredMainAgent:
             "artifact_summaries": artifact_summaries,
             "artifact_counts": _artifact_counts(snapshot),
             "available_providers": list(self.provider_ids),
+            "fact_source_routes": {
+                fact_type: asdict(route)
+                for fact_type, route in objective_fact_source_routes(
+                    snapshot.goal.allowed_fact_types
+                ).items()
+            },
             "retrieval_history": _retrieval_history(snapshot),
             "budget": {
                 **snapshot.budget.model_dump(mode="json"),
@@ -114,6 +125,7 @@ class StructuredMainAgent:
                 "Retrieval may be repeated whenever evidence is insufficient.",
                 "After an empty retrieval, broaden or shorten the query or change provider.",
                 "After three consecutive retrievals with no new material, stop rather than spin.",
+                "Use the fact_source_routes to choose the primary source and a different structured verifier for each fact type.",
                 "Do not verify until independent verification materials exist.",
                 "Do not realize a question without a frozen contract.",
                 "Do not review release without a question draft and verified contract.",
@@ -138,6 +150,7 @@ class StructuredMainAgent:
             provider_ids=self.provider_ids,
             target_entity=snapshot.goal.target_entity,
             target_entity_id=snapshot.goal.target_entity_id,
+            fact_types=snapshot.goal.allowed_fact_types,
         )
         return MainAgentDecision(
             decision_id=f"decision.{state_digest[:20]}",
@@ -268,6 +281,7 @@ def _normalize_action_parameters(
     provider_ids: list[str],
     target_entity: str,
     target_entity_id: str | None,
+    fact_types: list[str],
 ) -> dict[str, Any]:
     normalized = dict(parameters)
     if action not in {
@@ -275,41 +289,89 @@ def _normalize_action_parameters(
         MainAgentAction.REQUEST_MORE_EVIDENCE.value,
     }:
         return normalized
-    query = normalized.get("query")
-    if isinstance(query, dict):
-        selected_provider = normalized.get("provider_id")
-        if (
-            selected_provider in provider_ids
-            and isinstance(query.get(selected_provider), dict)
-        ):
-            normalized["query"] = dict(query[selected_provider])
-            return normalized
-        for provider_id in provider_ids:
-            nested = query.get(provider_id)
-            if isinstance(nested, dict):
-                normalized["provider_id"] = provider_id
-                normalized["query"] = dict(nested)
-                break
     purpose = str(normalized.get("purpose", "discovery"))
     if not normalized.get("provider_id"):
-        if purpose == "verification" and "pubmed" in provider_ids:
-            normalized["provider_id"] = "pubmed"
-        elif provider_ids:
-            normalized["provider_id"] = provider_ids[0]
+        route_lists = [
+            (
+                objective_fact_source_route(fact_type).verification_providers
+                if purpose == "verification"
+                else objective_fact_source_route(fact_type).primary_providers
+            )
+            for fact_type in fact_types
+        ]
+        preferred = [
+            provider_id
+            for providers in route_lists
+            for provider_id in providers
+            if provider_id in provider_ids
+        ]
+        normalized["provider_id"] = (
+            preferred[0]
+            if preferred
+            else "pubmed"
+            if purpose == "verification" and "pubmed" in provider_ids
+            else provider_ids[0]
+        )
     provider_id = normalized.get("provider_id")
-    if not isinstance(normalized.get("query"), dict):
-        if provider_id == "primekg":
-            normalized["query"] = {
-                "mention": target_entity,
-                "native_id": target_entity_id,
-            }
-        elif provider_id == "pubmed":
-            normalized["query"] = {
-                # Keep fallback queries short. Explanatory instructions belong
-                # in the agent context, not in a provider search expression.
-                "term": target_entity,
-            }
+    query = normalized.get("query")
+    if isinstance(query, dict) and isinstance(query.get(provider_id), dict):
+        query = dict(query[provider_id])
+    elif isinstance(query, dict) and not _query_has_provider_fields(
+        provider_id, query
+    ):
+        nested_values = [
+            value
+            for key, value in query.items()
+            if key in provider_ids and isinstance(value, dict)
+        ]
+        query = dict(nested_values[0]) if nested_values else {}
+    if not isinstance(query, dict):
+        query = {}
+    if provider_id == "primekg":
+        normalized["query"] = {
+            "mention": str(
+                query.get("mention")
+                or query.get("symbol")
+                or target_entity
+            ),
+            "native_id": query.get("native_id") or target_entity_id,
+        }
+    elif provider_id in {"hgnc", "ncbi_gene", "ensembl"}:
+        normalized["query"] = {
+            "symbol": str(
+                query.get("symbol")
+                or query.get("mention")
+                or query.get("entity_name")
+                or target_entity
+            ),
+            "native_id": query.get("native_id") or target_entity_id,
+        }
+    elif provider_id == "pubmed":
+        normalized["query"] = {
+            # Keep fallback queries short. Explanatory instructions belong
+            # in the agent context, not in a provider search expression.
+            "term": str(
+                query.get("term")
+                if query.get("term")
+                and len(str(query["term"])) <= 160
+                else target_entity
+            ),
+        }
+    else:
+        normalized["query"] = query
     return normalized
+
+
+def _query_has_provider_fields(provider_id: str, query: dict[str, Any]) -> bool:
+    fields = {
+        "primekg": {"mention", "native_id"},
+        "hgnc": {"symbol", "mention", "entity_name", "native_id"},
+        "ncbi_gene": {"symbol", "mention", "entity_name", "native_id"},
+        "ensembl": {"symbol", "mention", "entity_name", "native_id"},
+        "pubmed": {"term", "mention"},
+        "ctd": {"chemical_id", "native_id"},
+    }.get(provider_id, set())
+    return bool(set(query) & fields)
 
 
 def _retrieval_history(

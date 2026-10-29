@@ -17,6 +17,7 @@ from .objective_question_contracts import (
     SubagentResult,
     SubagentTask,
     VerificationVerdict,
+    canonical_digest,
 )
 from .subagent_contracts import (
     RoleContractViolation,
@@ -111,6 +112,7 @@ class ObjectiveQuestionDesignSubagent:
         batch = QuestionHypothesisBatch.model_validate(response.parsed)
         visible_claim_ids = set(claim_ids)
         claim_by_id = {claim.claim_id: claim for claim in claims}
+        accepted_hypotheses: list[QuestionHypothesis] = []
         for hypothesis in batch.hypotheses:
             if unknown_claims := sorted(
                 set(hypothesis.candidate_claim_ids) - visible_claim_ids
@@ -131,13 +133,28 @@ class ObjectiveQuestionDesignSubagent:
                     "hypothesis discovery_anchor_ids are not supporting anchors: "
                     f"{invalid_anchors}"
                 )
+            semantic_payload = hypothesis.model_dump(
+                mode="json",
+                exclude={"hypothesis_id"},
+            )
+            accepted_hypotheses.append(
+                hypothesis.model_copy(
+                    update={
+                        "hypothesis_id": (
+                            "hypothesis."
+                            + canonical_digest(semantic_payload)[:24]
+                        )
+                    }
+                )
+            )
         result = SubagentResult(
             subtask_id=task.subtask_id,
             execution_status=ExecutionStatus.SUCCEEDED,
             domain_outcome=DomainOutcome.NOT_APPLICABLE,
             verdict=VerificationVerdict.NOT_EMITTED,
             output_artifact_ids=[
-                hypothesis.hypothesis_id for hypothesis in batch.hypotheses
+                hypothesis.hypothesis_id
+                for hypothesis in accepted_hypotheses
             ],
             evidence_need_ids=[],
             usage=dict(response.usage),
@@ -146,5 +163,5 @@ class ObjectiveQuestionDesignSubagent:
         )
         return QuestionDesignOutcome(
             result=result,
-            hypotheses=list(batch.hypotheses),
+            hypotheses=accepted_hypotheses,
         )

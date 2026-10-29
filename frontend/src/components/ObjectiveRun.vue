@@ -35,6 +35,9 @@ const artifactLabel = (key) =>
     objective_question_draft: "最终题面",
     objective_validation_report: "复核报告",
     provider_result: "检索结果",
+    hgnc_gene_record: "HGNC 基因记录",
+    ncbi_gene_record: "NCBI Gene 记录",
+    ensembl_gene_record: "Ensembl 基因记录",
   })[key] || key;
 
 const purposeLabel = (value) =>
