@@ -34,6 +34,35 @@ $env:PYTHONPATH='E:\Cursor\assumption\projects\medical-qa-data-factory\src'
 `--workspace` 和 `--output` 必须是新的空目录。需要重新运行时更换 `--run-id`、
 `--workspace` 和 `--output`，不能覆盖已有不可变审计记录。
 
+## Vue 工作台
+
+启动工作台：
+
+```powershell
+& 'D:\Anaconda\envs\qa_env\python.exe' -m medical_qa_data_factory web serve `
+  --workspace data/runs/objective-web `
+  --host 127.0.0.1 `
+  --port 8765
+```
+
+在首页的“生成引擎”中选择“主 Agent 循环”。页面会实时展示：
+
+- 主 Agent 每次 action、目标子 Agent 和预期信息增益；
+- 材料、anchor、claim、hypothesis、resolution、contract 和复核报告数量；
+- 已通过发布门禁的题目及标准答案；
+- `COMPLETED_WITH_ZERO_QUESTIONS` 的原因和完整审计摘要；
+- 同一工作区中的主 Agent 运行历史。
+
+后端接口：
+
+```text
+POST /api/objective/generate
+GET  /api/objective/{run_id}
+```
+
+Objective run 存放在 `<workspace>/objective_runs/<run_id>`，发布包存放在
+`<workspace>/objective_releases/<run_id>`。
+
 ## 主 Agent 循环
 
 主 Agent 每次读取：

@@ -3,11 +3,22 @@ from __future__ import annotations
 
 from starlette.testclient import TestClient
 
+from medical_qa_data_factory.generation.main_agent import (
+    MainAgentDecisionProposal,
+)
 from medical_qa_data_factory.web.app import create_app
+from test_objective_agent_loop import (
+    FakeMaterialProvider,
+    _model as objective_subagent_model,
+)
 
 
 def _app(tmp_path):
-    return create_app(tmp_path, structured_model=object())
+    return create_app(
+        tmp_path,
+        structured_model=object(),
+        objective_providers={},
+    )
 
 
 def test_objective_generation_endpoint_returns_run_summary(
@@ -53,7 +64,7 @@ def test_objective_generation_endpoint_returns_run_summary(
         },
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.json()
     payload = response.json()
     assert payload["engine"] == "objective"
     assert payload["published_count"] == 1
@@ -92,7 +103,7 @@ def test_objective_progress_endpoint_exposes_agent_and_audit_summary(
     client = TestClient(_app(tmp_path))
     response = client.get("/api/objective/objective-web-1")
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.json()
     payload = response.json()
     assert payload["main_agent_steps"][0]["action"] == "verify_answer"
     assert payload["artifact_counts"]["evidence_material"] == 6
@@ -112,3 +123,130 @@ def test_objective_generation_validates_entity_identity(tmp_path) -> None:
 
     assert response.status_code == 400
     assert "canonical_id" in response.json()["error"]
+
+
+def test_objective_api_runs_the_real_agent_loop(tmp_path) -> None:
+    model = objective_subagent_model()
+
+    def main_agent(request):
+        summaries = request.payload["artifact_summaries"]
+        types = {item["artifact_type"] for item in summaries}
+        verification_ready = any(
+            item["artifact_type"] == "provider_result"
+            and item.get("metadata", {}).get("purpose") == "verification"
+            for item in summaries
+        )
+        if "evidence_material" not in types:
+            return MainAgentDecisionProposal(
+                action="retrieve_materials",
+                target_subagent_role="material_retrieval",
+                input_artifact_ids=[],
+                requested_budget={},
+                expected_information_gain=0.9,
+                action_parameters={
+                    "provider_id": "primekg",
+                    "purpose": "discovery",
+                    "query": {"mention": "BRCA1", "native_id": "672"},
+                },
+            )
+        if not verification_ready:
+            return MainAgentDecisionProposal(
+                action="retrieve_materials",
+                target_subagent_role="material_retrieval",
+                input_artifact_ids=[],
+                requested_budget={},
+                expected_information_gain=0.8,
+                action_parameters={
+                    "provider_id": "pubmed",
+                    "purpose": "verification",
+                    "query": {"term": "BRCA1 chromosome 17"},
+                },
+            )
+        if "candidate_claim" not in types:
+            return MainAgentDecisionProposal(
+                action="understand_facts",
+                target_subagent_role="fact_understanding",
+                input_artifact_ids=[],
+                requested_budget={},
+                expected_information_gain=0.8,
+            )
+        if "question_hypothesis" not in types:
+            return MainAgentDecisionProposal(
+                action="design_questions",
+                target_subagent_role="objective_question_design",
+                input_artifact_ids=[],
+                requested_budget={},
+                expected_information_gain=0.8,
+            )
+        if "answer_resolution" not in types:
+            return MainAgentDecisionProposal(
+                action="verify_answer",
+                target_subagent_role="objective_answer_verification",
+                input_artifact_ids=[],
+                requested_budget={},
+                expected_information_gain=0.8,
+            )
+        if "objective_question_draft" not in types:
+            return MainAgentDecisionProposal(
+                action="realize_question",
+                target_subagent_role="objective_question_realization",
+                input_artifact_ids=[],
+                requested_budget={},
+                expected_information_gain=0.8,
+            )
+        if "objective_validation_report" not in types:
+            return MainAgentDecisionProposal(
+                action="review_release",
+                target_subagent_role="objective_release_review",
+                input_artifact_ids=[],
+                requested_budget={},
+                expected_information_gain=0.8,
+            )
+        return MainAgentDecisionProposal(
+            action="stop",
+            target_subagent_role=None,
+            input_artifact_ids=[],
+            requested_budget={},
+            expected_information_gain=0,
+            stop_reason="objective_questions_complete",
+        )
+
+    model.set_response("objective_main_agent", main_agent)
+    app = create_app(
+        tmp_path,
+        structured_model=model,
+        objective_providers={
+            "primekg": FakeMaterialProvider(
+                "primekg",
+                "BRCA1 is located on human chromosome 17.",
+            ),
+            "pubmed": FakeMaterialProvider(
+                "pubmed",
+                "Independent report: BRCA1 maps to chromosome 17.",
+            ),
+        },
+    )
+    client = TestClient(app)
+    response = client.post(
+        "/api/objective/generate",
+        json={
+            "run_id": "objective-api-e2e",
+            "entity_canonical_id": "primekg:gene:672",
+            "entity_name": "BRCA1",
+            "entity_type": "gene",
+            "question_count": 1,
+            "max_actions": 12,
+            "providers": ["primekg", "pubmed"],
+        },
+    )
+
+    assert response.status_code == 200, response.json()
+    payload = response.json()
+    assert payload["run_state"] == "COMPLETED"
+    assert payload["published_count"] == 1
+    assert payload["questions"][0]["answer"] == ["chromosome 17"]
+    assert payload["main_agent_steps"]
+
+    progress = client.get("/api/objective/objective-api-e2e")
+    assert progress.status_code == 200
+    assert progress.json()["questions"][0]["question_id"] == "question.brca1.chr17"
