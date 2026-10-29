@@ -120,7 +120,10 @@ PROPOSED
 
 - `generation/evidence_provider.py`
 - `generation/objective_question_contracts.py`
+- `generation/objective_question_persistence.py`
 
 新链路使用独立 schema family 和 feature flag。旧 `TaskCandidate`、CTD task 和 v2 release 保持原语义，不会因读取新代码而自动升级为 `PASS`。
 
 契约详细字段以 Pydantic 模型为准，外部消费者使用 `schemas/v1` 中导出的 JSON Schema。
+
+材料原文按 SHA-256 内容寻址保存为不可变 blob。anchor 的 offset、引用文本和 quote hash 必须能对回读原文重新校验。provider attempt 只能追加，`operation_key` 标识逻辑操作，`attempt_id` 和 `retry_ordinal` 标识物理尝试；同一 retry ordinal 不能被另一 attempt 复用。
