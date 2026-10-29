@@ -23,6 +23,7 @@ from medical_qa_data_factory.generation.objective_question_contracts import (
     ExecutionStatus,
     QuestionHypothesis,
     SubagentTask,
+    canonical_digest,
     text_digest,
 )
 from medical_qa_data_factory.generation.question_design import (
@@ -224,12 +225,42 @@ def test_question_design_sees_claims_not_material_or_proposed_gold() -> None:
         anchors=[_anchor()],
     )
 
-    assert outcome.hypotheses == [hypothesis]
+    assert outcome.hypotheses[0].question_intent == hypothesis.question_intent
+    assert outcome.hypotheses[0].hypothesis_id.startswith("hypothesis.")
     assert outcome.result.execution_status is ExecutionStatus.SUCCEEDED
     payload = model.payloads_for("objective_question_design")[0]
     assert payload["candidate_claims"][0]["claim_id"] == "claim-brca1-chr17"
     assert "raw_content" not in json.dumps(payload)
     assert "untrusted_material" not in json.dumps(payload)
+
+
+def test_question_design_cannot_reuse_a_claim_id_as_hypothesis_artifact() -> None:
+    hypothesis = QuestionHypothesis(
+        hypothesis_id="claim-brca1-chr17",
+        candidate_claim_ids=["claim-brca1-chr17"],
+        question_intent="On which chromosome is BRCA1?",
+        proposed_public_scope="Homo sapiens reference genome",
+        proposed_answer_type="entity",
+        proposed_answer_values=["chromosome 17"],
+        proposed_cardinality=AnswerCardinality.EXACTLY_ONE,
+        discovery_anchor_ids=["anchor-brca1"],
+    )
+    model = FakeStructuredModel(
+        responses={
+            "objective_question_design": QuestionHypothesisBatch(
+                hypotheses=[hypothesis]
+            )
+        }
+    )
+    outcome = ObjectiveQuestionDesignSubagent(model).run(
+        _task(SubagentRole.QUESTION_DESIGN),
+        claims=[_claim()],
+        anchors=[_anchor()],
+    )
+
+    stamped = outcome.hypotheses[0]
+    assert stamped.hypothesis_id != hypothesis.hypothesis_id
+    assert stamped.hypothesis_id.startswith("hypothesis.")
 
 
 def test_question_design_cannot_reference_an_unknown_or_contradicting_anchor() -> None:
