@@ -14,6 +14,7 @@ from medical_qa_data_factory.generation.objective_question_contracts import (
     DomainOutcome,
     ExecutionStatus,
     GenerationGoal,
+    HypothesisState,
     MainAgentDecision,
     RunManifest,
     SubagentResult,
@@ -302,3 +303,37 @@ def test_gene_location_route_prefers_hgnc_then_ncbi_gene(tmp_path) -> None:
     assert discovery.action_parameters["query"]["symbol"] == "ZRSR2"
     assert verification.action_parameters["provider_id"] == "ncbi_gene"
     assert verification.action_parameters["query"]["symbol"] == "ZRSR2"
+
+
+def test_rejected_hypothesis_allows_designing_a_replacement(tmp_path) -> None:
+    snapshot = _repo(tmp_path).load()
+    snapshot = snapshot.model_copy(
+        update={
+            "hypotheses": {
+                "hypothesis.rejected": HypothesisState.REJECTED,
+            },
+            "artifacts": {
+                "claim.kif15": ArtifactEnvelope(
+                    artifact_id="claim.kif15",
+                    artifact_type="candidate_claim",
+                    payload={"claim_id": "claim.kif15"},
+                ),
+                "hypothesis.rejected": ArtifactEnvelope(
+                    artifact_id="hypothesis.rejected",
+                    artifact_type="question_hypothesis",
+                    payload={"hypothesis_id": "hypothesis.rejected"},
+                ),
+            },
+        }
+    )
+    decision = MainAgentDecision(
+        decision_id="decision-redesign",
+        action="design_questions",
+        target_subagent_role="objective_question_design",
+        input_artifact_ids=["claim.kif15"],
+        state_digest=canonical_digest(snapshot.model_dump(mode="json")),
+        requested_budget={},
+        expected_information_gain=0.7,
+    )
+
+    validate_main_agent_decision(snapshot, decision)
