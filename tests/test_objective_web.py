@@ -246,6 +246,16 @@ def test_objective_api_runs_the_real_agent_loop(tmp_path) -> None:
     assert payload["published_count"] == 1
     assert payload["questions"][0]["answer"] == ["chromosome 17"]
     assert payload["main_agent_steps"]
+    assert {item["provider_id"] for item in payload["materials"]} == {
+        "primekg",
+        "pubmed",
+    }
+    assert any(
+        "chromosome 17" in item["preview"] for item in payload["materials"]
+    )
+    assert {
+        item["provider_id"] for item in payload["retrieval_sources"]
+    } == {"primekg", "pubmed"}
 
     progress = client.get("/api/objective/objective-api-e2e")
     assert progress.status_code == 200

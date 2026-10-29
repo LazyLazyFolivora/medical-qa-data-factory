@@ -33,6 +33,46 @@ describe("ObjectiveRun", () => {
               information_gain_label: "70%",
             },
           ],
+          retrieval_sources: [
+            {
+              provider_id: "primekg",
+              provider_label: "PrimeKG",
+              purpose: "discovery",
+              terminal_status: "SUCCEEDED",
+              query_label: "BRCA1",
+              material_count: 1,
+            },
+            {
+              provider_id: "pubmed",
+              provider_label: "PubMed",
+              purpose: "verification",
+              terminal_status: "SUCCEEDED",
+              query_label: "BRCA1 chromosome 17",
+              material_count: 1,
+            },
+          ],
+          materials: [
+            {
+              material_id: "material.primekg.1",
+              provider_id: "primekg",
+              provider_label: "PrimeKG",
+              source_record_id: "edge-1",
+              material_label: "知识图谱边",
+              purpose: "discovery",
+              preview: "BRCA1 --located_on--> chromosome 17",
+              anchor_count: 1,
+            },
+            {
+              material_id: "material.pubmed.1",
+              provider_id: "pubmed",
+              provider_label: "PubMed",
+              source_record_id: "pmid:123",
+              material_label: "文献摘要",
+              purpose: "verification",
+              preview: "Independent report: BRCA1 maps to chromosome 17.",
+              anchor_count: 1,
+            },
+          ],
         },
         questions: [
           {
@@ -50,6 +90,10 @@ describe("ObjectiveRun", () => {
     expect(wrapper.text()).toContain("发布复核");
     expect(wrapper.text()).toContain("chromosome 17");
     expect(wrapper.findAll("[data-agent-step]")).toHaveLength(2);
+    expect(wrapper.text()).toContain("PrimeKG");
+    expect(wrapper.text()).toContain("PubMed");
+    expect(wrapper.text()).toContain("BRCA1 --located_on--> chromosome 17");
+    expect(wrapper.findAll("[data-collected-material]")).toHaveLength(2);
   });
 
   it("explains a valid zero-question result", () => {
