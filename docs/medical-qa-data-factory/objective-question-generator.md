@@ -15,6 +15,30 @@
 
 ## 启动命令
 
+推荐直接使用脚本：
+
+```powershell
+# 默认启动 Vue 工作台
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/objective.ps1
+
+# 直接运行主 Agent 生成
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/objective.ps1 `
+  -Mode generate `
+  -EntityName BRCA1 `
+  -EntityId 672 `
+  -EntityType gene `
+  -QuestionCount 1
+
+# 只校验路径、参数和模型状态，不启动服务或创建目录
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/objective.ps1 `
+  -Mode generate -EntityName BRCA1 -DryRun
+```
+
+脚本自动设置 `PYTHONPATH`，检查 Python、模型 API key、provider 和 CTD index；
+生成模式默认创建 `data/runs/<run-id>` 与 `data/releases/<run-id>`。
+
+底层命令如下。
+
 ```powershell
 $env:PYTHONPATH='E:\Cursor\assumption\projects\medical-qa-data-factory\src'
 
