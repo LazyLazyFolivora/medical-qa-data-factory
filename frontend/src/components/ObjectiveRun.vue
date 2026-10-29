@@ -37,6 +37,14 @@ const artifactLabel = (key) =>
     provider_result: "检索结果",
   })[key] || key;
 
+const purposeLabel = (value) =>
+  ({ discovery: "发现材料", verification: "独立验证" })[value] || value;
+
+const terminalLabel = (value) =>
+  ({ SUCCEEDED: "成功", EMPTY: "无结果", FAILED: "失败", UNKNOWN: "未知" })[
+    value
+  ] || value;
+
 const verdictLabel = (value) =>
   ({ PASS: "通过", REJECT: "拒绝", INDETERMINATE: "无法确定" })[value] ||
   value;
@@ -111,6 +119,66 @@ const verdictLabel = (value) =>
       </div>
       <p v-if="!artifactCounts.length">主 Agent 尚未产生 artifact。</p>
     </div>
+
+    <details
+      class="objective-materials"
+      :open="Boolean(task.materials?.length)"
+    >
+      <summary>
+        <span>材料收集</span>
+        <span>
+          {{ task.retrieval_sources?.length || 0 }} 次检索 ·
+          {{ task.materials?.length || 0 }} 份材料
+        </span>
+      </summary>
+
+      <div v-if="task.retrieval_sources?.length" class="retrieval-source-list">
+        <article
+          v-for="source in task.retrieval_sources"
+          :key="`${source.provider_id}-${source.purpose}-${source.query_label}`"
+          data-retrieval-source
+        >
+          <div>
+            <strong>{{ source.provider_label }}</strong>
+            <span>{{ purposeLabel(source.purpose) }}</span>
+          </div>
+          <p>{{ source.query_label }}</p>
+          <footer>
+            <span>{{ terminalLabel(source.terminal_status) }}</span>
+            <span>{{ source.material_count }} 份</span>
+            <code v-if="source.snapshot_id">{{ source.snapshot_id }}</code>
+          </footer>
+        </article>
+      </div>
+
+      <div v-if="task.materials?.length" class="collected-material-list">
+        <article
+          v-for="material in task.materials"
+          :key="material.material_id"
+          data-collected-material
+        >
+          <header>
+            <div>
+              <strong>{{ material.provider_label }}</strong>
+              <span>{{ material.material_label }}</span>
+            </div>
+            <span>{{ purposeLabel(material.purpose) }}</span>
+          </header>
+          <p class="material-preview">{{ material.preview }}</p>
+          <footer>
+            <code>{{ material.source_record_id }}</code>
+            <span>{{ material.anchor_count }} 个原文定位</span>
+          </footer>
+        </article>
+      </div>
+
+      <p
+        v-if="isRunning && !task.materials?.length"
+        class="empty-detail material-waiting"
+      >
+        主 Agent 正在收集材料。检索开始后，这里会显示来源、查询和原文预览。
+      </p>
+    </details>
 
     <div v-if="zeroQuestions" class="objective-zero">
       <span>0</span>

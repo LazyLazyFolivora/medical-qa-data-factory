@@ -56,7 +56,11 @@ from ..generation.objective_provider_adapters import (
     PrimeKgMaterialProvider,
     PubMedMaterialProvider,
 )
-from ..generation.objective_question_contracts import GenerationGoal, RunManifest
+from ..generation.objective_question_contracts import (
+    EvidenceMaterial,
+    GenerationGoal,
+    RunManifest,
+)
 from ..generation.objective_question_persistence import (
     ObjectiveQuestionPersistence,
 )
@@ -126,6 +130,20 @@ OBJECTIVE_STATE_LABELS = {
     "CANCELLED": "已取消",
 }
 
+OBJECTIVE_PROVIDER_LABELS = {
+    "primekg": "PrimeKG",
+    "pubmed": "PubMed",
+    "ctd": "CTD",
+    "rag": "RAG",
+}
+
+OBJECTIVE_MATERIAL_LABELS = {
+    "knowledge_graph_edge": "知识图谱边",
+    "literature_abstract": "文献摘要",
+    "ctd_chemical_disease_record": "CTD 化学物—疾病记录",
+    "text": "文本材料",
+}
+
 
 def _objective_run_root(workspace: str | Path, run_id: str) -> Path:
     return Path(workspace) / "objective_runs" / run_id
@@ -182,6 +200,83 @@ def _objective_run_payload(
         artifact_counts[artifact.artifact_type] = (
             artifact_counts.get(artifact.artifact_type, 0) + 1
         )
+    anchor_counts: dict[str, int] = {}
+    for artifact in snapshot.artifacts.values():
+        if artifact.artifact_type != "evidence_anchor":
+            continue
+        material_id = str(artifact.payload.get("material_id", ""))
+        if material_id:
+            anchor_counts[material_id] = anchor_counts.get(material_id, 0) + 1
+    retrieval_sources = []
+    result_purpose_by_request: dict[str, str] = {}
+    for artifact in snapshot.artifacts.values():
+        if artifact.artifact_type != "provider_result":
+            continue
+        provider_result = artifact.payload
+        request = provider_result.get("request", {})
+        request_id = str(request.get("request_id", ""))
+        purpose = str(artifact.metadata.get("purpose", "discovery"))
+        if request_id:
+            result_purpose_by_request[request_id] = purpose
+        query = request.get("query", {})
+        provider_id = str(request.get("provider_id", ""))
+        if isinstance(query, dict) and isinstance(query.get(provider_id), dict):
+            query = query[provider_id]
+        query_label = (
+            " · ".join(f"{key}={value}" for key, value in query.items())
+            if isinstance(query, dict)
+            else str(query)
+        )
+        retrieval_sources.append(
+            {
+                "provider_id": provider_id,
+                "provider_label": OBJECTIVE_PROVIDER_LABELS.get(
+                    provider_id, provider_id
+                ),
+                "purpose": purpose,
+                "terminal_status": provider_result.get("terminal_status"),
+                "query_label": query_label,
+                "material_count": len(provider_result.get("material_ids", [])),
+                "snapshot_id": provider_result.get("snapshot_id"),
+                "error_category": provider_result.get("error_category"),
+            }
+        )
+    persistence = ObjectiveQuestionPersistence(run_root)
+    materials = []
+    for artifact in snapshot.artifacts.values():
+        if artifact.artifact_type != "evidence_material":
+            continue
+        material = EvidenceMaterial.model_validate(artifact.payload)
+        provider_id = material.provider_id
+        preview = ""
+        try:
+            preview = persistence.load_raw_content(material).decode("utf-8")
+        except Exception:
+            preview = artifact.payload.get("content_preview", "")
+        preview = " ".join(str(preview).split())
+        if len(preview) > 320:
+            preview = preview[:317] + "..."
+        materials.append(
+            {
+                "material_id": material.material_id,
+                "provider_id": provider_id,
+                "provider_label": OBJECTIVE_PROVIDER_LABELS.get(
+                    provider_id, provider_id
+                ),
+                "source_record_id": material.source_record_id,
+                "material_type": material.material_type,
+                "material_label": OBJECTIVE_MATERIAL_LABELS.get(
+                    material.material_type, material.material_type
+                ),
+                "purpose": result_purpose_by_request.get(
+                    material.retrieval_request_id,
+                    artifact.metadata.get("purpose", "discovery"),
+                ),
+                "retrieved_at": material.retrieved_at.isoformat(),
+                "anchor_count": anchor_counts.get(material.material_id, 0),
+                "preview": preview,
+            }
+        )
     terminal = snapshot.run_state in {
         RuntimeRunState.COMPLETED,
         RuntimeRunState.COMPLETED_WITH_ZERO_QUESTIONS,
@@ -224,6 +319,21 @@ def _objective_run_payload(
         "planner_steps": [],
         "operations": [],
         "artifact_counts": dict(sorted(artifact_counts.items())),
+        "retrieval_sources": sorted(
+            retrieval_sources,
+            key=lambda item: (
+                str(item["provider_id"]),
+                str(item["purpose"]),
+                str(item["query_label"]),
+            ),
+        ),
+        "materials": sorted(
+            materials,
+            key=lambda item: (
+                str(item["provider_id"]),
+                str(item["source_record_id"]),
+            ),
+        ),
         "hypotheses": {
             key: value.value for key, value in snapshot.hypotheses.items()
         },
