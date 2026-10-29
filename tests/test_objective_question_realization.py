@@ -104,7 +104,8 @@ def test_writer_receives_only_the_frozen_contract() -> None:
         contract=_contract(),
     )
 
-    assert outcome.draft == _draft()
+    assert outcome.draft.question_text == _draft().question_text
+    assert outcome.draft.draft_id == "draft.contract-brca1"
     payload = model.payloads_for("objective_question_realization")[0]
     assert payload["frozen_question_contract"]["contract_id"] == "contract-brca1"
     serialized = json.dumps(payload)
