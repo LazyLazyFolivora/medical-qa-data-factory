@@ -131,6 +131,9 @@ PROPOSED
 - `generation/main_agent.py`
 - `generation/subagent_dispatch.py`
 - `generation/material_retrieval_subagent.py`
+- `generation/agent_loop.py`
+- `generation/objective_question_release.py`
+- `generation/objective_provider_adapters.py`
 
 新链路使用独立 schema family 和 feature flag。旧 `TaskCandidate`、CTD task 和 v2 release 保持原语义，不会因读取新代码而自动升级为 `PASS`。
 

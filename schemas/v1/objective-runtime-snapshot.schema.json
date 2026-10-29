@@ -25,10 +25,46 @@
           "default": null,
           "title": "Digest"
         },
+        "input_artifact_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Input Artifact Ids",
+          "type": "array"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "parent_decision_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Decision Id"
+        },
         "payload": {
           "additionalProperties": true,
           "title": "Payload",
           "type": "object"
+        },
+        "producer_role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Producer Role"
         }
       },
       "required": [
@@ -135,6 +171,102 @@
       "title": "ExecutionStatus",
       "type": "string"
     },
+    "GenerationGoal": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_fact_types": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Fact Types",
+          "type": "array"
+        },
+        "difficulty_targets": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Difficulty Targets",
+          "type": "array"
+        },
+        "question_count_upper_bound": {
+          "minimum": 0,
+          "title": "Question Count Upper Bound",
+          "type": "integer"
+        },
+        "run_budget": {
+          "additionalProperties": true,
+          "minProperties": 1,
+          "title": "Run Budget",
+          "type": "object"
+        },
+        "run_id": {
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "run_manifest_id": {
+          "minLength": 1,
+          "title": "Run Manifest Id",
+          "type": "string"
+        },
+        "runtime_bundle_id": {
+          "minLength": 1,
+          "title": "Runtime Bundle Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": "objective-question-v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "style_targets": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Style Targets",
+          "type": "array"
+        },
+        "target_entity": {
+          "minLength": 1,
+          "title": "Target Entity",
+          "type": "string"
+        },
+        "target_entity_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Entity Id"
+        },
+        "target_entity_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Entity Type"
+        }
+      },
+      "required": [
+        "run_id",
+        "target_entity",
+        "question_count_upper_bound",
+        "run_budget",
+        "run_manifest_id",
+        "runtime_bundle_id"
+      ],
+      "title": "GenerationGoal",
+      "type": "object"
+    },
     "HypothesisState": {
       "enum": [
         "PROPOSED",
@@ -149,6 +281,86 @@
       ],
       "title": "HypothesisState",
       "type": "string"
+    },
+    "MainAgentDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "minLength": 1,
+          "title": "Action",
+          "type": "string"
+        },
+        "action_parameters": {
+          "additionalProperties": true,
+          "title": "Action Parameters",
+          "type": "object"
+        },
+        "decision_id": {
+          "minLength": 1,
+          "title": "Decision Id",
+          "type": "string"
+        },
+        "expected_information_gain": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Expected Information Gain",
+          "type": "number"
+        },
+        "input_artifact_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Input Artifact Ids",
+          "type": "array"
+        },
+        "requested_budget": {
+          "additionalProperties": true,
+          "title": "Requested Budget",
+          "type": "object"
+        },
+        "schema_version": {
+          "default": "objective-question-v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "state_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "State Digest",
+          "type": "string"
+        },
+        "stop_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stop Reason"
+        },
+        "target_subagent_role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Subagent Role"
+        }
+      },
+      "required": [
+        "decision_id",
+        "action",
+        "state_digest",
+        "expected_information_gain"
+      ],
+      "title": "MainAgentDecision",
+      "type": "object"
     },
     "OperationRecord": {
       "additionalProperties": false,
@@ -554,6 +766,24 @@
       "minimum": 0,
       "title": "Commit Sequence",
       "type": "integer"
+    },
+    "decisions": {
+      "additionalProperties": {
+        "$ref": "#/$defs/MainAgentDecision"
+      },
+      "title": "Decisions",
+      "type": "object"
+    },
+    "goal": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GenerationGoal"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "hypotheses": {
       "additionalProperties": {

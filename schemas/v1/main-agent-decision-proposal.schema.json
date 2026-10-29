@@ -1,0 +1,63 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "minLength": 1,
+      "title": "Action",
+      "type": "string"
+    },
+    "action_parameters": {
+      "additionalProperties": true,
+      "title": "Action Parameters",
+      "type": "object"
+    },
+    "expected_information_gain": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Expected Information Gain",
+      "type": "number"
+    },
+    "input_artifact_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Input Artifact Ids",
+      "type": "array"
+    },
+    "requested_budget": {
+      "additionalProperties": true,
+      "title": "Requested Budget",
+      "type": "object"
+    },
+    "stop_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Stop Reason"
+    },
+    "target_subagent_role": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Target Subagent Role"
+    }
+  },
+  "required": [
+    "action",
+    "expected_information_gain"
+  ],
+  "title": "MainAgentDecisionProposal",
+  "type": "object"
+}

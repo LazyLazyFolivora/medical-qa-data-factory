@@ -12,6 +12,7 @@ from pydantic import Field, model_validator
 from ..domain.common import ContractModel, UtcDateTime, utc_now
 from .objective_question_contracts import (
     Checkpoint,
+    GenerationGoal,
     HypothesisState,
     MainAgentDecision,
     OperationRecord,
@@ -62,6 +63,10 @@ class ArtifactEnvelope(ContractModel):
     artifact_id: str = Field(min_length=1)
     artifact_type: str = Field(min_length=1)
     payload: dict[str, Any]
+    producer_role: str | None = None
+    parent_decision_id: str | None = None
+    input_artifact_ids: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
     digest: str | None = None
 
     @model_validator(mode="after")
@@ -88,6 +93,7 @@ class ObjectiveRuntimeSnapshot(ContractModel):
     schema_version: str = "objective-runtime-v1"
     run_id: str = Field(min_length=1)
     manifest: RunManifest
+    goal: GenerationGoal | None = None
     run_state: RunState = RunState.CREATED
     state_revision: int = Field(ge=0)
     commit_sequence: int = Field(ge=0)
@@ -95,6 +101,7 @@ class ObjectiveRuntimeSnapshot(ContractModel):
     child_slots: dict[str, ChildResultSlot] = Field(default_factory=dict)
     operations: dict[str, list[OperationRecord]] = Field(default_factory=dict)
     aggregation_commits: dict[str, int] = Field(default_factory=dict)
+    decisions: dict[str, MainAgentDecision] = Field(default_factory=dict)
     artifacts: dict[str, ArtifactEnvelope] = Field(default_factory=dict)
     budget: RuntimeBudget
     stop_reason: str | None = None
@@ -134,6 +141,7 @@ class ObjectiveRuntimeRepository:
         *,
         manifest: RunManifest,
         budget: RuntimeBudget,
+        goal: GenerationGoal | None = None,
     ) -> "ObjectiveRuntimeRepository":
         repo = cls(root, run_id=manifest.run_id)
         if repo.commit_dir.exists() and any(repo.commit_dir.glob("*.json")):
@@ -141,6 +149,7 @@ class ObjectiveRuntimeRepository:
         snapshot = ObjectiveRuntimeSnapshot(
             run_id=manifest.run_id,
             manifest=manifest,
+            goal=goal,
             run_state=RunState.CREATED,
             state_revision=1,
             commit_sequence=1,
@@ -233,6 +242,44 @@ class ObjectiveRuntimeRepository:
                 }
             )
             return self._commit_next(snapshot, updated)
+
+    def set_run_state(
+        self,
+        *,
+        expected_state_revision: int,
+        target: RunState,
+        stop_reason: str | None = None,
+    ) -> ObjectiveRuntimeSnapshot:
+        with self._lock:
+            snapshot = self._load_latest()
+            self._require_revision(snapshot, expected_state_revision)
+            updated = snapshot.model_copy(
+                update={"run_state": target, "stop_reason": stop_reason}
+            )
+            return self._commit_next(snapshot, updated)
+
+    def record_decision(
+        self,
+        *,
+        expected_state_revision: int,
+        decision: MainAgentDecision,
+    ) -> ObjectiveRuntimeSnapshot:
+        with self._lock:
+            snapshot = self._load_latest()
+            if decision.decision_id in snapshot.decisions:
+                existing = snapshot.decisions[decision.decision_id]
+                if existing != decision:
+                    raise OperationConflict(
+                        "decision identity is already committed with other content"
+                    )
+                return snapshot
+            self._require_revision(snapshot, expected_state_revision)
+            decisions = dict(snapshot.decisions)
+            decisions[decision.decision_id] = decision
+            return self._commit_next(
+                snapshot,
+                snapshot.model_copy(update={"decisions": decisions}),
+            )
 
     def register_child_slot(
         self,
@@ -518,7 +565,9 @@ class ObjectiveRuntimeRepository:
         merged = dict(snapshot.artifacts)
         for artifact in artifacts:
             existing = merged.get(artifact.artifact_id)
-            if existing is not None and existing.digest != artifact.digest:
+            if existing is not None:
+                if _same_immutable_artifact(existing, artifact):
+                    continue
                 raise OperationConflict(
                     f"artifact {artifact.artifact_id} has different content"
                 )
@@ -575,3 +624,28 @@ def _operation_content(record: OperationRecord) -> dict[str, Any]:
     payload = record.model_dump(mode="json")
     payload.pop("commit_sequence", None)
     return payload
+
+
+def _same_immutable_artifact(
+    left: ArtifactEnvelope,
+    right: ArtifactEnvelope,
+) -> bool:
+    if left.digest == right.digest:
+        return True
+    if (
+        left.artifact_type == right.artifact_type == "evidence_material"
+        and left.payload.get("content_hash")
+        == right.payload.get("content_hash")
+        and left.payload.get("provider_id")
+        == right.payload.get("provider_id")
+        and left.payload.get("source_record_id")
+        == right.payload.get("source_record_id")
+    ):
+        return True
+    if (
+        left.artifact_type == right.artifact_type == "evidence_anchor"
+        and left.payload.get("quote_hash") == right.payload.get("quote_hash")
+        and left.payload.get("material_id") == right.payload.get("material_id")
+    ):
+        return True
+    return False

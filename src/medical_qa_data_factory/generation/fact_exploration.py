@@ -130,6 +130,7 @@ class FactUnderstandingSubagent:
         )
         batch = CandidateClaimBatch.model_validate(response.parsed)
         visible_anchor_ids = {anchor.anchor_id for anchor in anchors}
+        accepted_claims: list[CandidateClaim] = []
         for claim in batch.claims:
             if unknown := sorted(
                 set(claim.supporting_anchor_ids) - visible_anchor_ids
@@ -137,19 +138,22 @@ class FactUnderstandingSubagent:
                 raise RoleContractViolation(
                     f"claim references unknown anchors: {unknown}"
                 )
-            if claim.extraction_model_version != response.model_config_id:
-                raise RoleContractViolation(
-                    "claim extraction_version does not match the model invocation"
+            accepted_claims.append(
+                claim.model_copy(
+                    update={
+                        "extraction_model_version": response.model_config_id,
+                    }
                 )
+            )
         result = SubagentResult(
             subtask_id=task.subtask_id,
             execution_status=ExecutionStatus.SUCCEEDED,
             domain_outcome=DomainOutcome.SUPPORTED,
             verdict=VerificationVerdict.NOT_EMITTED,
-            output_artifact_ids=[claim.claim_id for claim in batch.claims],
+            output_artifact_ids=[claim.claim_id for claim in accepted_claims],
             evidence_need_ids=[],
             usage=dict(response.usage),
             error_category=None,
             stop_reason="claims_proposed",
         )
-        return FactExplorationOutcome(result=result, claims=list(batch.claims))
+        return FactExplorationOutcome(result=result, claims=accepted_claims)

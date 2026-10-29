@@ -321,8 +321,10 @@ class AnswerVerificationSubagent:
                 if attempt.terminal_status is ProviderTerminalStatus.SUCCEEDED
             }
         )
-        resolution_id = hypothesis.hypothesis_id.replace(
-            "hypothesis-", "resolution-", 1
+        resolution_id = _replace_id_prefix(
+            hypothesis.hypothesis_id,
+            old="hypothesis",
+            new="resolution",
         )
         resolution = AnswerResolution(
             resolution_id=resolution_id,
@@ -359,8 +361,10 @@ class AnswerVerificationSubagent:
         frozen_contract = None
         if status is AnswerStatus.VERIFIED:
             frozen_contract = FrozenQuestionContract(
-                contract_id=hypothesis.hypothesis_id.replace(
-                    "hypothesis-", "contract-", 1
+                contract_id=_replace_id_prefix(
+                    hypothesis.hypothesis_id,
+                    old="hypothesis",
+                    new="contract",
                 ),
                 question_intent=hypothesis.question_intent,
                 public_scope=blind_query.public_scope,
@@ -425,3 +429,11 @@ class AnswerVerificationSubagent:
             resolution=resolution,
             frozen_contract=frozen_contract,
         )
+
+
+def _replace_id_prefix(value: str, *, old: str, new: str) -> str:
+    if value.startswith(old + "-"):
+        return new + value[len(old) :]
+    if value.startswith(old + "."):
+        return new + value[len(old) :]
+    return f"{new}.{value}"

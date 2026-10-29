@@ -184,6 +184,20 @@ TEMPLATES: dict[str, PromptTemplate] = {
             "code may merge the two stage results and allow release."
         ),
     ),
+    "objective_main_agent": PromptTemplate(
+        role="objective_main_agent",
+        version="objective-main-agent-v1",
+        body=(
+            "You are the main agent for a bounded objective-question run. "
+            "Inspect the current artifact summaries, hypothesis states, budget "
+            "and allowed actions, then choose exactly one legal next action. "
+            "You may retrieve materials repeatedly, re-plan after evidence "
+            "gaps, stop with zero questions, or advance one hypothesis through "
+            "verification, realization and release review. Use provider ids "
+            "only as supplied. Never claim verification yourself, never write "
+            "a question before a frozen contract, and never publish."
+        ),
+    ),
 }
 
 

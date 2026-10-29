@@ -73,7 +73,11 @@ class IndependentEvidenceAuditPackage(ContractModel):
     anchors: list[dict[str, Any]] = Field(min_length=1)
 
     def digest(self) -> str:
-        return canonical_digest(self.model_dump(mode="json"))
+        return release_evidence_digest(self.model_dump(mode="json"))
+
+
+def release_evidence_digest(payload: Any) -> str:
+    return canonical_digest(payload)
 
 
 class AnswerEvidenceAuditPackage(ContractModel):
@@ -209,19 +213,9 @@ class ReleaseReviewSubagent:
             )
         public_audit = PublicQuestionAuditResult.model_validate(
             public_response.parsed
+        ).model_copy(
+            update={"task_id": public_task.subtask_id}
         )
-        if public_audit.task_id != public_task.subtask_id:
-            return ReleaseReviewOutcome(
-                report=self._failure_report(
-                    public_question,
-                    answer_evidence,
-                    skill,
-                    reason="MODEL_OUTPUT_INVALID",
-                    detail="public audit result references another task",
-                ),
-                public_audit=None,
-                answer_audit=None,
-            )
         if public_audit.public_question_digest != public_question.digest():
             return ReleaseReviewOutcome(
                 report=self._failure_report(
@@ -343,19 +337,9 @@ class ReleaseReviewSubagent:
             )
         answer_audit = AnswerEvidenceAuditResult.model_validate(
             answer_response.parsed
+        ).model_copy(
+            update={"task_id": answer_task.subtask_id}
         )
-        if answer_audit.task_id != answer_task.subtask_id:
-            return ReleaseReviewOutcome(
-                report=self._failure_report(
-                    public_question,
-                    answer_evidence,
-                    skill,
-                    reason="MODEL_OUTPUT_INVALID",
-                    detail="answer audit result references another task",
-                ),
-                public_audit=public_audit,
-                answer_audit=None,
-            )
         report = merge_objective_audits(
             question_id=public_question.question_id,
             public_audit=public_audit,

@@ -30,6 +30,7 @@ from .subagent_contracts import (
 @dataclass(frozen=True)
 class MaterialRetrievalOutcome:
     result: SubagentResult
+    provider_result: EvidenceProviderResult
     materials: list[EvidenceMaterial]
     anchors: list[EvidenceAnchor]
 
@@ -101,6 +102,7 @@ class MaterialRetrievalSubagent:
                     error_category=provider_result.error_category,
                     stop_reason=stop_reason,
                 ),
+                provider_result=provider_result,
                 materials=[],
                 anchors=[],
             )
@@ -149,6 +151,7 @@ class MaterialRetrievalSubagent:
         )
         return MaterialRetrievalOutcome(
             result=result,
+            provider_result=provider_result,
             materials=materials,
             anchors=anchors,
         )

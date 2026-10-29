@@ -91,7 +91,11 @@ class ObjectiveQuestionDesignSubagent:
             ],
             "instruction": (
                 "Treat proposed answers as candidates only. Do not change any "
-                "candidate claim or claim that an answer is verified."
+                "candidate claim or claim that an answer is verified. "
+                "proposed_public_scope must describe the real-world subject, "
+                "population, species, definition and comparison set needed to "
+                "answer. It must never mention PrimeKG, CTD, PubMed, RAG, a "
+                "database, a retrieved corpus, or an internal candidate set."
             ),
         }
         response = self.model.generate_structured(

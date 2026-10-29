@@ -35,6 +35,7 @@ from .generation.answer_verification_subagent import (
     VerificationEvidenceBundle,
 )
 from .generation.fact_exploration import CandidateClaimBatch
+from .generation.main_agent import MainAgentDecisionProposal
 from .generation.ctd_world_evaluation import CtdWorldEvaluation
 from .generation.question_design import QuestionHypothesisBatch
 from .generation.release_review_subagent import (
@@ -214,6 +215,7 @@ SCHEMA_MODELS = {
     "subagent-task.schema.json": SubagentTask,
     "subagent-result.schema.json": SubagentResult,
     "main-agent-decision.schema.json": MainAgentDecision,
+    "main-agent-decision-proposal.schema.json": MainAgentDecisionProposal,
     "run-manifest.schema.json": RunManifest,
     "checkpoint.schema.json": Checkpoint,
     "runtime-budget.schema.json": RuntimeBudget,

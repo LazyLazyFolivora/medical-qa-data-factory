@@ -27,6 +27,7 @@ ModelRole = Literal[
     "objective_question_realization",
     "objective_answer_verification",
     "objective_release_review",
+    "objective_main_agent",
 ]
 
 

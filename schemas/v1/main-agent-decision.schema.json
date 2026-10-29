@@ -6,6 +6,11 @@
       "title": "Action",
       "type": "string"
     },
+    "action_parameters": {
+      "additionalProperties": true,
+      "title": "Action Parameters",
+      "type": "object"
+    },
     "decision_id": {
       "minLength": 1,
       "title": "Decision Id",

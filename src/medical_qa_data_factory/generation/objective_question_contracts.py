@@ -553,6 +553,8 @@ class RetrievalAttempt(ObjectiveContractModel):
 class GenerationGoal(ObjectiveContractModel):
     run_id: str = Field(min_length=1)
     target_entity: str = Field(min_length=1)
+    target_entity_id: str | None = None
+    target_entity_type: str | None = None
     question_count_upper_bound: int = Field(ge=0)
     difficulty_targets: list[str] = Field(default_factory=list)
     style_targets: list[str] = Field(default_factory=list)
@@ -620,6 +622,7 @@ class MainAgentDecision(ObjectiveContractModel):
     state_digest: Digest
     requested_budget: dict[str, Any] = Field(default_factory=dict)
     expected_information_gain: float = Field(ge=0, le=1)
+    action_parameters: dict[str, Any] = Field(default_factory=dict)
     stop_reason: str | None = None
 
 

@@ -47,6 +47,7 @@ VOLATILE_FIELDS = frozenset(
     {
         "created_at",
         "retrieved_at",
+        "retrieval_request_id",
         "started_at",
         "completed_at",
         "updated_at",

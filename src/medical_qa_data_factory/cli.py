@@ -37,6 +37,37 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
 
+    objective = commands.add_parser(
+        "objective",
+        help="Run the evidence-first main-agent question pipeline",
+    )
+    objective_commands = objective.add_subparsers(
+        dest="objective_command", required=True
+    )
+    objective_generate = objective_commands.add_parser(
+        "generate",
+        help="Run the main-agent loop and export PUBLIC/AUDIT packages",
+    )
+    objective_generate.add_argument("--workspace", required=True)
+    objective_generate.add_argument("--output", required=True)
+    objective_generate.add_argument("--run-id", required=True)
+    objective_generate.add_argument("--entity-name", required=True)
+    objective_generate.add_argument("--entity-id")
+    objective_generate.add_argument("--entity-type")
+    objective_generate.add_argument("--question-count", type=int, default=1)
+    objective_generate.add_argument("--max-actions", type=int, default=20)
+    objective_generate.add_argument("--max-cost", type=float, default=10.0)
+    objective_generate.add_argument("--max-model-calls", type=int, default=40)
+    objective_generate.add_argument(
+        "--provider",
+        action="append",
+        choices=["primekg", "ctd", "pubmed"],
+        default=None,
+        help="Provider to enable (repeatable; defaults to primekg and pubmed)",
+    )
+    objective_generate.add_argument("--model-config")
+    objective_generate.add_argument("--ctd-index")
+
     export = commands.add_parser("export", help="Export a gated dataset snapshot")
     export.add_argument("--workspace", required=True, help="Artifact repository")
     export.add_argument("--output", required=True, help="Export destination")
@@ -499,6 +530,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             log_level="info",
         )
         return 0
+    if args.command == "objective" and args.objective_command == "generate":
+        from .generation.objective_cli import (
+            run_objective_generation_command,
+        )
+
+        return run_objective_generation_command(args)
     if args.command == "export":
         from .export import (
             ExportBlockedError,
