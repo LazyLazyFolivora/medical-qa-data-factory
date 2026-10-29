@@ -124,6 +124,7 @@ PROPOSED
 - `generation/subagent_contracts.py`
 - `generation/fact_exploration.py`
 - `generation/question_design.py`
+- `generation/answer_verification_subagent.py`
 
 新链路使用独立 schema family 和 feature flag。旧 `TaskCandidate`、CTD task 和 v2 release 保持原语义，不会因读取新代码而自动升级为 `PASS`。
 
@@ -134,3 +135,5 @@ PROPOSED
 子 Agent 只通过版本化 `SubagentTask` 调用。事实理解角色只能看到成功材料、可回读 anchor、实体消歧和事实类型约束；候选题、proposed answer 和 discovery anchor 均不在其可见字段中。问题设计角色只读取已固化 candidate claim、anchor 位置和公开产品约束，不能回写 claim 或把 proposed answer 标记为 verified。
 
 PubMed、RAG、网页和数据库文本统一放在 `trust_boundary.material_policy=untrusted_data` 内。材料中的指令、工具请求或“发布答案”等文本始终按普通引用数据处理，不能改变角色的 system prompt、工具白名单或输出契约。
+
+答案验证固定执行三个独立阶段：盲态求解、在盲态结果固化后比较 proposed answer、再检查竞争答案和反例。deterministic host 会核对 plan、attempt 与 coverage 的 ID 和终态；empty、provider failure、预算耗尽或 coverage 不完整均为 `INDETERMINATE`。只有 verification attempt 直接提供的独立 anchor 能支持答案，discovery anchor 自身不能完成验证。

@@ -1,0 +1,26 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "answer_matches_blind": {
+      "title": "Answer Matches Blind",
+      "type": "boolean"
+    },
+    "competing_answers": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Competing Answers",
+      "type": "array"
+    },
+    "conflict_found": {
+      "title": "Conflict Found",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "answer_matches_blind",
+    "conflict_found"
+  ],
+  "title": "VerificationComparisonResult",
+  "type": "object"
+}

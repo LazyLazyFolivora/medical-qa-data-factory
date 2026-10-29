@@ -1,0 +1,27 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "answer_values": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Answer Values",
+      "type": "array"
+    },
+    "query_id": {
+      "minLength": 1,
+      "title": "Query Id",
+      "type": "string"
+    },
+    "uncertain": {
+      "default": false,
+      "title": "Uncertain",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "query_id"
+  ],
+  "title": "BlindSolveResult",
+  "type": "object"
+}

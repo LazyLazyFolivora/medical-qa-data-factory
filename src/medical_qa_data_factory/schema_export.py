@@ -28,6 +28,12 @@ from .generation.evidence_provider import (
     EvidenceProviderRequest,
     EvidenceProviderResult,
 )
+from .generation.answer_verification_subagent import (
+    BlindSolveResult,
+    CounterexampleReview,
+    VerificationComparisonResult,
+    VerificationEvidenceBundle,
+)
 from .generation.fact_exploration import CandidateClaimBatch
 from .generation.ctd_world_evaluation import CtdWorldEvaluation
 from .generation.question_design import QuestionHypothesisBatch
@@ -165,6 +171,12 @@ SCHEMA_MODELS = {
     "verification-plan.schema.json": VerificationPlan,
     "verification-attempt.schema.json": VerificationAttempt,
     "verification-coverage-report.schema.json": VerificationCoverageReport,
+    "verification-evidence-bundle.schema.json": VerificationEvidenceBundle,
+    "blind-solve-result.schema.json": BlindSolveResult,
+    "verification-comparison-result.schema.json": (
+        VerificationComparisonResult
+    ),
+    "counterexample-review.schema.json": CounterexampleReview,
     "answer-resolution.schema.json": AnswerResolution,
     "frozen-question-contract.schema.json": FrozenQuestionContract,
     "structured-derivation-trace.schema.json": StructuredDerivationTrace,

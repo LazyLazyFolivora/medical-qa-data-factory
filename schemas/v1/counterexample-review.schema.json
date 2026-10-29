@@ -1,0 +1,21 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "conflict_found": {
+      "title": "Conflict Found",
+      "type": "boolean"
+    },
+    "contradicting_anchor_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Contradicting Anchor Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "conflict_found"
+  ],
+  "title": "CounterexampleReview",
+  "type": "object"
+}
