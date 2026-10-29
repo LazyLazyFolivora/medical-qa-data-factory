@@ -125,6 +125,7 @@ PROPOSED
 - `generation/fact_exploration.py`
 - `generation/question_design.py`
 - `generation/answer_verification_subagent.py`
+- `generation/objective_question_realization.py`
 
 新链路使用独立 schema family 和 feature flag。旧 `TaskCandidate`、CTD task 和 v2 release 保持原语义，不会因读取新代码而自动升级为 `PASS`。
 
@@ -137,3 +138,5 @@ PROPOSED
 PubMed、RAG、网页和数据库文本统一放在 `trust_boundary.material_policy=untrusted_data` 内。材料中的指令、工具请求或“发布答案”等文本始终按普通引用数据处理，不能改变角色的 system prompt、工具白名单或输出契约。
 
 答案验证固定执行三个独立阶段：盲态求解、在盲态结果固化后比较 proposed answer、再检查竞争答案和反例。deterministic host 会核对 plan、attempt 与 coverage 的 ID 和终态；empty、provider failure、预算耗尽或 coverage 不完整均为 `INDETERMINATE`。只有 verification attempt 直接提供的独立 anchor 能支持答案，discovery anchor 自身不能完成验证。
+
+Writer 使用独立的 realization 调用，只接收 `FrozenQuestionContract`。输出必须携带相同 question intent、scope、answer values、answer cardinality、claim strength 和必要公开条件；出现 answer/scope/strength 漂移、source-relative 或 meta-evidence 措辞、因果或治疗语义升级时，deterministic gate 直接拒绝。

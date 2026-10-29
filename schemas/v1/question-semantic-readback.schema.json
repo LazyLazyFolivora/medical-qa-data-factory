@@ -1,0 +1,64 @@
+{
+  "$defs": {
+    "AnswerCardinality": {
+      "enum": [
+        "EXACTLY_ONE",
+        "ONE_OR_MORE",
+        "EXACT_SET"
+      ],
+      "title": "AnswerCardinality",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "answer_cardinality": {
+      "$ref": "#/$defs/AnswerCardinality"
+    },
+    "answer_type": {
+      "minLength": 1,
+      "title": "Answer Type",
+      "type": "string"
+    },
+    "answer_values": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Answer Values",
+      "type": "array"
+    },
+    "claim_strength": {
+      "minLength": 1,
+      "title": "Claim Strength",
+      "type": "string"
+    },
+    "public_scope": {
+      "minLength": 1,
+      "title": "Public Scope",
+      "type": "string"
+    },
+    "question_intent": {
+      "minLength": 1,
+      "title": "Question Intent",
+      "type": "string"
+    },
+    "required_public_conditions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Public Conditions",
+      "type": "array"
+    }
+  },
+  "required": [
+    "question_intent",
+    "public_scope",
+    "answer_type",
+    "answer_values",
+    "answer_cardinality",
+    "claim_strength"
+  ],
+  "title": "QuestionSemanticReadback",
+  "type": "object"
+}

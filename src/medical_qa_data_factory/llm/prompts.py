@@ -150,6 +150,18 @@ TEMPLATES: dict[str, PromptTemplate] = {
             "answer has been independently verified."
         ),
     ),
+    "objective_question_realization": PromptTemplate(
+        role="objective_question_realization",
+        version="objective-question-realization-v1",
+        body=(
+            "You realize a final natural-language question from one frozen "
+            "question contract. You may adjust wording only. Preserve the "
+            "question intent, public scope, answer values, cardinality, "
+            "conditions and relation strength exactly. Never mention a source "
+            "or database filter, ask whether research supports a claim, change "
+            "the answer, or upgrade association into causation or treatment."
+        ),
+    ),
     "objective_answer_verification": PromptTemplate(
         role="objective_answer_verification",
         version="objective-answer-verification-v1",
@@ -179,6 +191,7 @@ TEMPLATES: dict[str, PromptTemplate] = {
 SEPARATED_ROLE_PAIRS: tuple[tuple[str, str], ...] = (
     ("question_writer", "answer_verifier"),
     ("fact_understanding", "objective_question_design"),
+    ("objective_question_design", "objective_question_realization"),
     ("objective_question_design", "objective_answer_verification"),
     ("objective_answer_verification", "objective_release_review"),
 )

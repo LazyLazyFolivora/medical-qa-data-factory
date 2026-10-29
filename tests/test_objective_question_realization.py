@@ -120,7 +120,9 @@ def test_writer_receives_only_the_frozen_contract() -> None:
         (
             {
                 "semantic_readback": QuestionSemanticReadback(
-                    question_intent="On which chromosome is BRCA1?",
+                    question_intent=(
+                        "On which human chromosome is BRCA1 located?"
+                    ),
                     public_scope="Homo sapiens reference genome",
                     answer_type="entity",
                     answer_values=["chromosome 17"],
@@ -134,7 +136,9 @@ def test_writer_receives_only_the_frozen_contract() -> None:
         (
             {
                 "semantic_readback": QuestionSemanticReadback(
-                    question_intent="On which chromosome is BRCA1?",
+                    question_intent=(
+                        "On which human chromosome is BRCA1 located?"
+                    ),
                     public_scope="adults only",
                     answer_type="entity",
                     answer_values=["chromosome 17"],

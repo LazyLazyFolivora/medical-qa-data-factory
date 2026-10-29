@@ -15,6 +15,7 @@ class SubagentRole(str, Enum):
     MATERIAL_RETRIEVAL = "material_retrieval"
     FACT_UNDERSTANDING = "fact_understanding"
     QUESTION_DESIGN = "objective_question_design"
+    QUESTION_REALIZATION = "objective_question_realization"
     ANSWER_VERIFICATION = "objective_answer_verification"
     RELEASE_REVIEW = "objective_release_review"
 
@@ -126,6 +127,31 @@ def default_objective_role_registry() -> dict[
                     "untrusted_material",
                     "raw_content",
                     "materials",
+                }
+            ),
+            allowed_tools=frozenset(),
+        ),
+        SubagentRole.QUESTION_REALIZATION: RoleCapability(
+            role=SubagentRole.QUESTION_REALIZATION,
+            role_version="objective-question-realization-v1",
+            model_role="objective_question_realization",
+            prompt_version="objective-question-realization-v1",
+            output_schema="ObjectiveQuestionDraft",
+            allowed_input_fields=frozenset(
+                {
+                    "frozen_question_contract",
+                }
+            ),
+            forbidden_input_fields=_COMMON_FORBIDDEN
+            | frozenset(
+                {
+                    "candidate_claims",
+                    "fact_explanation",
+                    "untrusted_material",
+                    "raw_content",
+                    "proposed_answer_values",
+                    "discovery_anchor_ids",
+                    "question_hypothesis",
                 }
             ),
             allowed_tools=frozenset(),

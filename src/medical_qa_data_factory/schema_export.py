@@ -37,6 +37,10 @@ from .generation.answer_verification_subagent import (
 from .generation.fact_exploration import CandidateClaimBatch
 from .generation.ctd_world_evaluation import CtdWorldEvaluation
 from .generation.question_design import QuestionHypothesisBatch
+from .generation.objective_question_realization import (
+    ObjectiveQuestionDraft,
+    QuestionSemanticReadback,
+)
 from .generation.objective_question_contracts import (
     AnswerEvidenceAuditResult,
     AnswerResolution,
@@ -179,6 +183,8 @@ SCHEMA_MODELS = {
     "counterexample-review.schema.json": CounterexampleReview,
     "answer-resolution.schema.json": AnswerResolution,
     "frozen-question-contract.schema.json": FrozenQuestionContract,
+    "objective-question-draft.schema.json": ObjectiveQuestionDraft,
+    "question-semantic-readback.schema.json": QuestionSemanticReadback,
     "structured-derivation-trace.schema.json": StructuredDerivationTrace,
     "public-question-audit-result.schema.json": PublicQuestionAuditResult,
     "answer-evidence-audit-result.schema.json": (
