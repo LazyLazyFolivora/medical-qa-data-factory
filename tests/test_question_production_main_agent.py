@@ -337,3 +337,54 @@ def test_rejected_hypothesis_allows_designing_a_replacement(tmp_path) -> None:
     )
 
     validate_main_agent_decision(snapshot, decision)
+
+
+def test_old_resolution_does_not_block_new_hypothesis_verification(
+    tmp_path,
+) -> None:
+    snapshot = _repo(tmp_path).load()
+    snapshot = snapshot.model_copy(
+        update={
+            "hypotheses": {
+                "hypothesis.old": HypothesisState.REJECTED,
+                "hypothesis.new": HypothesisState.PROPOSED,
+            },
+            "artifacts": {
+                "hypothesis.old": ArtifactEnvelope(
+                    artifact_id="hypothesis.old",
+                    artifact_type="question_hypothesis",
+                    payload={"hypothesis_id": "hypothesis.old"},
+                ),
+                "hypothesis.new": ArtifactEnvelope(
+                    artifact_id="hypothesis.new",
+                    artifact_type="question_hypothesis",
+                    payload={"hypothesis_id": "hypothesis.new"},
+                ),
+                "resolution.old": ArtifactEnvelope(
+                    artifact_id="resolution.old",
+                    artifact_type="answer_resolution",
+                    payload={
+                        "resolution_id": "resolution.old",
+                        "hypothesis_id": "hypothesis.old",
+                    },
+                ),
+                "provider.verification": ArtifactEnvelope(
+                    artifact_id="provider.verification",
+                    artifact_type="provider_result",
+                    payload={"terminal_status": "SUCCEEDED"},
+                    metadata={"purpose": "verification"},
+                ),
+            },
+        }
+    )
+    decision = MainAgentDecision(
+        decision_id="decision-verify-new",
+        action="verify_answer",
+        target_subagent_role="objective_answer_verification",
+        input_artifact_ids=["hypothesis.new"],
+        state_digest=canonical_digest(snapshot.model_dump(mode="json")),
+        requested_budget={},
+        expected_information_gain=0.7,
+    )
+
+    validate_main_agent_decision(snapshot, decision)
