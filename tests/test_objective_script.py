@@ -81,3 +81,36 @@ def test_dry_run_builds_a_unique_objective_generation_run(tmp_path: Path) -> Non
     assert payload["output"] == str(tmp_path / "release")
     assert "objective" in payload["arguments"]
     assert "BRCA1" in payload["arguments"]
+
+
+def test_script_accepts_comma_separated_providers(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [
+            _powershell(),
+            "-NoProfile",
+            "-File",
+            str(SCRIPT),
+            "-Mode",
+            "generate",
+            "-EntityName",
+            "ZRSR2",
+            "-RunId",
+            "objective-provider-list",
+            "-Workspace",
+            str(tmp_path / "run"),
+            "-Output",
+            str(tmp_path / "release"),
+            "-Providers",
+            "hgnc,ncbi_gene,pubmed",
+            "-DryRun",
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    arguments = json.loads(result.stdout)["arguments"]
+    assert arguments.count("--provider") == 3
+    assert "ncbi_gene" in arguments
