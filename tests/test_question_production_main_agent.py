@@ -309,6 +309,23 @@ def test_rejected_hypothesis_allows_designing_a_replacement(tmp_path) -> None:
     snapshot = _repo(tmp_path).load()
     snapshot = snapshot.model_copy(
         update={
+            "goal": GenerationGoal(
+                run_id="run-main",
+                target_entity="KIF15",
+                target_entity_id="56992",
+                target_entity_type="gene",
+                question_count_upper_bound=1,
+                difficulty_targets=["easy"],
+                style_targets=["concise"],
+                allowed_fact_types=[
+                    "entity_identity",
+                    "classification",
+                    "gene_location",
+                ],
+                run_budget={"max_actions": 8},
+                run_manifest_id="manifest-run-main",
+                runtime_bundle_id="runtime-bundle-v1",
+            ),
             "hypotheses": {
                 "hypothesis.rejected": HypothesisState.REJECTED,
             },
@@ -337,6 +354,93 @@ def test_rejected_hypothesis_allows_designing_a_replacement(tmp_path) -> None:
     )
 
     validate_main_agent_decision(snapshot, decision)
+    stop = MainAgentDecision(
+        decision_id="decision-stop",
+        action="stop",
+        target_subagent_role=None,
+        input_artifact_ids=[],
+        state_digest=canonical_digest(snapshot.model_dump(mode="json")),
+        requested_budget={},
+        expected_information_gain=0.0,
+        stop_reason="no candidate",
+    )
+    with pytest.raises(
+        IllegalMainAgentAction,
+        match="replacement design is still required",
+    ):
+        validate_main_agent_decision(snapshot, stop)
+
+
+def test_structured_main_agent_retries_a_premature_stop(tmp_path) -> None:
+    snapshot = _repo(tmp_path).load()
+    snapshot = snapshot.model_copy(
+        update={
+            "goal": GenerationGoal(
+                run_id="run-main",
+                target_entity="KIF15",
+                target_entity_id="56992",
+                target_entity_type="gene",
+                question_count_upper_bound=1,
+                difficulty_targets=["easy"],
+                style_targets=["concise"],
+                allowed_fact_types=[
+                    "entity_identity",
+                    "classification",
+                    "gene_location",
+                ],
+                run_budget={"max_actions": 8},
+                run_manifest_id="manifest-run-main",
+                runtime_bundle_id="runtime-bundle-v1",
+            ),
+            "hypotheses": {
+                "hypothesis.rejected": HypothesisState.REJECTED,
+            },
+            "artifacts": {
+                "claim.kif15": ArtifactEnvelope(
+                    artifact_id="claim.kif15",
+                    artifact_type="candidate_claim",
+                    payload={"claim_id": "claim.kif15"},
+                ),
+                "hypothesis.rejected": ArtifactEnvelope(
+                    artifact_id="hypothesis.rejected",
+                    artifact_type="question_hypothesis",
+                    payload={"hypothesis_id": "hypothesis.rejected"},
+                    parent_decision_id="decision-first-design",
+                ),
+            },
+        }
+    )
+    proposals = iter(
+        [
+            MainAgentDecisionProposal(
+                action="stop",
+                target_subagent_role=None,
+                input_artifact_ids=[],
+                requested_budget={},
+                expected_information_gain=0.0,
+                action_parameters={},
+                stop_reason="no candidate",
+            ),
+            MainAgentDecisionProposal(
+                action="design_questions",
+                target_subagent_role="objective_question_design",
+                input_artifact_ids=["claim.kif15"],
+                requested_budget={},
+                expected_information_gain=0.7,
+                action_parameters={},
+            ),
+        ]
+    )
+    model = FakeStructuredModel(
+        responses={"objective_main_agent": lambda request: next(proposals)}
+    )
+
+    decision = StructuredMainAgent(
+        model,
+        provider_ids=["hgnc", "ncbi_gene"],
+    ).decide(snapshot)
+
+    assert decision.action == "design_questions"
 
 
 def test_old_resolution_does_not_block_new_hypothesis_verification(
@@ -382,6 +486,154 @@ def test_old_resolution_does_not_block_new_hypothesis_verification(
         action="verify_answer",
         target_subagent_role="objective_answer_verification",
         input_artifact_ids=["hypothesis.new"],
+        state_digest=canonical_digest(snapshot.model_dump(mode="json")),
+        requested_budget={},
+        expected_information_gain=0.7,
+    )
+
+    validate_main_agent_decision(snapshot, decision)
+
+
+def test_realization_selects_the_active_contract_with_historical_drafts(
+    tmp_path,
+) -> None:
+    snapshot = _repo(tmp_path).load()
+    snapshot = snapshot.model_copy(
+        update={
+            "hypotheses": {
+                "hypothesis.old": HypothesisState.PUBLISHED,
+                "hypothesis.new": HypothesisState.ANSWER_VERIFIED,
+            },
+            "artifacts": {
+                "resolution.old": ArtifactEnvelope(
+                    artifact_id="resolution.old",
+                    artifact_type="answer_resolution",
+                    payload={
+                        "resolution_id": "resolution.old",
+                        "hypothesis_id": "hypothesis.old",
+                    },
+                ),
+                "contract.old": ArtifactEnvelope(
+                    artifact_id="contract.old",
+                    artifact_type="frozen_question_contract",
+                    payload={
+                        "contract_id": "contract.old",
+                        "resolution_id": "resolution.old",
+                    },
+                ),
+                "draft.old": ArtifactEnvelope(
+                    artifact_id="draft.old",
+                    artifact_type="objective_question_draft",
+                    payload={
+                        "draft_id": "draft.old",
+                        "contract_id": "contract.old",
+                    },
+                ),
+                "resolution.new": ArtifactEnvelope(
+                    artifact_id="resolution.new",
+                    artifact_type="answer_resolution",
+                    payload={
+                        "resolution_id": "resolution.new",
+                        "hypothesis_id": "hypothesis.new",
+                    },
+                ),
+                "contract.new": ArtifactEnvelope(
+                    artifact_id="contract.new",
+                    artifact_type="frozen_question_contract",
+                    payload={
+                        "contract_id": "contract.new",
+                        "resolution_id": "resolution.new",
+                    },
+                ),
+            },
+        }
+    )
+    decision = MainAgentDecision(
+        decision_id="decision-realize-new",
+        action="realize_question",
+        target_subagent_role="objective_question_realization",
+        input_artifact_ids=["contract.new"],
+        state_digest=canonical_digest(snapshot.model_dump(mode="json")),
+        requested_budget={},
+        expected_information_gain=0.7,
+    )
+
+    validate_main_agent_decision(snapshot, decision)
+
+
+def test_release_review_selects_the_unreviewed_active_draft(tmp_path) -> None:
+    snapshot = _repo(tmp_path).load()
+    snapshot = snapshot.model_copy(
+        update={
+            "hypotheses": {
+                "hypothesis.old": HypothesisState.PUBLISHED,
+                "hypothesis.new": HypothesisState.QUESTION_REALIZED,
+            },
+            "artifacts": {
+                "resolution.old": ArtifactEnvelope(
+                    artifact_id="resolution.old",
+                    artifact_type="answer_resolution",
+                    payload={
+                        "resolution_id": "resolution.old",
+                        "hypothesis_id": "hypothesis.old",
+                    },
+                ),
+                "contract.old": ArtifactEnvelope(
+                    artifact_id="contract.old",
+                    artifact_type="frozen_question_contract",
+                    payload={
+                        "contract_id": "contract.old",
+                        "resolution_id": "resolution.old",
+                    },
+                ),
+                "draft.old": ArtifactEnvelope(
+                    artifact_id="draft.old",
+                    artifact_type="objective_question_draft",
+                    payload={
+                        "draft_id": "draft.old",
+                        "contract_id": "contract.old",
+                    },
+                ),
+                "report.old": ArtifactEnvelope(
+                    artifact_id="report.old",
+                    artifact_type="objective_validation_report",
+                    payload={
+                        "report_id": "report.old",
+                        "question_id": "draft.old",
+                    },
+                ),
+                "resolution.new": ArtifactEnvelope(
+                    artifact_id="resolution.new",
+                    artifact_type="answer_resolution",
+                    payload={
+                        "resolution_id": "resolution.new",
+                        "hypothesis_id": "hypothesis.new",
+                    },
+                ),
+                "contract.new": ArtifactEnvelope(
+                    artifact_id="contract.new",
+                    artifact_type="frozen_question_contract",
+                    payload={
+                        "contract_id": "contract.new",
+                        "resolution_id": "resolution.new",
+                    },
+                ),
+                "draft.new": ArtifactEnvelope(
+                    artifact_id="draft.new",
+                    artifact_type="objective_question_draft",
+                    payload={
+                        "draft_id": "draft.new",
+                        "contract_id": "contract.new",
+                    },
+                ),
+            },
+        }
+    )
+    decision = MainAgentDecision(
+        decision_id="decision-review-new",
+        action="review_release",
+        target_subagent_role="objective_release_review",
+        input_artifact_ids=["draft.new"],
         state_digest=canonical_digest(snapshot.model_dump(mode="json")),
         requested_budget={},
         expected_information_gain=0.7,

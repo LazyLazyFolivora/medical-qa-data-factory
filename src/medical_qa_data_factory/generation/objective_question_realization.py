@@ -97,6 +97,9 @@ class ObjectiveQuestionRealizationSubagent:
                     "frozen_question_contract": contract.model_dump(mode="json"),
                     "instruction": (
                         "Write the final question and concise answer explanation. "
+                        "The public question must not contain any answer value, "
+                        "must not name a data source, and must not restate a "
+                        "classification label that is the answer. "
                         "Return a semantic readback that preserves every frozen "
                         "field exactly."
                     ),

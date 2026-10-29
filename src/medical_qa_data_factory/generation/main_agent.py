@@ -129,40 +129,70 @@ class StructuredMainAgent:
                 "Do not verify until independent verification materials exist.",
                 "Do not realize a question without a frozen contract.",
                 "Do not review release without a question draft and verified contract.",
+                (
+                    "If the first question-design batch is entirely rejected, "
+                    "design one replacement from remaining claims or a repaired "
+                    "scope before stopping."
+                ),
                 "You cannot publish; deterministic code owns release.",
                 "Stop when the requested upper bound is reached or no objective candidate remains.",
             ],
         }
-        response = self.model.generate_structured(
-            StructuredGenerationRequest(
-                invocation_id=f"main-agent.{state_digest[:16]}",
-                role="objective_main_agent",
-                system_prompt_version="objective-main-agent-v1",
-                payload=payload,
-                idempotency_key=f"{snapshot.run_id}|main|{state_digest}",
-            ),
-            MainAgentDecisionProposal,
-        )
-        proposal = MainAgentDecisionProposal.model_validate(response.parsed)
-        action_parameters = _normalize_action_parameters(
-            proposal.action,
-            proposal.action_parameters,
-            provider_ids=self.provider_ids,
-            target_entity=snapshot.goal.target_entity,
-            target_entity_id=snapshot.goal.target_entity_id,
-            fact_types=snapshot.goal.allowed_fact_types,
-        )
-        return MainAgentDecision(
-            decision_id=f"decision.{state_digest[:20]}",
-            action=proposal.action,
-            target_subagent_role=proposal.target_subagent_role,
-            input_artifact_ids=proposal.input_artifact_ids,
-            state_digest=state_digest,
-            requested_budget=proposal.requested_budget,
-            expected_information_gain=proposal.expected_information_gain,
-            action_parameters=action_parameters,
-            stop_reason=proposal.stop_reason,
-        )
+        previous_proposal: MainAgentDecisionProposal | None = None
+        validation_error: str | None = None
+        for attempt in range(2):
+            request_payload = dict(payload)
+            if previous_proposal is not None:
+                request_payload["previous_invalid_decision"] = (
+                    previous_proposal.model_dump(mode="json")
+                )
+                request_payload["validation_error"] = validation_error
+            response = self.model.generate_structured(
+                StructuredGenerationRequest(
+                    invocation_id=(
+                        f"main-agent.{state_digest[:16]}"
+                        + (f".retry-{attempt}" if attempt else "")
+                    ),
+                    role="objective_main_agent",
+                    system_prompt_version="objective-main-agent-v1",
+                    payload=request_payload,
+                    idempotency_key=(
+                        f"{snapshot.run_id}|main|{state_digest}"
+                        + (f"|retry-{attempt}" if attempt else "")
+                    ),
+                ),
+                MainAgentDecisionProposal,
+            )
+            proposal = MainAgentDecisionProposal.model_validate(response.parsed)
+            action_parameters = _normalize_action_parameters(
+                proposal.action,
+                proposal.action_parameters,
+                provider_ids=self.provider_ids,
+                target_entity=snapshot.goal.target_entity,
+                target_entity_id=snapshot.goal.target_entity_id,
+                fact_types=snapshot.goal.allowed_fact_types,
+            )
+            decision = MainAgentDecision(
+                decision_id=f"decision.{state_digest[:20]}",
+                action=proposal.action,
+                target_subagent_role=proposal.target_subagent_role,
+                input_artifact_ids=proposal.input_artifact_ids,
+                state_digest=state_digest,
+                requested_budget=proposal.requested_budget,
+                expected_information_gain=proposal.expected_information_gain,
+                action_parameters=action_parameters,
+                stop_reason=proposal.stop_reason,
+            )
+            try:
+                validate_main_agent_decision(snapshot, decision)
+            except IllegalMainAgentAction as exc:
+                if attempt:
+                    raise
+                previous_proposal = proposal
+                validation_error = str(exc)
+                continue
+            return decision
+        raise AssertionError("main-agent decision retry loop did not return")
 
 
 _ROLE_BY_ACTION = {
@@ -199,6 +229,11 @@ def validate_main_agent_decision(
     if action is MainAgentAction.STOP:
         if decision.target_subagent_role is not None:
             raise IllegalMainAgentAction("STOP cannot target a subagent")
+        if _must_design_replacement(snapshot):
+            raise IllegalMainAgentAction(
+                "STOP is premature: the only completed question-design "
+                "batch was rejected and a replacement design is still required"
+            )
         return
     expected_role = _ROLE_BY_ACTION[action]
     if decision.target_subagent_role != expected_role:
@@ -224,34 +259,141 @@ def _allowed_actions(
         and "candidate_claim" not in types
     ):
         common.add(MainAgentAction.UNDERSTAND_FACTS)
-    if "candidate_claim" in types and "question_hypothesis" not in types:
+    terminal_hypotheses = {
+        HypothesisState.REJECTED,
+        HypothesisState.INDETERMINATE,
+    }
+    may_redesign = not snapshot.hypotheses or all(
+        state in terminal_hypotheses
+        for state in snapshot.hypotheses.values()
+    )
+    if "candidate_claim" in types and may_redesign:
         common.add(MainAgentAction.DESIGN_QUESTIONS)
-    if (
-        "question_hypothesis" in types
-        and "answer_resolution" not in types
-        and any(
-            artifact.artifact_type == "provider_result"
-            and artifact.metadata.get("purpose") == "verification"
-            and artifact.payload.get("terminal_status") == "SUCCEEDED"
-            for artifact in artifacts
-        )
+    resolved_hypothesis_ids = {
+        str(artifact.payload.get("hypothesis_id"))
+        for artifact in artifacts
+        if artifact.artifact_type == "answer_resolution"
+        and artifact.payload.get("hypothesis_id")
+    }
+    verifiable_states = {
+        HypothesisState.PROPOSED,
+        HypothesisState.VERIFICATION_PLANNED,
+        HypothesisState.VERIFYING,
+    }
+    unresolved_active = any(
+        state in verifiable_states and hypothesis_id not in resolved_hypothesis_ids
+        for hypothesis_id, state in snapshot.hypotheses.items()
+    )
+    if unresolved_active and any(
+        artifact.artifact_type == "provider_result"
+        and artifact.metadata.get("purpose") == "verification"
+        and artifact.payload.get("terminal_status") == "SUCCEEDED"
+        for artifact in artifacts
     ):
         common.add(MainAgentAction.VERIFY_ANSWER)
-    if (
-        "frozen_question_contract" in types
-        and HypothesisState.ANSWER_VERIFIED in hypothesis_states
-        and "objective_question_draft" not in types
-    ):
+    resolutions_by_id = {
+        str(artifact.payload.get("resolution_id")): artifact.payload
+        for artifact in artifacts
+        if artifact.artifact_type == "answer_resolution"
+        and artifact.payload.get("resolution_id")
+    }
+    contracts_by_id = {
+        str(artifact.payload.get("contract_id")): artifact.payload
+        for artifact in artifacts
+        if artifact.artifact_type == "frozen_question_contract"
+        and artifact.payload.get("contract_id")
+    }
+    drafted_contract_ids = {
+        str(artifact.payload.get("contract_id"))
+        for artifact in artifacts
+        if artifact.artifact_type == "objective_question_draft"
+        and artifact.payload.get("contract_id")
+    }
+    reviewed_draft_ids = {
+        str(artifact.payload.get("question_id"))
+        for artifact in artifacts
+        if artifact.artifact_type == "objective_validation_report"
+        and artifact.payload.get("question_id")
+    }
+    can_realize = any(
+        contract_id not in drafted_contract_ids
+        and _contract_hypothesis_state(
+            contract,
+            resolutions_by_id=resolutions_by_id,
+            hypothesis_states=snapshot.hypotheses,
+        ) is HypothesisState.ANSWER_VERIFIED
+        for contract_id, contract in contracts_by_id.items()
+    )
+    if can_realize:
         common.add(MainAgentAction.REALIZE_QUESTION)
-    if (
-        "objective_question_draft" in types
-        and "frozen_question_contract" in types
-        and "answer_resolution" in types
-        and HypothesisState.QUESTION_REALIZED in hypothesis_states
-        and "objective_validation_report" not in types
-    ):
+    can_review = any(
+        draft_id not in reviewed_draft_ids
+        and _draft_hypothesis_state(
+            artifact.payload,
+            contracts_by_id=contracts_by_id,
+            resolutions_by_id=resolutions_by_id,
+            hypothesis_states=snapshot.hypotheses,
+        ) is HypothesisState.QUESTION_REALIZED
+        for draft_id, artifact in (
+            (artifact.artifact_id, artifact)
+            for artifact in artifacts
+            if artifact.artifact_type == "objective_question_draft"
+        )
+    )
+    if can_review:
         common.add(MainAgentAction.REVIEW_RELEASE)
     return common
+
+
+def _must_design_replacement(
+    snapshot: ObjectiveRuntimeSnapshot,
+) -> bool:
+    if not snapshot.hypotheses:
+        return False
+    terminal_hypotheses = {
+        HypothesisState.REJECTED,
+        HypothesisState.INDETERMINATE,
+    }
+    if any(
+        state not in terminal_hypotheses
+        for state in snapshot.hypotheses.values()
+    ):
+        return False
+    design_attempts = [
+        decision
+        for decision in snapshot.decisions.values()
+        if decision.action == MainAgentAction.DESIGN_QUESTIONS.value
+    ]
+    return len(design_attempts) < 2
+
+
+def _contract_hypothesis_state(
+    contract: dict[str, Any],
+    *,
+    resolutions_by_id: dict[str, dict[str, Any]],
+    hypothesis_states: dict[str, HypothesisState],
+) -> HypothesisState | None:
+    resolution = resolutions_by_id.get(str(contract.get("resolution_id")))
+    if resolution is None:
+        return None
+    return hypothesis_states.get(str(resolution.get("hypothesis_id")))
+
+
+def _draft_hypothesis_state(
+    draft: dict[str, Any],
+    *,
+    contracts_by_id: dict[str, dict[str, Any]],
+    resolutions_by_id: dict[str, dict[str, Any]],
+    hypothesis_states: dict[str, HypothesisState],
+) -> HypothesisState | None:
+    contract = contracts_by_id.get(str(draft.get("contract_id")))
+    if contract is None:
+        return None
+    return _contract_hypothesis_state(
+        contract,
+        resolutions_by_id=resolutions_by_id,
+        hypothesis_states=hypothesis_states,
+    )
 
 
 def _is_terminal(snapshot: ObjectiveRuntimeSnapshot) -> bool:

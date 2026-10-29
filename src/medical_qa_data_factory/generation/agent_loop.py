@@ -411,13 +411,51 @@ class ObjectiveQuestionAgentLoop:
         claims = self._models(snapshot, "candidate_claim", CandidateClaim)
         if not hypotheses:
             raise ValueError("answer verification requires a hypothesis")
-        hypothesis = hypotheses[0]
-        verification_results = [
+        active_states = {
+            HypothesisState.PROPOSED,
+            HypothesisState.VERIFICATION_PLANNED,
+            HypothesisState.VERIFYING,
+        }
+        resolved_hypothesis_ids = {
+            resolution.hypothesis_id
+            for resolution in self._models(
+                snapshot, "answer_resolution", AnswerResolution
+            )
+        }
+        active_hypotheses = [
+            item
+            for item in reversed(hypotheses)
+            if snapshot.hypotheses.get(item.hypothesis_id) in active_states
+            and item.hypothesis_id not in resolved_hypothesis_ids
+        ]
+        selected_hypothesis_ids = set(decision.input_artifact_ids)
+        if selected_hypothesis_ids:
+            active_hypotheses.sort(
+                key=lambda item: (
+                    item.hypothesis_id in selected_hypothesis_ids
+                ),
+                reverse=True,
+            )
+        if not active_hypotheses:
+            raise ValueError("answer verification requires an active hypothesis")
+        hypothesis = active_hypotheses[0]
+        all_verification_results = [
             artifact
             for artifact in snapshot.artifacts.values()
             if artifact.artifact_type == "provider_result"
             and artifact.metadata.get("purpose") == "verification"
         ]
+        selected_artifact_ids = set(decision.input_artifact_ids)
+        selected_verification_results = [
+            artifact
+            for artifact in all_verification_results
+            if artifact.artifact_id in selected_artifact_ids
+        ]
+        verification_results = (
+            selected_verification_results
+            if selected_verification_results
+            else all_verification_results
+        )
         if not verification_results:
             raise ValueError(
                 "answer verification requires independent provider evidence"
@@ -587,17 +625,41 @@ class ObjectiveQuestionAgentLoop:
         )
         if not contracts:
             raise ValueError("question realization requires a frozen contract")
-        contract = contracts[0]
-        resolution = next(
-            (
-                item
-                for item in resolutions
-                if item.resolution_id == contract.resolution_id
-            ),
-            None,
-        )
-        if resolution is None:
-            raise ValueError("contract references an unknown answer resolution")
+        resolutions_by_id = {
+            resolution.resolution_id: resolution
+            for resolution in resolutions
+        }
+        drafted_contract_ids = {
+            draft.contract_id
+            for draft in self._models(
+                snapshot, "objective_question_draft", ObjectiveQuestionDraft
+            )
+        }
+        selected_contract_ids = set(decision.input_artifact_ids)
+        candidates = [
+            (contract, resolutions_by_id.get(contract.resolution_id))
+            for contract in reversed(contracts)
+            if contract.contract_id not in drafted_contract_ids
+            and resolutions_by_id.get(contract.resolution_id) is not None
+            and snapshot.hypotheses.get(
+                resolutions_by_id[contract.resolution_id].hypothesis_id
+            )
+            is HypothesisState.ANSWER_VERIFIED
+        ]
+        if selected_contract_ids:
+            candidates.sort(
+                key=lambda item: item[0].contract_id in selected_contract_ids,
+                reverse=True,
+            )
+        if not candidates:
+            raise ValueError(
+                "question realization requires an active verified contract"
+            )
+        contract, resolution = candidates[0]
+        if resolution is None:  # pragma: no cover - filtered above
+            raise ValueError(
+                "question realization requires an answer resolution"
+            )
         capability = default_objective_role_registry()[
             SubagentRole.QUESTION_REALIZATION
         ]
@@ -647,19 +709,62 @@ class ObjectiveQuestionAgentLoop:
         resolutions = self._models(
             snapshot, "answer_resolution", AnswerResolution
         )
-        if len(drafts) != 1 or len(contracts) != 1 or len(resolutions) != 1:
-            raise ValueError(
-                "release review currently requires one complete question"
+        contracts_by_id = {
+            contract.contract_id: contract for contract in contracts
+        }
+        resolutions_by_id = {
+            resolution.resolution_id: resolution
+            for resolution in resolutions
+        }
+        reviewed_draft_ids = {
+            report.question_id
+            for report in self._models(
+                snapshot,
+                "objective_validation_report",
+                ObjectiveValidationReport,
             )
-        draft, contract, resolution = drafts[0], contracts[0], resolutions[0]
+        }
+        selected_draft_ids = set(decision.input_artifact_ids)
+        candidates = []
+        for draft in reversed(drafts):
+            contract = contracts_by_id.get(draft.contract_id)
+            if contract is None:
+                continue
+            resolution = resolutions_by_id.get(contract.resolution_id)
+            if (
+                resolution is not None
+                and draft.draft_id not in reviewed_draft_ids
+                and snapshot.hypotheses.get(resolution.hypothesis_id)
+                is HypothesisState.QUESTION_REALIZED
+            ):
+                candidates.append((draft, contract, resolution))
+        if selected_draft_ids:
+            candidates.sort(
+                key=lambda item: item[0].draft_id in selected_draft_ids,
+                reverse=True,
+            )
+        if not candidates:
+            raise ValueError(
+                "release review requires an unreviewed realized question"
+            )
+        draft, contract, resolution = candidates[0]
         verification_anchors = [
             artifact.payload
             for artifact in snapshot.artifacts.values()
             if artifact.artifact_type == "evidence_anchor"
             and artifact.metadata.get("purpose") == "verification"
+            and (
+                not resolution.supporting_anchor_ids
+                or artifact.artifact_id
+                in {
+                    *resolution.supporting_anchor_ids,
+                    *resolution.contradicting_anchor_ids,
+                }
+            )
         ]
         providers = sorted(
-            {
+            set(resolution.verification_sources)
+            or {
                 artifact.payload["request"]["provider_id"]
                 for artifact in snapshot.artifacts.values()
                 if artifact.artifact_type == "provider_result"
@@ -706,6 +811,15 @@ class ObjectiveQuestionAgentLoop:
                 [
                     HypothesisState.RELEASE_REVIEWED,
                     HypothesisState.PUBLISHED,
+                ],
+            )
+        else:
+            self._advance_hypothesis(
+                resolution.hypothesis_id,
+                [
+                    HypothesisState.REJECTED
+                    if report.verdict is ObjectiveVerdict.REJECT
+                    else HypothesisState.INDETERMINATE
                 ],
             )
 
@@ -794,14 +908,34 @@ class ObjectiveQuestionAgentLoop:
         ]
         if not drafts or not contracts or not resolutions or not reports:
             return []
-        return [
-            PublishedObjectiveQuestion(
-                draft=drafts[0],
-                frozen_contract=contracts[0],
-                resolution=resolutions[0],
-                validation_report=reports[0],
+        drafts_by_id = {draft.draft_id: draft for draft in drafts}
+        contracts_by_id = {
+            contract.contract_id: contract for contract in contracts
+        }
+        resolutions_by_id = {
+            resolution.resolution_id: resolution
+            for resolution in resolutions
+        }
+        published = []
+        for report in reports:
+            draft = drafts_by_id.get(report.question_id)
+            if draft is None:
+                continue
+            contract = contracts_by_id.get(draft.contract_id)
+            if contract is None:
+                continue
+            resolution = resolutions_by_id.get(contract.resolution_id)
+            if resolution is None:
+                continue
+            published.append(
+                PublishedObjectiveQuestion(
+                    draft=draft,
+                    frozen_contract=contract,
+                    resolution=resolution,
+                    validation_report=report,
+                )
             )
-        ]
+        return published
 
 
 def _artifact(

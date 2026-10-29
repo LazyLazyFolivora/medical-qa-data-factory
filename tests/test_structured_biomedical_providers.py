@@ -107,6 +107,14 @@ def test_ncbi_gene_provider_searches_symbol_then_fetches_summary() -> None:
                 "8233": {
                     "uid": "8233",
                     "name": "ZRSR2",
+                    "nomenclaturesymbol": "ZRSR2",
+                    "nomenclaturename": "zinc finger CCCH-type, RNA binding motif 2",
+                    "nomenclaturestatus": "Official",
+                    "organism": {
+                        "commonname": "human",
+                        "scientificname": "Homo sapiens",
+                        "taxid": 9606,
+                    },
                     "description": "zinc finger CCCH-type containing 22",
                     "chromosome": "X",
                     "maplocation": "Xp22.2",
@@ -122,6 +130,11 @@ def test_ncbi_gene_provider_searches_symbol_then_fetches_summary() -> None:
     assert result.terminal_status is ProviderTerminalStatus.SUCCEEDED
     assert len(calls) == 2
     assert any("Xp22.2" in item["quoted_text"] for item in result.anchors)
+    assert any(
+        item["anchor_id"].endswith(".nomenclaturestatus")
+        and "Official" in item["quoted_text"]
+        for item in result.anchors
+    )
     assert result.materials[0]["source_record_id"] == "gene:8233"
 
 

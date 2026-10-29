@@ -211,6 +211,41 @@ def test_second_stage_is_created_only_after_public_audit_is_frozen(
     )
 
 
+def test_release_review_host_stamps_package_identity_digests(
+    tmp_path: Path,
+) -> None:
+    skill = tmp_path / "SKILL.md"
+    skill.write_text("# Validator", encoding="utf-8")
+    wrong_digest = "0" * 64
+    model = _model(
+        public_response=_public_result().model_copy(
+            update={"public_question_digest": wrong_digest}
+        ),
+        answer_response=_answer_result().model_copy(
+            update={
+                "public_question_digest": wrong_digest,
+                "question_answer_contract_digest": wrong_digest,
+                "independent_evidence_digest": wrong_digest,
+            }
+        ),
+    )
+
+    report = ReleaseReviewSubagent(model).run(
+        public_question=_public_package(),
+        answer_evidence=_answer_package(),
+        skill_path=skill,
+    )
+
+    answer_payload = model.payloads_for("objective_release_review")[1]
+    assert answer_payload["identity_digests"] == {
+        "public_question": text_digest(QUESTION),
+        "frozen_question_contract": _contract().digest(),
+        "independent_evidence": _answer_package().independent_evidence.digest(),
+    }
+    assert report.verdict is ObjectiveVerdict.PASS
+    assert report.release_allowed is True
+
+
 def test_public_rejection_stops_before_answer_audit_creation(tmp_path: Path) -> None:
     skill = tmp_path / "SKILL.md"
     skill.write_text("# Validator", encoding="utf-8")

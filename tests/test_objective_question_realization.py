@@ -112,6 +112,8 @@ def test_writer_receives_only_the_frozen_contract() -> None:
     assert "candidate_claims" not in serialized
     assert "discovery_anchor_ids" not in serialized
     assert "proposed_answer_values" not in serialized
+    assert "must not contain any answer value" in payload["instruction"]
+    assert "must not name a data source" in payload["instruction"]
 
 
 @pytest.mark.parametrize(

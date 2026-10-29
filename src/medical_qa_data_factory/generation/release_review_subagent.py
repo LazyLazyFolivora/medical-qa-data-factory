@@ -214,7 +214,10 @@ class ReleaseReviewSubagent:
         public_audit = PublicQuestionAuditResult.model_validate(
             public_response.parsed
         ).model_copy(
-            update={"task_id": public_task.subtask_id}
+            update={
+                "task_id": public_task.subtask_id,
+                "public_question_digest": public_question.digest(),
+            }
         )
         if public_audit.public_question_digest != public_question.digest():
             return ReleaseReviewOutcome(
@@ -316,9 +319,20 @@ class ReleaseReviewSubagent:
                             mode="json"
                         )
                     ),
+                    "identity_digests": {
+                        "public_question": public_question.digest(),
+                        "frozen_question_contract": (
+                            answer_evidence.frozen_question_contract.digest()
+                        ),
+                        "independent_evidence": (
+                            answer_evidence.independent_evidence.digest()
+                        ),
+                    },
                     "instruction": (
                         "Audit the answer and evidence only after the frozen "
-                        "public result. Do not rewrite or improve the question."
+                        "public result. Do not rewrite or improve the question. "
+                        "Copy the supplied identity digests exactly; they are "
+                        "host-owned package identities."
                     ),
                 },
                 response_model=AnswerEvidenceAuditResult,
@@ -338,7 +352,16 @@ class ReleaseReviewSubagent:
         answer_audit = AnswerEvidenceAuditResult.model_validate(
             answer_response.parsed
         ).model_copy(
-            update={"task_id": answer_task.subtask_id}
+            update={
+                "task_id": answer_task.subtask_id,
+                "public_question_digest": public_question.digest(),
+                "question_answer_contract_digest": (
+                    answer_evidence.frozen_question_contract.digest()
+                ),
+                "independent_evidence_digest": (
+                    answer_evidence.independent_evidence.digest()
+                ),
+            }
         )
         report = merge_objective_audits(
             question_id=public_question.question_id,
