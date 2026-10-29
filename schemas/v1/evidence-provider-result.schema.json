@@ -84,6 +84,14 @@
       "title": "Anchor Ids",
       "type": "array"
     },
+    "anchors": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Anchors",
+      "type": "array"
+    },
     "error_category": {
       "anyOf": [
         {
@@ -103,6 +111,14 @@
       "title": "Material Ids",
       "type": "array"
     },
+    "materials": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Materials",
+      "type": "array"
+    },
     "provider_request_id": {
       "anyOf": [
         {
@@ -114,6 +130,13 @@
       ],
       "default": null,
       "title": "Provider Request Id"
+    },
+    "raw_content_by_material_id": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Raw Content By Material Id",
+      "type": "object"
     },
     "request": {
       "$ref": "#/$defs/EvidenceProviderRequest"

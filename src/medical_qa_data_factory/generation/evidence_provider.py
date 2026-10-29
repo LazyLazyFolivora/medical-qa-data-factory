@@ -103,6 +103,9 @@ class EvidenceProviderResult(ContractModel):
     terminal_status: ProviderTerminalStatus
     material_ids: list[str] = Field(default_factory=list)
     anchor_ids: list[str] = Field(default_factory=list)
+    materials: list[dict[str, Any]] = Field(default_factory=list)
+    anchors: list[dict[str, Any]] = Field(default_factory=list)
+    raw_content_by_material_id: dict[str, str] = Field(default_factory=dict)
     error_category: str | None = None
     provider_request_id: str | None = None
     snapshot_id: str | None = None
@@ -126,6 +129,22 @@ class EvidenceProviderResult(ContractModel):
             self.material_ids or self.anchor_ids
         ):
             raise ValueError("an EMPTY result cannot contain materials or anchors")
+        material_records = {
+            str(item.get("material_id")) for item in self.materials
+        }
+        if self.materials and material_records != set(self.material_ids):
+            raise ValueError("material_ids must match material records")
+        anchor_records = {
+            str(item.get("anchor_id")) for item in self.anchors
+        }
+        if self.anchors and anchor_records != set(self.anchor_ids):
+            raise ValueError("anchor_ids must match anchor records")
+        if self.materials and set(self.raw_content_by_material_id) != set(
+            self.material_ids
+        ):
+            raise ValueError(
+                "raw_content_by_material_id must cover every material"
+            )
         return self
 
 
