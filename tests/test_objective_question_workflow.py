@@ -20,6 +20,23 @@ from medical_qa_data_factory.generation.objective_question_runtime import (
     StaleStateRevision,
 )
 from medical_qa_data_factory.generation.subagent_contracts import SubagentRole
+from medical_qa_data_factory.generation.agent_loop import (
+    ObjectiveQuestionAgentLoop,
+)
+from medical_qa_data_factory.generation.objective_question_persistence import (
+    ObjectiveQuestionPersistence,
+)
+from medical_qa_data_factory.generation.objective_question_contracts import (
+    GenerationGoal,
+    MainAgentDecision,
+    canonical_digest,
+)
+from medical_qa_data_factory.generation.evidence_provider import (
+    EvidenceProviderCapability,
+    EvidenceProviderResult,
+    ProviderTerminalStatus,
+)
+from test_objective_agent_loop import FakeMaterialProvider
 
 
 def _manifest() -> RunManifest:
@@ -172,3 +189,74 @@ def test_runtime_role_defaults_cover_all_subagent_roles() -> None:
         "objective_answer_verification",
         "objective_release_review",
     }
+
+
+def test_agent_loop_stops_after_three_retrievals_without_new_material(
+    tmp_path,
+) -> None:
+    goal = GenerationGoal(
+        run_id="run-1",
+        target_entity="ZRSR2",
+        target_entity_id="8233",
+        target_entity_type="gene",
+        question_count_upper_bound=1,
+        difficulty_targets=["easy"],
+        style_targets=["concise"],
+        allowed_fact_types=["gene_location"],
+        run_budget={"max_actions": 8},
+        run_manifest_id="manifest-run-1",
+        runtime_bundle_id="runtime-bundle-v1",
+    )
+    repo = ObjectiveRuntimeRepository.create(
+        tmp_path,
+        manifest=_manifest(),
+        budget=RuntimeBudget(max_cost=10.0, max_model_calls=20),
+        goal=goal,
+    )
+
+    class EmptyProvider:
+        capability = EvidenceProviderCapability.read_only(provider_id="pubmed")
+
+        def retrieve(self, request):
+            return EvidenceProviderResult(
+                request=request,
+                terminal_status=ProviderTerminalStatus.EMPTY,
+                material_ids=[],
+                anchor_ids=[],
+            )
+
+        def lookup_status(self, operation_key):
+            return None
+
+    class AlwaysRetrieve:
+        def decide(self, snapshot):
+            return MainAgentDecision(
+                decision_id=f"decision-{len(snapshot.decisions) + 1}",
+                action="request_more_evidence",
+                target_subagent_role="material_retrieval",
+                input_artifact_ids=[],
+                state_digest=canonical_digest(
+                    snapshot.model_dump(mode="json")
+                ),
+                requested_budget={},
+                expected_information_gain=0.5,
+                action_parameters={
+                    "provider_id": "pubmed",
+                    "purpose": "verification",
+                    "query": {"term": "ZRSR2"},
+                },
+            )
+
+    result = ObjectiveQuestionAgentLoop(
+        runtime=repo,
+        persistence=ObjectiveQuestionPersistence(tmp_path),
+        goal=goal,
+        main_agent=AlwaysRetrieve(),
+        model=object(),
+        providers={"pubmed": EmptyProvider()},
+        max_actions=8,
+    ).run()
+
+    assert result.run_state.value == "COMPLETED_WITH_ZERO_QUESTIONS"
+    assert result.stop_reason == "no_new_evidence"
+    assert len(result.runtime.decisions) == 3

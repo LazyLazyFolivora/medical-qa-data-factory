@@ -74,6 +74,7 @@ class StructuredMainAgent:
             "artifact_summaries": artifact_summaries,
             "artifact_counts": _artifact_counts(snapshot),
             "available_providers": list(self.provider_ids),
+            "retrieval_history": _retrieval_history(snapshot),
             "budget": {
                 **snapshot.budget.model_dump(mode="json"),
                 "remaining_cost": max(
@@ -111,6 +112,8 @@ class StructuredMainAgent:
             "decision_rules": [
                 "Choose one action only.",
                 "Retrieval may be repeated whenever evidence is insufficient.",
+                "After an empty retrieval, broaden or shorten the query or change provider.",
+                "After three consecutive retrievals with no new material, stop rather than spin.",
                 "Do not verify until independent verification materials exist.",
                 "Do not realize a question without a frozen contract.",
                 "Do not review release without a question draft and verified contract.",
@@ -301,12 +304,31 @@ def _normalize_action_parameters(
                 "native_id": target_entity_id,
             }
         elif provider_id == "pubmed":
-            focus = str(
-                normalized.get("focus")
-                or normalized.get("instructions")
-                or purpose
-            )
             normalized["query"] = {
-                "term": f"{target_entity} {focus}".strip(),
+                # Keep fallback queries short. Explanatory instructions belong
+                # in the agent context, not in a provider search expression.
+                "term": target_entity,
             }
     return normalized
+
+
+def _retrieval_history(
+    snapshot: ObjectiveRuntimeSnapshot,
+) -> list[dict[str, Any]]:
+    history = []
+    for artifact in snapshot.artifacts.values():
+        if artifact.artifact_type != "provider_result":
+            continue
+        payload = artifact.payload
+        request = payload.get("request", {})
+        history.append(
+            {
+                "provider_id": request.get("provider_id"),
+                "purpose": artifact.metadata.get("purpose"),
+                "query": request.get("query"),
+                "terminal_status": payload.get("terminal_status"),
+                "material_count": len(payload.get("material_ids", [])),
+                "error_category": payload.get("error_category"),
+            }
+        )
+    return history

@@ -143,7 +143,25 @@ class PubMedMaterialProvider:
 
     def retrieve(self, request: EvidenceProviderRequest) -> EvidenceProviderResult:
         term = str(request.query.get("term") or request.query.get("mention") or "")
-        search = self.client.search_result(term, limit=request.material_limit)
+        queries = [term]
+        words = term.split()
+        if len(words) > 1:
+            queries.extend(
+                [
+                    " ".join(words[:6]),
+                    " ".join(words[:2]),
+                    words[0],
+                ]
+            )
+        queries = list(dict.fromkeys(query for query in queries if query))
+        search = None
+        for query in queries:
+            search = self.client.search_result(
+                query, limit=request.material_limit
+            )
+            if search.status is not PubMedProviderStatus.EMPTY:
+                break
+        assert search is not None
         if search.status is PubMedProviderStatus.EMPTY:
             return _empty_result(request, snapshot_id=search.snapshot_id)
         if search.status is not PubMedProviderStatus.SUCCESS:
@@ -213,7 +231,7 @@ class PubMedMaterialProvider:
             raw_content_by_material_id=raw_contents,
             snapshot_id=fetched.snapshot_id,
             usage={
-                "provider_calls": 2,
+                "provider_calls": len(queries) + 1,
                 "documents_retrieved": len(materials),
             },
         )

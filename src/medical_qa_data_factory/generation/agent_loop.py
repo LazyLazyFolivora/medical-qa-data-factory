@@ -105,6 +105,7 @@ class ObjectiveQuestionAgentLoop:
         model: Any,
         providers: Mapping[str, EvidenceProviderPort],
         max_actions: int = 20,
+        max_consecutive_empty_retrievals: int = 3,
     ) -> None:
         self.runtime = runtime
         self.persistence = persistence
@@ -113,6 +114,10 @@ class ObjectiveQuestionAgentLoop:
         self.model = model
         self.providers = dict(providers)
         self.max_actions = max_actions
+        self.max_consecutive_empty_retrievals = (
+            max_consecutive_empty_retrievals
+        )
+        self._empty_retrieval_streak = 0
         self.loop_guard = SubagentLoopGuard(max_repeated_decisions=3)
 
     def run(self) -> ObjectiveAgentLoopResult:
@@ -148,6 +153,13 @@ class ObjectiveQuestionAgentLoop:
                 self._review_release(snapshot, decision)
             else:  # pragma: no cover - enum and validator close this set
                 raise AssertionError(action)
+            if (
+                self._empty_retrieval_streak
+                >= self.max_consecutive_empty_retrievals
+            ):
+                stop_reason = "no_new_evidence"
+                self._finish(stop_reason)
+                break
         else:
             stop_reason = "max_agent_actions"
             self._finish(stop_reason)
@@ -200,6 +212,10 @@ class ObjectiveQuestionAgentLoop:
             provider=provider,
             query=dict(decision.action_parameters.get("query", {})),
         )
+        if outcome.materials:
+            self._empty_retrieval_streak = 0
+        else:
+            self._empty_retrieval_streak += 1
         artifacts = [
             _artifact(
                 item,

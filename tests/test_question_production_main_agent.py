@@ -5,12 +5,15 @@ import pytest
 
 from medical_qa_data_factory.generation.main_agent import (
     IllegalMainAgentAction,
+    MainAgentDecisionProposal,
     MainAgentAction,
+    StructuredMainAgent,
     validate_main_agent_decision,
 )
 from medical_qa_data_factory.generation.objective_question_contracts import (
     DomainOutcome,
     ExecutionStatus,
+    GenerationGoal,
     MainAgentDecision,
     RunManifest,
     SubagentResult,
@@ -31,6 +34,7 @@ from medical_qa_data_factory.generation.subagent_dispatch import (
     DispatchOutcome,
     SubagentDispatcher,
 )
+from medical_qa_data_factory.llm.fake import FakeStructuredModel
 
 
 def _manifest() -> RunManifest:
@@ -172,3 +176,50 @@ def test_dispatcher_rejects_unregistered_or_cross_role_calls() -> None:
     )
     with pytest.raises(KeyError, match="fact_understanding"):
         dispatcher.dispatch(wrong_task, payload={})
+
+
+def test_structured_agent_fills_a_concise_pubmed_query(tmp_path) -> None:
+    repo = ObjectiveRuntimeRepository.create(
+        tmp_path,
+        manifest=_manifest(),
+        budget=RuntimeBudget(max_cost=10, max_model_calls=10),
+        goal=GenerationGoal(
+            run_id="run-main",
+            target_entity="BRCA1",
+            target_entity_id="672",
+            target_entity_type="gene",
+            question_count_upper_bound=1,
+            difficulty_targets=["easy"],
+            style_targets=["concise"],
+            allowed_fact_types=["gene_location"],
+            run_budget={"max_actions": 8},
+            run_manifest_id="manifest-run-main",
+            runtime_bundle_id="runtime-bundle-v1",
+        ),
+    )
+    snapshot = repo.load()
+    model = FakeStructuredModel(
+        responses={
+            "objective_main_agent": MainAgentDecisionProposal(
+                action="request_more_evidence",
+                target_subagent_role="material_retrieval",
+                input_artifact_ids=[],
+                requested_budget={},
+                expected_information_gain=0.5,
+                action_parameters={
+                    "purpose": "verification",
+                    "focus": (
+                        "Assess all proposed hypotheses and identify every "
+                        "independent verification requirement"
+                    ),
+                },
+            )
+        }
+    )
+    decision = StructuredMainAgent(
+        model,
+        provider_ids=["primekg", "pubmed"],
+    ).decide(snapshot)
+
+    assert decision.action_parameters["provider_id"] == "pubmed"
+    assert decision.action_parameters["query"] == {"term": "BRCA1"}

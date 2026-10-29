@@ -15,6 +15,17 @@ from medical_qa_data_factory.generation.evidence_provider import (
 from medical_qa_data_factory.generation.material_retrieval_subagent import (
     MaterialRetrievalSubagent,
 )
+from medical_qa_data_factory.generation.objective_provider_adapters import (
+    PubMedMaterialProvider,
+)
+from medical_qa_data_factory.evidence_enrichment.models import (
+    PubMedEvidenceRecord,
+)
+from medical_qa_data_factory.evidence_enrichment.pubmed import (
+    PubMedFetchResult,
+    PubMedProviderStatus,
+    PubMedSearchResult,
+)
 from medical_qa_data_factory.generation.objective_question_contracts import (
     EvidenceAnchor,
     EvidenceMaterial,
@@ -201,3 +212,63 @@ def test_empty_failure_and_unknown_are_never_negative_claims(
     assert outcome.anchors == []
     assert outcome.result.domain_outcome.value == domain
     assert outcome.result.stop_reason == stop
+
+
+def test_pubmed_adapter_relaxes_an_overlong_empty_query() -> None:
+    class FakePubMed:
+        def __init__(self):
+            self.queries = []
+
+        def search_result(self, query, *, limit):
+            self.queries.append(query)
+            if query == "ZRSR2":
+                return PubMedSearchResult(
+                    status=PubMedProviderStatus.SUCCESS,
+                    snapshot_id="pubmed:test",
+                    query=query,
+                    pmids=["123"],
+                )
+            return PubMedSearchResult(
+                status=PubMedProviderStatus.EMPTY,
+                snapshot_id="pubmed:test",
+                query=query,
+            )
+
+        def fetch_result(self, pmids, *, limit):
+            return PubMedFetchResult(
+                status=PubMedProviderStatus.SUCCESS,
+                snapshot_id="pubmed:test",
+                input_pmids=list(pmids),
+                requested_pmids=list(pmids),
+                records=[
+                    PubMedEvidenceRecord(
+                        pmid="123",
+                        title="ZRSR2 localization",
+                        abstract="ZRSR2 maps to chromosome X.",
+                        snapshot_id="pubmed:test",
+                        content_hash="a" * 64,
+                        retrieved_at=NOW,
+                    )
+                ],
+            )
+
+    client = FakePubMed()
+    provider = PubMedMaterialProvider(client)
+    request = EvidenceProviderRequest(
+        request_id="request.pubmed.relax",
+        provider_id="pubmed",
+        provider_version="pubmed-eutils-v1",
+        operation_key="run|pubmed|relax",
+        query={
+            "term": (
+                "ZRSR2 Assess all proposed hypotheses and identify every "
+                "independent verification requirement"
+            )
+        },
+        requested_at=NOW,
+        material_limit=5,
+    )
+    result = provider.retrieve(request)
+
+    assert result.terminal_status is ProviderTerminalStatus.SUCCEEDED
+    assert client.queries[-1] == "ZRSR2"
