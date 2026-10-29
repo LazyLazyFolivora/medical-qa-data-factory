@@ -58,7 +58,7 @@ def test_schema_export_cli(tmp_path, capsys):
 
     assert exit_code == 0
     assert (tmp_path / "generation-task.schema.json").exists()
-    assert "Exported 76 schemas" in capsys.readouterr().out
+    assert "Exported 79 schemas" in capsys.readouterr().out
 
 
 def test_export_includes_evidence_first_objective_question_contracts(tmp_path):
@@ -91,6 +91,9 @@ def test_export_includes_evidence_first_objective_question_contracts(tmp_path):
         "structured-derivation-trace.schema.json",
         "public-question-audit-result.schema.json",
         "answer-evidence-audit-result.schema.json",
+        "public-question-package.schema.json",
+        "independent-evidence-audit-package.schema.json",
+        "answer-evidence-audit-package.schema.json",
         "objective-validation-report.schema.json",
         "generation-goal.schema.json",
         "subagent-task.schema.json",

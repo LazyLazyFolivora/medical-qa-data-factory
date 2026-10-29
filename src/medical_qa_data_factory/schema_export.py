@@ -37,6 +37,11 @@ from .generation.answer_verification_subagent import (
 from .generation.fact_exploration import CandidateClaimBatch
 from .generation.ctd_world_evaluation import CtdWorldEvaluation
 from .generation.question_design import QuestionHypothesisBatch
+from .generation.release_review_subagent import (
+    AnswerEvidenceAuditPackage,
+    IndependentEvidenceAuditPackage,
+    PublicQuestionPackage,
+)
 from .generation.objective_question_realization import (
     ObjectiveQuestionDraft,
     QuestionSemanticReadback,
@@ -189,6 +194,13 @@ SCHEMA_MODELS = {
     "public-question-audit-result.schema.json": PublicQuestionAuditResult,
     "answer-evidence-audit-result.schema.json": (
         AnswerEvidenceAuditResult
+    ),
+    "public-question-package.schema.json": PublicQuestionPackage,
+    "independent-evidence-audit-package.schema.json": (
+        IndependentEvidenceAuditPackage
+    ),
+    "answer-evidence-audit-package.schema.json": (
+        AnswerEvidenceAuditPackage
     ),
     "objective-validation-report.schema.json": ObjectiveValidationReport,
     "generation-goal.schema.json": GenerationGoal,

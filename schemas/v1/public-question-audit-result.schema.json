@@ -24,6 +24,11 @@
       "title": "Entity Unambiguous",
       "type": "boolean"
     },
+    "primary_reason": {
+      "minLength": 1,
+      "title": "Primary Reason",
+      "type": "string"
+    },
     "public_question_digest": {
       "pattern": "^[0-9a-f]{64}$",
       "title": "Public Question Digest",
@@ -33,6 +38,13 @@
       "default": "objective-question-v1",
       "title": "Schema Version",
       "type": "string"
+    },
+    "secondary_reasons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Secondary Reasons",
+      "type": "array"
     },
     "self_contained": {
       "title": "Self Contained",
@@ -59,7 +71,8 @@
     "asks_underlying_fact",
     "entity_unambiguous",
     "cardinality_clear",
-    "verdict"
+    "verdict",
+    "primary_reason"
   ],
   "title": "PublicQuestionAuditResult",
   "type": "object"

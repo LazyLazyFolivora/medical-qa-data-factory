@@ -1,0 +1,28 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "anchors": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "minItems": 1,
+      "title": "Anchors",
+      "type": "array"
+    },
+    "evidence_used": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Evidence Used",
+      "type": "array"
+    }
+  },
+  "required": [
+    "evidence_used",
+    "anchors"
+  ],
+  "title": "IndependentEvidenceAuditPackage",
+  "type": "object"
+}

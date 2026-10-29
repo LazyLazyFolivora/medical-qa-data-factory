@@ -30,6 +30,10 @@ from medical_qa_data_factory.generation.release_review_subagent import (
     load_validation_skill,
     merge_objective_audits,
 )
+from medical_qa_data_factory.generation.task_release import (
+    ObjectiveQuestionReleaseDenied,
+    ObjectiveQuestionReleaseGate,
+)
 from medical_qa_data_factory.llm.fake import FakeStructuredModel
 
 
@@ -111,7 +115,6 @@ def _public_result(
         entity_unambiguous=True,
         cardinality_clear=True,
         verdict=verdict,
-        skill_digest="b" * 64,
         primary_reason=(
             "PASS" if verdict is ObjectiveVerdict.PASS else "MISSING_PUBLIC_CONTEXT"
         ),
@@ -129,13 +132,14 @@ def _answer_result(
         task_id="subtask-answer",
         public_question_digest=text_digest(QUESTION),
         question_answer_contract_digest=contract.digest(),
-        independent_evidence_digest="c" * 64,
+        independent_evidence_digest=(
+            _answer_package().independent_evidence.digest()
+        ),
         independently_supported=True,
         unique_or_closed=True,
         contradiction_checked=True,
         relation_strength_preserved=relation_strength_preserved,
         verdict=verdict,
-        skill_digest="b" * 64,
         primary_reason=(
             "PASS" if verdict is ObjectiveVerdict.PASS else "UNSUPPORTED_ANSWER"
         ),
@@ -273,7 +277,10 @@ def test_merge_detects_stale_skill_or_input_digest() -> None:
         answer_audit=answer,
         current_public_question_digest=text_digest(QUESTION),
         current_contract_digest=_contract().digest(),
-        current_independent_evidence_digest="c" * 64,
+        current_independent_evidence_digest=(
+            _answer_package().independent_evidence.digest()
+        ),
+        audited_skill_digest="b" * 64,
         current_skill_digest="d" * 64,
         evidence_used=["authority-b:gene:BRCA1"],
     )
@@ -283,7 +290,10 @@ def test_merge_detects_stale_skill_or_input_digest() -> None:
         answer_audit=answer,
         current_public_question_digest=text_digest(QUESTION + " "),
         current_contract_digest=_contract().digest(),
-        current_independent_evidence_digest="c" * 64,
+        current_independent_evidence_digest=(
+            _answer_package().independent_evidence.digest()
+        ),
+        audited_skill_digest="b" * 64,
         current_skill_digest="b" * 64,
         evidence_used=["authority-b:gene:BRCA1"],
     )
@@ -302,3 +312,32 @@ def test_validation_skill_loader_hashes_exact_content(tmp_path: Path) -> None:
     assert loaded.content == "# Validator\ncontent"
     assert loaded.digest == text_digest("# Validator\ncontent")
     assert loaded.version.startswith("sha256:")
+
+
+def test_release_gate_accepts_only_current_pass_reports(tmp_path: Path) -> None:
+    skill = tmp_path / "SKILL.md"
+    skill.write_text("# Validator", encoding="utf-8")
+    report = ReleaseReviewSubagent(_model()).run(
+        public_question=_public_package(),
+        answer_evidence=_answer_package(),
+        skill_path=skill,
+    )
+
+    ObjectiveQuestionReleaseGate.assert_releasable(
+        report,
+        current_input_digest=report.input_digest,
+    )
+    with pytest.raises(ObjectiveQuestionReleaseDenied, match="stale"):
+        ObjectiveQuestionReleaseGate.assert_releasable(
+            report,
+            current_input_digest="f" * 64,
+        )
+
+    rejected = report.model_copy(
+        update={
+            "verdict": ObjectiveVerdict.REJECT,
+            "release_allowed": False,
+        }
+    )
+    with pytest.raises(ObjectiveQuestionReleaseDenied, match="PASS"):
+        ObjectiveQuestionReleaseGate.assert_releasable(rejected)

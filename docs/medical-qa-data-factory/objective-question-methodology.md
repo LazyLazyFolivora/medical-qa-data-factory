@@ -126,6 +126,7 @@ PROPOSED
 - `generation/question_design.py`
 - `generation/answer_verification_subagent.py`
 - `generation/objective_question_realization.py`
+- `generation/release_review_subagent.py`
 
 新链路使用独立 schema family 和 feature flag。旧 `TaskCandidate`、CTD task 和 v2 release 保持原语义，不会因读取新代码而自动升级为 `PASS`。
 
@@ -140,3 +141,5 @@ PubMed、RAG、网页和数据库文本统一放在 `trust_boundary.material_pol
 答案验证固定执行三个独立阶段：盲态求解、在盲态结果固化后比较 proposed answer、再检查竞争答案和反例。deterministic host 会核对 plan、attempt 与 coverage 的 ID 和终态；empty、provider failure、预算耗尽或 coverage 不完整均为 `INDETERMINATE`。只有 verification attempt 直接提供的独立 anchor 能支持答案，discovery anchor 自身不能完成验证。
 
 Writer 使用独立的 realization 调用，只接收 `FrozenQuestionContract`。输出必须携带相同 question intent、scope、answer values、answer cardinality、claim strength 和必要公开条件；出现 answer/scope/strength 漂移、source-relative 或 meta-evidence 措辞、因果或治疗语义升级时，deterministic gate 直接拒绝。
+
+发布复核由两个独立模型调用完成。第一阶段只接收 `PublicQuestionPackage`，不能访问答案、冻结契约、evidence 或内部 metadata；结果和 digest 固化后，第二阶段才接收 `AnswerEvidenceAuditPackage`。deterministic merger 会重新核对题面、contract、独立证据和 skill content hash。任一阶段非 `PASS`、硬门禁 false、超时、解析失败、模型拒绝或 digest 过期时，最终报告均不可发布。

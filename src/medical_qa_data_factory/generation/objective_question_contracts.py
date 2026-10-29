@@ -471,16 +471,22 @@ class PublicQuestionAuditResult(ObjectiveContractModel):
     entity_unambiguous: bool
     cardinality_clear: bool
     verdict: ObjectiveVerdict
+    primary_reason: str = Field(min_length=1)
+    secondary_reasons: list[str] = Field(default_factory=list)
 
 
 class AnswerEvidenceAuditResult(ObjectiveContractModel):
     task_id: str = Field(min_length=1)
+    public_question_digest: Digest
     question_answer_contract_digest: Digest
+    independent_evidence_digest: Digest
     independently_supported: bool
     unique_or_closed: bool
     contradiction_checked: bool
     relation_strength_preserved: bool
     verdict: ObjectiveVerdict
+    primary_reason: str = Field(min_length=1)
+    secondary_reasons: list[str] = Field(default_factory=list)
 
 
 class ObjectiveValidationReport(ObjectiveContractModel):

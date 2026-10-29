@@ -1,0 +1,21 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "question_id": {
+      "minLength": 1,
+      "title": "Question Id",
+      "type": "string"
+    },
+    "question_text": {
+      "minLength": 1,
+      "title": "Question Text",
+      "type": "string"
+    }
+  },
+  "required": [
+    "question_id",
+    "question_text"
+  ],
+  "title": "PublicQuestionPackage",
+  "type": "object"
+}

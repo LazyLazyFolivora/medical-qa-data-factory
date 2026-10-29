@@ -16,6 +16,39 @@ from .task_service import (
     EvidenceCatalogEntry,
     TaskGenerationResult,
 )
+from .objective_question_contracts import (
+    ObjectiveValidationReport,
+    ObjectiveVerdict,
+)
+
+
+class ObjectiveQuestionReleaseDenied(RuntimeError):
+    """The objective-question report cannot authorize a release."""
+
+
+class ObjectiveQuestionReleaseGate:
+    """Deterministic gate shared by every objective-question exporter."""
+
+    @staticmethod
+    def assert_releasable(
+        report: ObjectiveValidationReport,
+        *,
+        current_input_digest: str | None = None,
+    ) -> None:
+        if (
+            report.verdict is not ObjectiveVerdict.PASS
+            or not report.release_allowed
+        ):
+            raise ObjectiveQuestionReleaseDenied(
+                "only ObjectiveValidationReport.PASS can be released"
+            )
+        if (
+            current_input_digest is not None
+            and report.input_digest != current_input_digest
+        ):
+            raise ObjectiveQuestionReleaseDenied(
+                "validation report is stale for the current input digest"
+            )
 
 
 class TaskReleaseSummary(ContractModel):
