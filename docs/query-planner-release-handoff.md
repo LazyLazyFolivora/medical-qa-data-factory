@@ -122,3 +122,42 @@ hash、真实回执、策略内容 hash、方法版本及训练状态，输出
 全套检查为 1160 通过、5 失败、2 跳过、13 默认排除。5 项已在修改前提交 `84bc9aa`
 逐项复现：旧测试仍要求公开 manifest 暴露 writer provenance；缺未跟踪的历史 questions
 资料；3 项缺 PowerShell。此次没有为得到全绿而把失败改为跳过。
+
+## 直接评测 Radar 已保存的真实 v2 轨迹
+
+`eval routes import-radar` 只读 Radar 的 `AnalysisView` JSON。它不发送新动作、不调用
+solver、不把保存的轨迹改名为新的独立求解；产物明确使用
+`trajectory_origin=persisted_radar_host_trace` 和 `executed_new_actions=0`。
+原始题目、决策、回执保持原样，输出记录本次读取的文件字节 hash、视图 hash 和独立原生
+checker 的内容 hash。源码入口是 `evaluation/radar_routes.py:evaluate_radar_view`。
+
+```bash
+python -m medical_qa_data_factory eval routes import-radar \
+  --views /ABS/radar-analysis-actual-id.json \
+  --provenance real_task \
+  --trace-validator /ABS/BioRadar/scripts/query_policy_assertions.py \
+  --out /ABS/factory-real-route-assessment.jsonl
+```
+
+Radar 导出最小原生字段为：`id / investigation_id / is_demo / input_hash / question`；
+完整 `query_policy`（方向、固定时间、方法、checks/decisions/budget，以及
+artifacts/artifact_results/execution）；实际 `queries / evidence / calls / budget`，和存在时的
+`result.query_policy`。可直接导出已脱敏 AnalysisView，不需要构造工厂 before/after。
+真实来源版本来自保存的 source artifact 和 evidence snapshot；不读取运行凭据文件。
+
+原生 checker 独立核对逐步回执、查询与固定产物、专业调用和总账。工厂再次核对可见观察
+检查的支持引用和实际模型用量；若保存了 `decision.policy_request`，还核对当时合法候选及
+完整已采用回执。只有真实选择当时保存的 request 才能使用，禁止事后补造候选状态。
+当前只有观察摘要的旧记录会保留 `saved_requests.status=not_recorded/partial`，不能评估
+决策重放和未选动作收益。计算 run、生成探索轨迹与 queued 的零决策 analysis 均不算
+可评价路由，返回 `not_evaluable`。仍在执行的记录按 partial 输入检查，不假装已经停止。
+
+报告分开给出：宿主声明的 required checks 覆盖、动作种类/数量/回执状态、动作与准备
+调用数、模型真实/未知用量、实际停止原因和未知回执数。宿主检查覆盖不是独立 gold。
+没有审核目标时 `independent_outcome` 为 `unreviewed_no_gold_score`，独立目标覆盖与
+停止正确性均为 `null`；可用 `--targets` 在这个求解后的命令中提供既有独立审核目标，
+绝不传给原生 checker 或策略。目标环境绑定为 `bioradar-analysis:<analysis id>` 与实际
+`input_hash`。完整性失败会压住覆盖/结果评分，保留失败原因。
+
+新增导入与原有路由的 26 项定向测试通过；另已实际加载 Radar 的独立原生 checker 验证
+原生 v2 形状兼容。测试资料仍是合成契约资料；真实轨迹的结果另存到本次整栈验收目录。

@@ -28,6 +28,13 @@ def add_commands(evaluation_commands):
     compare.add_argument("--right", required=True)
     compare.add_argument("--targets", required=True)
     compare.add_argument("--out", required=True)
+    imported = modes.add_parser("import-radar", help="Independently assess existing native Radar v2 analysis views; execute nothing")
+    imported.add_argument("--views", nargs="+", required=True)
+    imported.add_argument("--provenance", choices=("real_task", "synthetic_fixture"), required=True)
+    imported.add_argument("--trace-validator", required=True, help="trusted native checker module exposing assert_query_policy")
+    imported.add_argument("--targets", default=None, help="optional independently reviewed hidden targets; never solver input")
+    imported.add_argument("--out", required=True)
+
 
 
 def _module(path):
@@ -57,6 +64,28 @@ def command(args):
     # Opening before execution guarantees an existing result cannot be overwritten.
     destination.parent.mkdir(parents=True, exist_ok=True)
     with destination.open("x") as stream:
+        if args.route_mode == "import-radar":
+            from .radar_routes import evaluate_radar_view
+            validator_path = Path(args.trace_validator).resolve(strict=True)
+            validator = _module(validator_path).assert_query_policy
+            version = hashlib.sha256(validator_path.read_bytes()).hexdigest()
+            targets = _rows(args.targets) if args.targets else {}
+            failed = 0
+            for source in args.views:
+                path = Path(source).resolve(strict=True)
+                # A live export may be replaced between reads; hash the exact bytes assessed.
+                source_bytes = path.read_bytes()
+                view = json.loads(source_bytes)
+                result = evaluate_radar_view(view, provenance=args.provenance, trace_validator=validator,
+                                            validator_version=version, target=targets.get(view.get("id")))
+                result["source_file"] = str(path)
+                result["source_file_sha256"] = hashlib.sha256(source_bytes).hexdigest()
+                stream.write(json.dumps(result, ensure_ascii=False, sort_keys=True) + "\n")
+                stream.flush()
+                failed += result["integrity"]["status"] != "passed"
+                print(json.dumps({"analysis_id": result["analysis_id"], "direction": result.get("direction"),
+                                  "integrity": result["integrity"]["status"], "metrics": result["route_metrics"]}, ensure_ascii=False))
+            return 1 if failed else 0
         if args.route_mode == "solve":
             tasks = load_public_tasks(args.tasks)
             module = _module(args.policy_module)

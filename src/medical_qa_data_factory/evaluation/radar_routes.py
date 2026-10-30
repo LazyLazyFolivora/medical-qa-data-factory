@@ -1,0 +1,253 @@
+"""Read-only assessment of persisted Radar v2 host trajectories.
+
+No action is dispatched, no missing policy request or receipt is reconstructed,
+and a saved host trace is never relabelled as a fresh independent solver run.
+The caller supplies an independently maintained native trace checker so fixed
+artifact payloads and professional ledger bindings are checked in their schema.
+"""
+from __future__ import annotations
+
+import copy
+import math
+from collections import Counter
+
+from .kdd_routes import RouteEvaluationTarget, digest
+
+EVALUATOR_VERSION = "radar-route-import-1.0"
+DIRECTIONS = {"pipeline", "research", "business", "public_health"}
+PENDING = {"prepared", "sent", "unknown", "unconfirmed"}
+
+
+def _require(condition, reason):
+    if not condition:
+        raise ValueError(reason)
+
+
+def _number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0
+
+
+def _nullable_sum(values):
+    _require(all(v is None or _number(v) for v in values), "invalid_actual_cost")
+    return None if any(v is None for v in values) else sum(values)
+
+
+def _refs(values):
+    _require(isinstance(values, list), "invalid_artifact_refs")
+    pairs = []
+    for value in values:
+        _require(isinstance(value, dict) and isinstance(value.get("id"), str) and bool(value["id"])
+                 and isinstance(value.get("version"), str) and bool(value["version"]), "invalid_artifact_reference")
+        pairs.append((value["id"], value["version"]))
+    _require(len(set(pairs)) == len(pairs), "duplicate_artifact_refs")
+    return set(pairs)
+
+
+def _query_receipt(query, action):
+    status = query["status"]
+    if status in {"read", "empty"}:
+        status = "completed"
+    elif status == "unavailable":
+        status = "failed"
+    if (query.get("usage") or {}).get("request_status") == "not_sent":
+        status = "not_sent"
+    return {"action_id": action["id"], "kind": action["kind"], "arguments": action["arguments"],
+            "status": status, "new_evidence_ids": query.get("evidence_keys", []),
+            "new_artifact_refs": query.get("artifact_refs", []), "check_updates": query.get("check_updates", []),
+            "actual_cost": query.get("cost"), "observed_information": query.get("observed_information", {})}
+
+
+def _same_history(actual, recorded):
+    for key in ("action_id", "kind", "arguments", "status", "actual_cost"):
+        _require(recorded.get(key) == actual.get(key), "saved_policy_request_receipt_mismatch:" + key)
+    _require(set(recorded.get("new_evidence_ids", [])) == set(actual["new_evidence_ids"]),
+             "saved_policy_request_receipt_mismatch:new_evidence_ids")
+    _require(_refs(recorded.get("new_artifact_refs", [])) == _refs(actual["new_artifact_refs"]),
+             "saved_policy_request_receipt_mismatch:new_artifact_refs")
+    _require(recorded.get("check_updates", []) == actual["check_updates"],
+             "saved_policy_request_receipt_mismatch:check_updates")
+    _require(recorded.get("observed_information", {}) == actual["observed_information"],
+             "saved_policy_request_receipt_mismatch:observed_information")
+
+
+def _saved_requests(view, trace):
+    """Verify only requests actually saved at decision time; absence stays absent."""
+    prior, present = {}, 0
+    for decision in trace["decisions"]:
+        request = decision.get("policy_request")
+        if request is not None:
+            present += 1
+            _require(isinstance(request, dict) and request.get("schema_version") == "query-planner.external.v2",
+                     "invalid_saved_policy_request")
+            _require(request.get("question") == view["question"] and request.get("direction") == trace["direction"],
+                     "saved_policy_request_changed_task")
+            _require(not ({"gold", "evaluation_target", "gold_evidence_ids", "generation_traces", "oracle"} & set(request)),
+                     "private_targets_in_saved_policy_request")
+            history = request.get("history", [])
+            _require(isinstance(history, list), "invalid_saved_request_history")
+            by_id = {entry["action_id"]: entry for entry in history}
+            _require(len(by_id) == len(history) and set(by_id) == set(prior), "saved_policy_request_history_set_mismatch")
+            for action_id, receipt in prior.items():
+                _same_history(receipt, by_id[action_id])
+            action = decision.get("action")
+            if action is not None:
+                _require(action in request.get("candidates", []), "selected_action_not_in_saved_candidates")
+                _require(not any(h.get("status") in PENDING for h in history), "action_after_pending_receipt")
+        action, receipt = decision.get("action"), decision.get("receipt")
+        if action is not None and receipt is not None:
+            index = receipt["query_index"]
+            prior[action["id"]] = _query_receipt(view["queries"][index], action)
+    return {"saved_request_count": present, "decision_count": len(trace["decisions"]),
+            "status": "complete" if present == len(trace["decisions"]) else "partial" if present else "not_recorded"}
+
+
+def _model_usage(calls):
+    known, counts, unknown = 0, 0, 0
+    ids = set()
+    for call in calls:
+        call_id = call.get("call_id")
+        _require(isinstance(call_id, str) and call_id not in ids, "model_call_identity_missing_or_duplicated")
+        ids.add(call_id)
+        receipt = call.get("receipt") or {}
+        if call.get("status") == "prepared" or receipt.get("status") == "not_sent":
+            continue
+        counts += 1
+        usage = receipt.get("usage") or {}
+        value = usage.get("total_tokens")
+        if value is None and all(_number(usage.get(key)) for key in ("prompt_tokens", "completion_tokens")):
+            value = usage["prompt_tokens"] + usage["completion_tokens"]
+        if value is None:
+            unknown += 1
+        else:
+            _require(_number(value), "invalid_model_token_usage")
+            known += value
+    return {"calls": counts, "known_total_tokens": known, "unknown_usage_calls": unknown,
+            "total_tokens": None if unknown else known}
+
+
+def _target_result(target, *, analysis_id, environment, provenance, evidence, artifacts, decision):
+    result = {"review_status": "unreviewed", "evaluation_status": "unreviewed_no_gold_score",
+              "observation_coverage": None, "correct_observable_stop": None,
+              "false_observable_completion": None, "requirements": []}
+    if target is None:
+        return result
+    target = RouteEvaluationTarget.model_validate(target)
+    _require(target.qid == analysis_id and target.environment_ref == environment["environment_ref"]
+             and target.environment_version == environment["environment_version"] and target.provenance == provenance,
+             "independent_target_binding_mismatch")
+    result["review_status"] = target.review_status
+    if target.review_status == "unreviewed":
+        return result
+    rows = []
+    for requirement in target.requirements:
+        passed = any(set(group) <= evidence for group in requirement.acceptable_evidence_sets)
+        passed |= any({(ref.id, ref.version) for ref in group} <= artifacts for group in requirement.acceptable_artifact_sets)
+        rows.append({"id": requirement.id, "weight": requirement.weight, "passed": passed})
+    coverage = sum(r["weight"] for r in rows if r["passed"]) / sum(r["weight"] for r in rows) if rows else None
+    result.update(evaluation_status="evaluated_independent_observation_targets", requirements=rows, observation_coverage=coverage)
+    if target.expected_outcome == "sufficient":
+        result["correct_observable_stop"] = decision == "complete" and coverage == 1
+        result["false_observable_completion"] = decision == "complete" and coverage != 1
+    elif target.expected_outcome == "insufficient":
+        result["correct_observable_stop"] = decision == "insufficient"
+        result["false_observable_completion"] = decision == "complete"
+    return result
+
+
+def evaluate_radar_view(view, *, provenance, trace_validator, validator_version, target=None):
+    """Evaluate a native saved AnalysisView without invoking any solver/tool.
+
+    trace_validator(view, terminal=bool) must be the separately maintained native
+    provenance checker. Its content hash is recorded; it never receives targets.
+    """
+    _require(provenance in {"real_task", "synthetic_fixture"}, "explicit_provenance_required")
+    _require(isinstance(view, dict), "analysis_view_required")
+    _require(provenance != "real_task" or view.get("is_demo") is False, "real_task_requires_non_demo_analysis")
+    report = {"schema_version": "kdd-route-radar-evaluation-v1", "evaluator_version": EVALUATOR_VERSION,
+              "trajectory_origin": "persisted_radar_host_trace", "provenance": provenance,
+              "analysis_id": view.get("id"), "investigation_id": view.get("investigation_id"), "analysis_state": view.get("state"),
+              "source_view_sha256": digest(view), "executed_new_actions": 0,
+              "integrity": {"status": "not_evaluable", "validator_version": validator_version},
+              "route_metrics": None, "independent_outcome": None,
+              "limitations": ["scientific_validity_not_assessed", "business_value_not_assessed",
+                              "counterfactual_policy_benefit_requires_independent_runs"]}
+    trace = view.get("query_policy")
+    if not isinstance(trace, dict) or trace.get("schema_version") != "query-planner.external.v2":
+        report["integrity"]["reason"] = "no_saved_v2_route_trace"
+        return report
+    report["direction"] = trace.get("direction")
+    report["policy"] = {key: copy.deepcopy(trace.get(key)) for key in
+                        ("requested", "effective", "version", "selector", "stop", "training_status")}
+    report["environment"] = {"environment_ref": "bioradar-analysis:" + str(view.get("id")),
+                             "environment_version": view.get("input_hash"),
+                             "evidence_time": copy.deepcopy(trace.get("evidence_time")),
+                             "binding": "persisted_analysis_input_not_a_new_query_environment"}
+    try:
+        _require(isinstance(view.get("id"), str) and bool(view["id"]) and isinstance(view.get("input_hash"), str)
+                 and bool(view["input_hash"]), "analysis_identity_or_fixed_input_hash_missing")
+        _require(trace.get("direction") in DIRECTIONS, "unsupported_direction")
+        _require(callable(trace_validator) and bool(validator_version), "independent_native_trace_validator_required")
+        if not trace.get("decisions"):
+            report["integrity"]["reason"] = "no_policy_decisions_persisted"
+            return report
+        terminal = trace.get("status") in {"complete", "insufficient", "blocked"}
+        report["assessment_scope"] = "terminal_route_trace" if terminal else "partial_route_trace"
+        native = trace_validator(copy.deepcopy(view), terminal=terminal)
+        _require(isinstance(native, dict), "native_validator_did_not_return_assessment")
+        requests = _saved_requests(view, trace)
+        if requests["status"] != "complete":
+            report["limitations"].append("decision_replay_not_evaluable_without_all_saved_policy_requests")
+        evidence = {row["key"] for row in view.get("evidence", [])}
+        artifacts = _refs(trace.get("artifacts", []))
+        report["environment"]["source_artifacts"] = [
+            {"id": row["id"], "version": row["version"], "snapshot_ids": copy.deepcopy(row.get("snapshot_ids", []))}
+            for row in trace.get("artifacts", []) if row.get("kind") == "source_documents"]
+        report["environment"]["evidence_snapshot_ids"] = sorted({
+            row["snapshot_id"] for row in view.get("evidence", []) if isinstance(row.get("snapshot_id"), str)})
+        required = [check for check in trace.get("checks", []) if check.get("required", True)]
+        passed = []
+        for check in required:
+            if check.get("status") == "passed":
+                refs, ids = _refs(check.get("artifact_refs", [])), set(check.get("evidence_ids", []))
+                _require(bool(refs or ids) and refs <= artifacts and ids <= evidence,
+                         "passed_observation_check_without_current_support")
+                passed.append(check["id"])
+        queries = view.get("queries", [])
+        calls = view.get("calls")
+        _require(isinstance(calls, list), "actual_model_calls_not_exported")
+        model_usage = _model_usage(calls)
+        reported_usage = (view.get("budget") or {}).get("usage", {})
+        for key, value in model_usage.items():
+            if key in reported_usage:
+                _require(reported_usage[key] == value, "analysis_model_ledger_mismatch:" + key)
+        action_costs = [q.get("cost") or {} for q in queries]
+        action_calls = _nullable_sum([c.get("tool_calls") for c in action_costs])
+        action_tokens = _nullable_sum([c.get("tokens") for c in action_costs])
+        final = trace["decisions"][-1]
+        stop_decision = final["decision"] if final.get("action") is None else None
+        report["route_metrics"] = {
+            "selected_action_count": sum(d.get("action") is not None for d in trace["decisions"]),
+            "receipt_count": len(queries), "action_kinds": dict(Counter(q.get("kind", "document_search") for q in queries)),
+            "receipt_statuses": dict(Counter(q["status"] for q in queries)),
+            "required_check_count": len(required), "passed_required_check_count": len(passed),
+            "observable_check_coverage": len(passed) / len(required) if required else None,
+            "unmet_checks": [c["id"] for c in required if c["id"] not in passed],
+            "trace_status": trace["status"], "explicit_stop_decision": stop_decision,
+            "stop_reason": (trace.get("reason") or final.get("reason")) if terminal else None,
+            "last_decision_reason": final.get("reason"),
+            "actual_cost": {"action_tool_calls": action_calls, "preparation_tool_calls": native.get("preparation_tool_calls"),
+                            "total_query_tool_calls": trace.get("budget", {}).get("usage", {}).get("tool_calls"),
+                            "action_tokens": action_tokens, "model_usage": model_usage},
+            "unknown_action_token_receipts": sum(c.get("tokens") is None for c in action_costs),
+            "pending_receipt_count": sum(q["status"] in PENDING for q in queries),
+            "saved_requests": requests}
+        report["independent_outcome"] = _target_result(target, analysis_id=view["id"], environment=report["environment"],
+            provenance=provenance, evidence=evidence, artifacts=artifacts, decision=stop_decision)
+        if report["independent_outcome"]["review_status"] == "unreviewed":
+            report["limitations"].append("independent_target_coverage_and_stop_correctness_unreviewed")
+        report["integrity"].update(status="passed", native_assessment=native)
+    except (AssertionError, ValueError, KeyError, TypeError, IndexError) as exc:
+        report["integrity"].update(status="failed", reason=str(exc))
+        report["route_metrics"] = None
+        report["independent_outcome"] = None
+    return report
