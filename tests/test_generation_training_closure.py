@@ -323,6 +323,8 @@ def test_fake_rag_episode_persists_qa_items_and_training_samples(
     assert manifest["qa_item_count"] == 2
     assert manifest["planner_sample_count"] == 3
     assert manifest["leakage_check"] == "passed"
+    assert manifest["artifact_role"] == "generation_exploration"
+    assert manifest["blind_solver_training_compatible"] is False
     exported_items = [
         json.loads(line)
         for line in (export_dir / "qa_items.jsonl").read_text(

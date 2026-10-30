@@ -174,15 +174,16 @@ def test_preflight_reports_that_no_snapshot_is_pinned() -> None:
     assert capability.snapshot.snapshot_id is None
 
 
-def test_a_pinned_snapshot_is_reported() -> None:
+def test_a_deployment_label_does_not_claim_a_pinned_snapshot() -> None:
     provider = WeKnoraProvider(
         config=_config("http://127.0.0.1:1", snapshot_id="corpus-2026-10")
     )
     capability = provider.preflight()
-    assert capability.supports_pinned_snapshot is True
+    assert capability.supports_pinned_snapshot is False
     assert capability.snapshot is not None
-    assert capability.snapshot.snapshot_id == "corpus-2026-10"
-    assert capability.snapshot.pinned is True
+    assert capability.snapshot.snapshot_id is None
+    assert capability.snapshot.pinned is False
+    assert capability.tool_snapshot.data_snapshot_id is None
 
 
 # ---- search --------------------------------------------------------------
@@ -404,3 +405,72 @@ def test_the_request_requires_a_knowledge_base() -> None:
         LiteratureRetrievalRequest(
             request_id="r", need_id="n", query="q"
         )
+
+def test_configured_label_keeps_ordinary_search_and_readback_available() -> None:
+    with _Server({
+        "search": [{"status": 200, "body": {"success": True, "data": [SEARCH_ROW]}}],
+        "chunk": [{"status": 200, "body": {"success": True, "data": CHUNK_ROW}}],
+    }) as server:
+        provider = WeKnoraProvider(config=_config(server.url, snapshot_id="unverified-label"))
+        searched = provider.search(_request())
+        read_back = provider.read_chunk(LiteratureChunkReadRequest(
+            request_id="ordinary-read", chunk_id=searched.chunks[0].chunk_id,
+        ))
+    assert searched.status is LiteratureCallStatus.SUCCESS
+    assert read_back.status is LiteratureCallStatus.SUCCESS
+    assert searched.snapshot.pinned is False and searched.snapshot.snapshot_id is None
+    assert read_back.snapshot.pinned is False and read_back.snapshot.snapshot_id is None
+
+
+def test_fixed_snapshot_requests_fail_before_http() -> None:
+    provider = WeKnoraProvider(
+        config=_config("http://127.0.0.1:1", snapshot_id="unverified-label"),
+        transport=lambda *_args: pytest.fail("unsupported snapshot must not issue HTTP"),
+    )
+    searched = provider.search(_request(expected_snapshot_id="unverified-label"))
+    read_back = provider.read_chunk(LiteratureChunkReadRequest(
+        request_id="fixed-read", chunk_id="chunk-00000001",
+        expected_snapshot_id="unverified-label",
+    ))
+    assert searched.status is LiteratureCallStatus.PROVIDER_ERROR
+    assert read_back.status is LiteratureCallStatus.PROVIDER_ERROR
+    assert searched.error_code == read_back.error_code == "snapshot_unavailable"
+    assert provider.calls == []
+
+
+def test_configuration_label_cannot_pass_formal_evidence_gate(tmp_path) -> None:
+    from medical_qa_data_factory.generation.executor import ToolCallError
+    from medical_qa_data_factory.generation.literature_execution import LiteratureEvidenceExecutor
+
+    provider = WeKnoraProvider(config=_config("http://127.0.0.1:1", snapshot_id="label"))
+    executor = LiteratureEvidenceExecutor(
+        provider=provider, repository_root=str(tmp_path), episode_id="episode",
+        run_id="run", knowledge_base_ids=["kb"], needs={}, evidence_by_id={},
+    )
+    with pytest.raises(ToolCallError, match="pinned literature snapshot"):
+        executor.preflight()
+    assert provider.calls == []
+
+
+def test_http_200_failure_is_not_empty_evidence() -> None:
+    with _Server({"search": [{"status": 200, "body": {"success": False, "data": []}}]}) as server:
+        result = WeKnoraProvider(config=_config(server.url)).search(_request())
+    assert result.status is LiteratureCallStatus.PROVIDER_ERROR
+    assert result.error_code == "provider_rejected"
+
+
+@pytest.mark.parametrize("rows", [[{}], ["invalid"], [dict(SEARCH_ROW, start_at="not-a-number")]])
+def test_malformed_search_rows_are_not_empty_evidence(rows) -> None:
+    with _Server({"search": [{"status": 200, "body": {"success": True, "data": rows}}]}) as server:
+        result = WeKnoraProvider(config=_config(server.url)).search(_request())
+    assert result.status is LiteratureCallStatus.PARSE_ERROR
+    assert result.error_code == "invalid_chunks"
+
+
+def test_http_200_rejected_readback_is_not_success() -> None:
+    with _Server({"chunk": [{"status": 200, "body": {"success": False, "data": CHUNK_ROW}}]}) as server:
+        result = WeKnoraProvider(config=_config(server.url)).read_chunk(
+            LiteratureChunkReadRequest(request_id="read", chunk_id="chunk-00000001")
+        )
+    assert result.status is LiteratureCallStatus.PROVIDER_ERROR
+    assert result.error_code == "provider_rejected"

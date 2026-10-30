@@ -83,7 +83,7 @@ def test_the_description_never_leaks_the_key(tmp_path: Path, monkeypatch) -> Non
     assert described[0]["api_key_present"] is True
 
 
-def test_a_pinned_snapshot_is_carried_into_the_provider(tmp_path: Path) -> None:
+def test_a_snapshot_label_does_not_claim_a_pinned_provider(tmp_path: Path) -> None:
     path = _config(tmp_path)
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload["providers"]["weknora"]["snapshot_id"] = "corpus-2026-10"
@@ -92,4 +92,7 @@ def test_a_pinned_snapshot_is_carried_into_the_provider(tmp_path: Path) -> None:
     provider = registry.build()
     assert provider.config.snapshot_id == "corpus-2026-10"
     capability = provider.preflight()
-    assert capability.supports_pinned_snapshot is True
+    assert capability.supports_pinned_snapshot is False
+    assert capability.snapshot is not None
+    assert capability.snapshot.pinned is False
+    assert capability.snapshot.snapshot_id is None

@@ -97,7 +97,7 @@ class WeKnoraConfig:
     provider_name: str = "weknora"
     #: The knowledge bases this adapter may search.
     knowledge_base_ids: list[str] = field(default_factory=list)
-    #: The pinned corpus version, when the deployment exposes one.
+    #: Legacy deployment label only; the current endpoints cannot enforce a snapshot.
     snapshot_id: str | None = None
 
     def api_key(self) -> str:
@@ -130,17 +130,17 @@ class WeKnoraProvider:
     def preflight(self) -> LiteratureCapability:
         """Report what the provider can do, without changing any state.
 
-        The capability is derived from what the endpoints of this deployment
-        actually offer, not from a hard-coded claim: a read-back is only
-        reported as supported once the chunk endpoint answers.
+        This is the adapter contract, not a live health check. These endpoints
+        do not select or attest an immutable corpus version. A configuration
+        label must therefore never enable formal pinned-snapshot evidence.
         """
-        snapshot = self._snapshot(pinned=bool(self.config.snapshot_id))
+        snapshot = self._snapshot()
         capability = LiteratureCapability(
             provider=self.config.provider_name,
             capability_version=WEKNORA_CAPABILITY_VERSION,
             supports_search=True,
             supports_read_chunk=True,
-            supports_pinned_snapshot=bool(self.config.snapshot_id),
+            supports_pinned_snapshot=False,
             supports_metadata_filters=False,
             supports_source_offsets=True,
             max_limit=100,
@@ -148,14 +148,16 @@ class WeKnoraProvider:
             tool_snapshot=ToolSnapshot(
                 tool_name=f"literature_{self.config.provider_name}",
                 tool_version=WEKNORA_CAPABILITY_VERSION,
-                data_snapshot_id=self.config.snapshot_id,
+                data_snapshot_id=None,
                 config_hash=content_hash(self.config.base_url),
                 endpoint_kind="http",
                 retrieved_at=utc_now(),
             ),
             notes=(
                 "WeKnora search returns ranked chunks without LLM synthesis; "
-                "chunk read-back is available by chunk id."
+                "chunk read-back is available by chunk id. Snapshot selection is "
+                "not supported; configured labels do not pin the corpus. "
+                "Results are development/context candidates, not formal gold."
             ),
         )
         return capability
@@ -167,6 +169,15 @@ class WeKnoraProvider:
     ) -> LiteratureRetrievalResult:
         """Search one knowledge base for chunks matching a need."""
         started = time.monotonic()
+        if request.expected_snapshot_id is not None:
+            return LiteratureRetrievalResult(
+                request_id=request.request_id,
+                need_id=request.need_id,
+                status=LiteratureCallStatus.PROVIDER_ERROR,
+                snapshot=self._snapshot(),
+                error_code="snapshot_unavailable",
+                message="WeKnora cannot enforce the requested corpus snapshot",
+            )
         url = f"{self.config.base_url.rstrip('/')}/api/v1/knowledge-search"
         body = {
             "query": request.query,
@@ -203,15 +214,32 @@ class WeKnoraProvider:
                 request, LiteratureCallStatus.PARSE_ERROR, status, elapsed,
                 "the provider response is not a JSON object",
             )
+        if payload.get("success") is not True:
+            return self._failed_search(
+                request, LiteratureCallStatus.PROVIDER_ERROR, status, elapsed,
+                "the provider did not confirm a successful search",
+                error_code="provider_rejected",
+            )
         rows = payload.get("data")
         if not isinstance(rows, list):
             return self._failed_search(
                 request, LiteratureCallStatus.PARSE_ERROR, status, elapsed,
                 "the provider response has no data array",
             )
-        chunks = [self._to_chunk(row) for row in rows if isinstance(row, dict)]
-        chunks = [item for item in chunks if item is not None][: request.limit]
-        snapshot = self._snapshot(pinned=bool(self.config.snapshot_id))
+        try:
+            if any(not isinstance(row, dict) for row in rows):
+                raise ValueError("invalid chunk row")
+            chunks = [self._to_chunk(row) for row in rows]
+            if any(item is None for item in chunks):
+                raise ValueError("invalid chunk identity or text")
+        except (TypeError, ValueError):
+            return self._failed_search(
+                request, LiteratureCallStatus.PARSE_ERROR, status, elapsed,
+                "the provider returned malformed chunks, not an empty result",
+                error_code="invalid_chunks",
+            )
+        chunks = chunks[: request.limit]
+        snapshot = self._snapshot()
         return LiteratureRetrievalResult(
             request_id=request.request_id,
             need_id=request.need_id,
@@ -236,6 +264,14 @@ class WeKnoraProvider:
     ) -> LiteratureChunkReadResult:
         """Read one chunk back by id, independently of the search."""
         started = time.monotonic()
+        if request.expected_snapshot_id is not None:
+            return LiteratureChunkReadResult(
+                request_id=request.request_id,
+                chunk_id=request.chunk_id,
+                status=LiteratureCallStatus.PROVIDER_ERROR,
+                error_code="snapshot_unavailable",
+                message="WeKnora cannot enforce the requested corpus snapshot",
+            )
         url = (
             f"{self.config.base_url.rstrip('/')}"
             f"/api/v1/chunks/by-id/{request.chunk_id}"
@@ -271,6 +307,12 @@ class WeKnoraProvider:
                 request, LiteratureCallStatus.PARSE_ERROR, status, elapsed,
                 "the provider response is not valid JSON",
             )
+        if isinstance(payload, dict) and payload.get("success") is not True:
+            return self._failed_read(
+                request, LiteratureCallStatus.PROVIDER_ERROR, status, elapsed,
+                "the provider did not confirm a successful read-back",
+                error_code="provider_rejected",
+            )
         data = payload.get("data") if isinstance(payload, dict) else None
         if not isinstance(data, dict):
             return self._failed_read(
@@ -286,7 +328,7 @@ class WeKnoraProvider:
             chunk_index=data.get("chunk_index"),
             start_at=data.get("start_at"),
             end_at=data.get("end_at"),
-            snapshot=self._snapshot(pinned=bool(self.config.snapshot_id)),
+            snapshot=self._snapshot(),
             trace_id=self._trace_id(headers),
             provider_request_id=self._request_id(headers),
             usage=self._usage_read(request, elapsed),
@@ -326,13 +368,13 @@ class WeKnoraProvider:
         self.calls.append(record)
         return status, response_headers, text
 
-    def _snapshot(self, *, pinned: bool) -> LiteratureSnapshot:
+    def _snapshot(self) -> LiteratureSnapshot:
         return LiteratureSnapshot(
             provider=self.config.provider_name,
             capability_version=WEKNORA_CAPABILITY_VERSION,
-            snapshot_id=self.config.snapshot_id,
+            snapshot_id=None,
             knowledge_base_ids=list(self.config.knowledge_base_ids),
-            pinned=pinned,
+            pinned=False,
             retrieved_at=utc_now(),
         )
 
@@ -434,13 +476,15 @@ class WeKnoraProvider:
         http_status: int,
         elapsed: int,
         message: str,
+        *,
+        error_code: str | None = None,
     ) -> LiteratureRetrievalResult:
         return LiteratureRetrievalResult(
             request_id=request.request_id,
             need_id=request.need_id,
             status=status,
-            snapshot=self._snapshot(pinned=bool(self.config.snapshot_id)),
-            error_code=f"http_{http_status}",
+            snapshot=self._snapshot(),
+            error_code=error_code or f"http_{http_status}",
             message=message,
             elapsed_ms=elapsed,
         )
@@ -452,12 +496,14 @@ class WeKnoraProvider:
         http_status: int,
         elapsed: int,
         message: str,
+        *,
+        error_code: str | None = None,
     ) -> LiteratureChunkReadResult:
         return LiteratureChunkReadResult(
             request_id=request.request_id,
             chunk_id=request.chunk_id,
             status=status,
-            error_code=f"http_{http_status}",
+            error_code=error_code or f"http_{http_status}",
             message=message,
             elapsed_ms=elapsed,
         )

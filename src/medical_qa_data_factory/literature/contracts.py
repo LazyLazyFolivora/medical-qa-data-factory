@@ -37,8 +37,8 @@ LITERATURE_SCHEMA_VERSION = "literature-v1"
 class LiteratureCallStatus(str, Enum):
     """The outcome of one retrieval call.
 
-    ``EMPTY`` is a real answer: the corpus does not contain this. It must
-    never be turned into "the relation does not hold".
+    ``EMPTY`` means this bounded query returned no matching chunk. It does
+    not prove corpus-wide absence or that the relation does not hold.
     """
 
     SUCCESS = "success"

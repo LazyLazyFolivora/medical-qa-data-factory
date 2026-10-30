@@ -226,13 +226,13 @@ def build_parser() -> argparse.ArgumentParser:
     evidence_pubmed_search.add_argument("--limit", type=int, default=10)
 
     training = commands.add_parser(
-        "training", help="Export Query Planner training artifacts"
+        "training", help="Export generation-exploration research artifacts (not blind solver traces)"
     )
     training_commands = training.add_subparsers(
         dest="training_command", required=True
     )
     training_export = training_commands.add_parser(
-        "export", help="Export QAItems and Planner samples as JSONL"
+        "export", help="Export QAItems and generation-policy samples as JSONL"
     )
     training_export.add_argument("--workspace", required=True)
     training_export.add_argument("--output", required=True)

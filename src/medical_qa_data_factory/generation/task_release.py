@@ -11,6 +11,7 @@ from typing import Any, Iterable
 from pydantic import Field
 
 from ..domain.common import ContractModel
+from .task_contracts import TASK_CONTRACT_SCHEMA_VERSION
 from .task_service import (
     CtdEvidenceCatalogEntry,
     EvidenceCatalogEntry,
@@ -222,16 +223,18 @@ class TaskReleaseExporter:
             "schema_version": self.schema_version,
             "release_id": release_id,
             "environment_id": result.environment_id,
-            "seed_entity_id": result.seed_entity_id,
         }
+        hidden_metadata = {"seed_entity_id": result.seed_entity_id}
         if result.episode is not None:
-            shared_manifest["episode_id"] = result.episode.episode_id
-            shared_manifest["provenance"] = result.episode.provenance
+            hidden_metadata["episode_id"] = result.episode.episode_id
+            hidden_metadata["provenance"] = result.episode.provenance
         self._write_json(
             public_dir / "dataset_manifest.json",
             {
                 **shared_manifest,
                 "visibility": "public",
+                "artifact_role": "blind_solver_input",
+                "question_schema_version": TASK_CONTRACT_SCHEMA_VERSION,
                 "files": public_files,
             },
         )
@@ -239,7 +242,9 @@ class TaskReleaseExporter:
             hidden_dir / "dataset_manifest.json",
             {
                 **shared_manifest,
+                **hidden_metadata,
                 "visibility": "hidden",
+                "artifact_role": "post_solve_evaluation_only",
                 "files": hidden_files,
             },
         )

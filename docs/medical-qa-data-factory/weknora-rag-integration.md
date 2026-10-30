@@ -112,8 +112,16 @@ HTTP 状态码即分类依据：错误体可能带 `{"code": 1003}` 形式的服
    （`literature/providers/weknora.py` 的 `content_hash`），provider 不为自己的文本背书。
 2. **检索与回读是两个请求。** 一条结果要成为 gold 文本证据，必须在同一个 snapshot 上
    通过 `read_chunk` 独立回读，且两侧文本的 hash 与字符偏移都一致。
-3. **能否固定语料快照决定该 provider 能否产出正式 gold。** `snapshot_id` 为空时，
-   该 provider 只能产出 development/context candidate。
+3. **当前 WeKnora adapter 不宣称能固定语料快照。** 这两个端点没有经过验证的
+   版本选择/服务端版本证明协议；即使配置了 `snapshot_id` 字符串，能力仍为
+   `supports_pinned_snapshot=false`，返回快照为 `snapshot_id=null, pinned=false`。
+   普通检索、分块回读及其一致性检查继续可用，但结果仅作 development/context candidate。
+   正式证据执行器拒绝用它产出 gold；显式请求 `expected_snapshot_id` 时返回
+   `provider_error/snapshot_unavailable`，不会静默忽略版本要求后继续请求。
+   后续只有实际接通可核验的固定版本读取，才能开放这项能力，不能靠增加一个配置值放行。
+
+检索返回 `success=false` 或损坏分块分别记录为服务失败/协议失败，不转换为空结果。
+合法的空 `data` 数组只表示本次查询未命中，不能推出关系不成立或全库没有资料。
 
 ## 部署事实
 

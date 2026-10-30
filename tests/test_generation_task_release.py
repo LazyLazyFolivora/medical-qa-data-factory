@@ -7,6 +7,7 @@ from medical_qa_data_factory.generation.task_contracts import (
 from medical_qa_data_factory.generation.task_release import TaskReleaseExporter
 from medical_qa_data_factory.generation.task_service import (
     ConstrainedTaskGenerationService,
+    CtdGenerationEpisode,
 )
 from medical_qa_data_factory.knowledge_graph import EntityLookup
 from medical_qa_data_factory.knowledge_graph.providers.primekg import (
@@ -40,6 +41,14 @@ def test_release_separates_public_questions_from_hidden_evaluation_truth(tmp_pat
     finally:
         provider.close()
 
+    # Optional generation provenance is private, including arbitrary hints.
+    result = result.model_copy(update={"episode": CtdGenerationEpisode(
+        episode_id="private-generation-episode", seed_entity_id=result.seed_entity_id,
+        chemical_id="private-generation-chemical", snapshot_id=snapshot.data_snapshot_id,
+        environment_id=environment.environment_id, candidate_count=result.candidates_seen,
+        competitor_count=0, published_count=len(result.published), search_complete=True,
+        stop_reason="fixture_complete", provenance={"private_hint": "PRIVATE-ORACLE-HINT"},
+    )})
     output = tmp_path / "release"
     summary = TaskReleaseExporter().export(result, output)
 
@@ -54,6 +63,7 @@ def test_release_separates_public_questions_from_hidden_evaluation_truth(tmp_pat
         "rejected_candidates.jsonl",
         "evidence_catalog.jsonl",
         "generation_traces.jsonl",
+        "generation_episodes.jsonl",
         "dataset_manifest.json",
         "quality_report.json",
     }
@@ -94,6 +104,11 @@ def test_release_separates_public_questions_from_hidden_evaluation_truth(tmp_pat
         )
     )
     assert manifest["environment_id"] == "world-release"
+    assert manifest["artifact_role"] == "blind_solver_input"
+    assert manifest["question_schema_version"] == "task-construction-v2"
+    assert "seed_entity_id" not in manifest
+    assert "provenance" not in manifest
+    assert "episode_id" not in manifest
     assert manifest["files"]["planner_questions.jsonl"]["sha256"]
     assert "evaluation_targets.jsonl" not in manifest["files"]
     hidden_manifest = json.loads(
@@ -102,6 +117,9 @@ def test_release_separates_public_questions_from_hidden_evaluation_truth(tmp_pat
         )
     )
     assert hidden_manifest["files"]["evidence_catalog.jsonl"]["sha256"]
+    assert hidden_manifest["artifact_role"] == "post_solve_evaluation_only"
+    assert hidden_manifest["seed_entity_id"] == result.seed_entity_id
+    assert hidden_manifest["release_id"] == manifest["release_id"]
     assert (
         output / "hidden" / "generation_traces.jsonl"
     ).read_text(encoding="utf-8")
@@ -120,3 +138,6 @@ def test_release_separates_public_questions_from_hidden_evaluation_truth(tmp_pat
         )
     }
     assert all(answer not in public_payload for answer in hidden_answers)
+    assert "PRIVATE-ORACLE-HINT" not in public_payload
+    assert "private-generation-episode" not in public_payload
+    assert hidden_manifest["provenance"]["private_hint"] == "PRIVATE-ORACLE-HINT"
