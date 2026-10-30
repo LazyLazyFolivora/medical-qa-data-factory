@@ -161,3 +161,31 @@ artifacts/artifact_results/execution）；实际 `queries / evidence / calls / b
 
 新增导入与原有路由的 27 项定向测试通过；另已实际加载 Radar 的独立原生 checker 验证
 原生 v2 形状兼容。测试资料仍是合成契约资料；真实轨迹的结果另存到本次整栈验收目录。
+
+### 首批真实路由固定快照（2026-10-30）
+
+已用上面的 `import-radar --provenance real_task` 命令实际核验两条 Radar 调查：
+
+| 方向 / analysis ID | 已保存动作与回执 | 宿主必要观察检查 | 实际费用 | 路由停止 |
+| --- | --- | --- | --- | --- |
+| research / `e74dc3c1-b334-43b2-b07f-885876b5506e` | 3 次资料搜索、1 次数据准备、1 次分析；5 条回执 | 4/8 | 动作工具 5 + 准备工具 10；模型 3 次、104672 token | `insufficient / no_eligible_action` |
+| public_health / `7af5f453-71ca-47cc-980c-6c2814e76233` | 2 次资料搜索、1 次数据准备、1 次分析；4 条回执 | 4/8 | 动作工具 7 + 准备工具 8；模型 5 次、179379 token | `insufficient / no_eligible_action` |
+
+费用与原生回执及总账一致。公卫的一项取证工具 token 用量仍未知，`action_tokens=null`，
+不以模型总量替代。两条都有完整的实际 `policy_request`，逐步历史与合法候选核验通过；
+用实际内容 hash 对应的 query-planner 重放，科研 6 步、公卫 5 步的选择均一致。
+同候选快照上的 `coverage_cost_baseline_v1` 在公卫有 3 处选择差异，科研没有差异；
+替代动作没有执行，因此收益差异与反事实回执仍为 `null`，不算新的独立 solver 运行。
+
+上述固定快照中，科研 analysis 为 `blocked / method_input_invalid`，公卫为 `needs_review`；
+路由检查通过不等于报告或科学/业务结论通过。两条独立 gold 目标均未审核，独立覆盖与
+停止正确性保持 `null`。原始失败也保留：公卫 Fabric 搜索的 `history_source_invalid` 和
+WeKnora 的 `weknora_candidates_not_bound`。管线、商业的 mining 运行不能替代尚未导出的路由轨迹。
+
+可复核原件与报告位于 zktest 的
+`/tmp/bioradar-kdd-20261030/independent-evaluation/`：
+`factory-inputs/` 按实际读取字节 hash 保存原生 view；
+`factory-routing-first-two-fixed-20261030.jsonl` 保留最初两条评测；
+`factory-routing-public-health-final-20261030.jsonl` 记录公卫模型回执收齐后的评测；
+`factory-routing-same-candidate-audit-first-two.json` 保存精确版本的决策重放和对照差异；
+`factory-routing-real-progress.json` 列出各方向实际覆盖范围。旧快照和旧报告不会被新回执覆盖。
