@@ -90,7 +90,8 @@
     "provenance": {
       "enum": [
         "real_task",
-        "synthetic_fixture"
+        "synthetic_fixture",
+        "historical_replay"
       ],
       "title": "Provenance",
       "type": "string"

@@ -112,7 +112,7 @@ def test_saved_requests_cannot_change_actual_receipt_information(field, value):
 
 def test_mining_results_are_not_routing_trajectories_and_demo_is_not_real():
     result = evaluate({"id": "mining-run", "query_policy": None})
-    assert result["integrity"] == {"status": "not_evaluable", "validator_version": "test-checker", "reason": "no_saved_v2_route_trace"}
+    assert result["integrity"] == {"status": "not_evaluable", "validator_version": "test-checker", "reason": "no_saved_supported_route_trace"}
     view = native_view(); view["is_demo"] = True
     with pytest.raises(ValueError, match="non_demo"):
         evaluate_radar_view(view, provenance="real_task", trace_validator=validator, validator_version="test-checker")
@@ -144,3 +144,57 @@ def test_reviewed_target_does_not_grade_a_running_route_as_a_stop_failure():
     assert out["independent_outcome"]["observation_coverage"] == 1
     assert out["independent_outcome"]["correct_observable_stop"] is None
     assert out["independent_outcome"]["false_observable_completion"] is None
+
+
+def test_frozen_v1_is_imported_as_v1_without_new_capability_equivalence():
+    view = native_view()
+    view["query_policy"]["schema_version"] = "query-planner.external.v1"
+    view["query_policy"]["requested"] = view["query_policy"]["effective"] = "baseline"
+    view["query_policy"]["selector"] = "heuristic"
+    view["query_policy"]["stop"] = "rule"
+    after = add_saved_requests(view)
+    for decision in view["query_policy"]["decisions"]:
+        decision["policy_request"]["schema_version"] = "query-planner.external.v1"
+        decision["policy_request"].pop("direction")
+    out = evaluate(view)
+    assert out["integrity"]["status"] == "passed"
+    assert out["route_schema_version"] == "query-planner.external.v1"
+    assert out["policy"]["effective"] == "baseline"
+    assert "frozen_legacy_action_space_not_new_v2_capability_equivalent" in out["limitations"]
+    after["history"][0]["actual_cost"]["tool_calls"] = 99
+    assert evaluate(view)["integrity"]["status"] == "failed"
+
+
+def test_import_keeps_unknown_coverage_and_unread_limits_separate_from_integrity():
+    view = native_view()
+    summary = view["query_policy"]["decisions"][-1]["state_summary"]
+    summary.update(coverage_issues=[{"check_id": "model:unknown", "status": "unknown"}],
+                   unmet_reading=[{"source_record_id": "visible-unavailable", "status": "unavailable"}],
+                   action_attempt_counts={"document_read": 1})
+    out = evaluate(view)
+    assert out["route_metrics"]["coverage_issues"] == summary["coverage_issues"]
+    assert out["route_metrics"]["unmet_reading"] == summary["unmet_reading"]
+    assert out["independent_outcome"]["observation_coverage"] is None
+
+
+def test_model_stages_and_non_route_accounting_are_not_invented():
+    view = native_view()
+    view["calls"] = [{"call_id": "m1", "stage": "read_plan", "status": "received", "receipt": {"usage": {"total_tokens": 9}}},
+                     {"call_id": "m2", "stage": "write", "status": "unknown", "receipt": {}}]
+    view["budget"]["usage"] = {"calls": 2, "total_tokens": None, "known_total_tokens": 9, "unknown_usage_calls": 1}
+    out = evaluate_radar_view(view, provenance="synthetic_fixture", trace_validator=lambda *_args, **_kwargs: {
+        "preparation_tool_calls": 2, "non_route_professional_tool_calls": 3, "unknown_tool_calls": 1, "reserved_tool_calls": 0}, validator_version="test-checker")
+    metrics = out["route_metrics"]
+    assert metrics["model_stages"]["read_plan"]["known_total_tokens"] == 9
+    assert metrics["model_stages"]["write"]["total_tokens"] is None
+    assert metrics["actual_cost"]["non_route_professional_tool_calls"] == 3
+
+
+def test_historical_replay_is_explicit_and_never_accepts_synthetic_sources():
+    view = native_view(); view["is_demo"] = True
+    with pytest.raises(ValueError, match="non_demo"):
+        evaluate_radar_view(view, provenance="historical_replay", trace_validator=validator, validator_version="test-checker")
+    view["is_demo"] = False
+    out = evaluate_radar_view(view, provenance="historical_replay", trace_validator=validator, validator_version="test-checker")
+    assert out["provenance"] == "historical_replay"
+    assert out["independent_outcome"]["observation_coverage"] is None

@@ -44,7 +44,8 @@
     "provenance": {
       "enum": [
         "real_task",
-        "synthetic_fixture"
+        "synthetic_fixture",
+        "historical_replay"
       ],
       "title": "Provenance",
       "type": "string"
@@ -61,7 +62,18 @@
     },
     "supported_kinds": {
       "items": {
-        "type": "string"
+        "type": "string",
+        "enum": [
+          "document_search",
+          "document_read",
+          "entity_relations",
+          "graph_neighbors",
+          "graph_path",
+          "dataset_prepare",
+          "analysis_run",
+          "professional_assess",
+          "source_fetch"
+        ]
       },
       "minItems": 1,
       "title": "Supported Kinds",

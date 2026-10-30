@@ -28,12 +28,18 @@ def add_commands(evaluation_commands):
     compare.add_argument("--right", required=True)
     compare.add_argument("--targets", required=True)
     compare.add_argument("--out", required=True)
-    imported = modes.add_parser("import-radar", help="Independently assess existing native Radar v2 analysis views; execute nothing")
+    imported = modes.add_parser("import-radar", help="Independently assess existing native Radar v1/v2 analysis views; execute nothing")
     imported.add_argument("--views", nargs="+", required=True)
-    imported.add_argument("--provenance", choices=("real_task", "synthetic_fixture"), required=True)
+    imported.add_argument("--provenance", choices=("real_task", "synthetic_fixture", "historical_replay"), required=True)
     imported.add_argument("--trace-validator", required=True, help="trusted native checker module exposing assert_query_policy")
     imported.add_argument("--targets", default=None, help="optional independently reviewed hidden targets; never solver input")
     imported.add_argument("--out", required=True)
+    summary = modes.add_parser("summarize-experiments", help="Separate route integrity, native report status and independent fact review across frozen experiment arms")
+    summary.add_argument("--protocol", required=True, help="frozen post-run experiment protocol; never solver input")
+    summary.add_argument("--imports", nargs="+", required=True, help="import-radar output JSONL files")
+    summary.add_argument("--reviews", default=None, help="optional post-run independent fact-review JSONL bound to exact source view hashes")
+    summary.add_argument("--out", required=True)
+
 
 
 
@@ -64,6 +70,14 @@ def command(args):
     # Opening before execution guarantees an existing result cannot be overwritten.
     destination.parent.mkdir(parents=True, exist_ok=True)
     with destination.open("x") as stream:
+        if args.route_mode == "summarize-experiments":
+            from .route_experiments import summarize_experiments
+            reports = [json.loads(line) for source in args.imports for line in Path(source).read_text().splitlines() if line.strip()]
+            reviews = [json.loads(line) for line in Path(args.reviews).read_text().splitlines() if line.strip()] if args.reviews else []
+            result = summarize_experiments(json.loads(Path(args.protocol).read_text()), reports, reviews)
+            stream.write(json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
+            print(json.dumps({"counts": result["counts"], "model_usage": result["model_usage"]}, ensure_ascii=False))
+            return 0
         if args.route_mode == "import-radar":
             from .radar_routes import evaluate_radar_view
             validator_path = Path(args.trace_validator).resolve(strict=True)

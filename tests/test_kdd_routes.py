@@ -81,8 +81,9 @@ def test_four_direction_independent_branch_runs_and_comparison(direction):
     assert good["transitions"][0]["decision"]["action"]["id"] != weak["transitions"][0]["decision"]["action"]["id"]
 
 
-def test_live_host_callbacks_consume_receipts_without_owning_execution():
-    task, manifest, states, target = fixture(kind="professional_assess")
+@pytest.mark.parametrize("kind", ["professional_assess", "source_fetch"])
+def test_live_host_callbacks_consume_receipts_without_owning_execution(kind):
+    task, manifest, states, target = fixture(kind=kind)
     underlying = SyntheticReceiptWorld(manifest, states, "start")
     called = []
     def execute(action):
@@ -209,3 +210,16 @@ def test_partition_and_environment_mismatch_reject_release():
         target.environment_version = "changed"
         with pytest.raises(ValueError, match="mismatch"):
             write_release([task], [target], [manifest], Path(directory) / "bad2")
+
+
+def test_historical_replay_requires_real_frozen_versions_and_no_fixture_gold():
+    task, manifest, states, target = fixture()
+    manifest = {**manifest.model_dump(), "provenance": "historical_replay"}
+    with pytest.raises(ValueError, match="source versions"):
+        EnvironmentManifest.model_validate(manifest)
+    manifest["source_versions"] = [{"id": "published-record", "version": "archived-content-hash"}]
+    valid = EnvironmentManifest.model_validate(manifest)
+    with pytest.raises(ValueError, match="synthetic_fixture"):
+        SyntheticReceiptWorld(valid, states, "start")
+    with pytest.raises(ValueError, match="synthetic expectations"):
+        RouteEvaluationTarget.model_validate({**target.model_dump(), "provenance": "historical_replay"})

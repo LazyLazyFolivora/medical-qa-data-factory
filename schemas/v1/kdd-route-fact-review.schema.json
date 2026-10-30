@@ -1,0 +1,166 @@
+{
+  "$defs": {
+    "FactCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "failed",
+            "not_evaluable"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "basis_refs": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Basis Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "basis_refs"
+      ],
+      "title": "FactCheck",
+      "type": "object"
+    },
+    "JudgementEndpoint": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "supported",
+            "unsupported",
+            "not_evaluable"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "date_precision": {
+          "default": "unknown",
+          "enum": [
+            "instant",
+            "day",
+            "interval",
+            "unknown"
+          ],
+          "title": "Date Precision",
+          "type": "string"
+        },
+        "basis_refs": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Basis Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "basis_refs"
+      ],
+      "title": "JudgementEndpoint",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "kdd-route-fact-review-v1",
+      "default": "kdd-route-fact-review-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "analysis_id": {
+      "minLength": 1,
+      "title": "Analysis Id",
+      "type": "string"
+    },
+    "source_view_sha256": {
+      "minLength": 1,
+      "title": "Source View Sha256",
+      "type": "string"
+    },
+    "reviewer": {
+      "minLength": 1,
+      "title": "Reviewer",
+      "type": "string"
+    },
+    "review_basis_refs": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Review Basis Refs",
+      "type": "array"
+    },
+    "fact_checks": {
+      "items": {
+        "$ref": "#/$defs/FactCheck"
+      },
+      "title": "Fact Checks",
+      "type": "array"
+    },
+    "judgement_endpoints": {
+      "items": {
+        "$ref": "#/$defs/JudgementEndpoint"
+      },
+      "title": "Judgement Endpoints",
+      "type": "array"
+    },
+    "visibility_review_status": {
+      "default": "unreviewed",
+      "enum": [
+        "unreviewed",
+        "passed",
+        "failed"
+      ],
+      "title": "Visibility Review Status",
+      "type": "string"
+    },
+    "visibility_basis_refs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Visibility Basis Refs",
+      "type": "array"
+    }
+  },
+  "required": [
+    "analysis_id",
+    "source_view_sha256",
+    "reviewer",
+    "review_basis_refs"
+  ],
+  "title": "IndependentFactReview",
+  "type": "object"
+}

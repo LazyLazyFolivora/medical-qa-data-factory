@@ -189,3 +189,55 @@ WeKnora 的 `weknora_candidates_not_bound`。管线、商业的 mining 运行不
 `factory-routing-public-health-final-20261030.jsonl` 记录公卫模型回执收齐后的评测；
 `factory-routing-same-candidate-audit-first-two.json` 保存精确版本的决策重放和对照差异；
 `factory-routing-real-progress.json` 列出各方向实际覆盖范围。旧快照和旧报告不会被新回执覆盖。
+
+
+## 分层实验汇总与历史回放（2026-10-31）
+
+`radar-route-import-1.1` 同时只读导入原生 v1 和 v2，仍调用同一个独立 native strict checker。
+v1 保存原 schema/策略版本和能力差异，不伪装新 v2；没有请求就不能重放、没有回执就不能补账。
+新增 `document_read/source_fetch` 可由已有 ObservationReceiptEnvironment 消费真实回执；
+工厂不执行外部工具。导入保留未知 coverage、未读材料、动作配额计数、模型 stage 及准备/路由/报告专业调用分项。
+
+`provenance=historical_replay` 表示真实公开历史材料的隔离回放，必须 `AnalysisView.is_demo=false`；
+测试环境隔离通过独立 DB/KB 和 environment/mode 表示。A/B/C 的人工消息保持 synthetic_fixture/is_demo=true。
+历史回放环境必须声明实际 source_versions，不能用合成分支世界产生历史结果。
+该标记本身不证明过去可见性；公开时间、原文版本、存档证明与日期精度另行独立审核。
+
+新增 `eval routes summarize-experiments`，输入封存实验协议、已有 import-radar JSONL，
+以及可选的独立事实审查 JSONL。它只在求解之后读取审查；solve 的接口与隐藏目标隔离保持原样。
+协议、事实审查正式 schema 和无答案示例位于 `schemas/v1/kdd-route-experiments*` 与
+`schemas/v1/kdd-route-fact-review.schema.json`。
+
+```bash
+python -m medical_qa_data_factory eval routes import-radar \
+  --views /ABS/frozen-analysis.json --provenance historical_replay \
+  --trace-validator /ABS/BioRadar/scripts/query_policy_assertions.py \
+  --out /ABS/fresh-historical-import.jsonl
+
+python -m medical_qa_data_factory eval routes summarize-experiments \
+  --protocol /ABS/sealed-experiments.json --imports /ABS/fresh-imports.jsonl \
+  --reviews /ABS/post-run-independent-reviews.jsonl --out /ABS/fresh-experiment-summary.json
+```
+
+每个 arm 绑定真实 analysis ID、策略版本，并声明输入/来源范围/模型/提示/预算/host 版本和动作空间。
+这些配置 hash 是封存协议的声明，工厂逐项展示差异、核对实际策略版本，不把声明等同于已验证的环境一致性。
+新 v2 能力 vs 冻结旧 baseline 是能力/配置对照，不能把结果差异归因为纯策略优越。
+原 `compare` 仍只允许同冻结任务与相同动作空间的独立 solver 对照。
+
+结果分开给出：receipt/schema 完整性、原生报告的实际 BioCheck status、绑定精确 view hash 的
+独立事实判断。无独立审查、未完成、缺必需判据或历史可见证明时，acceptance_passed 为 null。
+检查覆盖和方法运行完成不会转成独立事实正确。全项接受同时需要终止路由完整、原生 PASS、
+独立必需事实判据全过；历史任务还要时点证明已审和各判断终点已评。
+公卫 D 的聚集风险/传播风险为独立终点；记录审查后的观测日期与精度，不拿官方通报日替代算法目标。
+假传言和往季对照是单独 experiment row，使用相同 experiment_group 并标 control_role，
+不能只保留命中目标的正例。输出未知用量保持 null，并显示已知 token 下界和缺评估的任务数。
+
+本轮新增测试仅证明协议、回执和评价边界，不包含新的真实业务成绩或训练收益。
+
+
+2026-10-31 定向验证：factory 路由/原生导入/实验分层 39 项通过；planner v2 21 项与原 v1 16 项通过。
+另通过实际 `radar_policy.decide_kdd` + `run_solver` 在四方向各运行两种同空间 selector，
+每条走 document_read → source_fetch → complete，并消费各自合成环境的完整回执；
+8 份独立契约运行位于 `data/runs/kdd-report-contract-20261031/independent-solver-contract-runs.jsonl`。
+该目录被 Git 忽略，属于 synthetic_fixture 接口回归，0 HTTP/模型调用，不是服务已联通或业务效果证据；
+独立事实目标保持 unreviewed，未拿合成答案计算成绩。冻结旧 baseline 的能力对照仍须真实分别执行。

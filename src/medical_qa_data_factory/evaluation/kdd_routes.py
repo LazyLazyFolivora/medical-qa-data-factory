@@ -19,12 +19,12 @@ from ..domain.common import ContractModel
 TASK_SCHEMA = "kdd-route-task-v1"
 RUN_SCHEMA = "kdd-route-solver-run-v1"
 EVALUATOR_VERSION = "kdd-route-evaluator-1.0"
-KINDS = {"document_search", "entity_relations", "graph_neighbors", "graph_path", "dataset_prepare", "analysis_run", "professional_assess"}
+KINDS = {"document_search", "entity_relations", "graph_neighbors", "graph_path", "dataset_prepare", "analysis_run", "professional_assess", "document_read", "source_fetch"}
 DIMENSIONS = {"tool_calls", "tokens", "relation_access"}
 PENDING = {"prepared", "sent", "unknown", "unconfirmed"}
 STATUSES = PENDING | {"completed", "failed", "not_sent"}
 Direction = Literal["pipeline", "research", "business", "public_health"]
-Provenance = Literal["real_task", "synthetic_fixture"]
+Provenance = Literal["real_task", "synthetic_fixture", "historical_replay"]
 
 
 def digest(value: Any) -> str:
@@ -85,7 +85,7 @@ class EnvironmentManifest(ContractModel):
     def declared_support(self):
         if set(self.supported_kinds) - KINDS or len(set(self.supported_kinds)) != len(self.supported_kinds):
             raise ValueError("supported_kinds must be unique registered action kinds")
-        if self.provenance == "real_task" and not self.source_versions:
+        if self.provenance in {"real_task", "historical_replay"} and not self.source_versions:
             raise ValueError("real environments require actual frozen source versions")
         return self
 

@@ -1,4 +1,4 @@
-"""Read-only assessment of persisted Radar v2 host trajectories.
+"""Read-only assessment of persisted Radar v1/v2 host trajectories.
 
 No action is dispatched, no missing policy request or receipt is reconstructed,
 and a saved host trace is never relabelled as a fresh independent solver run.
@@ -13,7 +13,7 @@ from collections import Counter
 
 from .kdd_routes import RouteEvaluationTarget, digest
 
-EVALUATOR_VERSION = "radar-route-import-1.0"
+EVALUATOR_VERSION = "radar-route-import-1.1"
 DIRECTIONS = {"pipeline", "research", "business", "public_health"}
 PENDING = {"prepared", "sent", "unknown", "unconfirmed"}
 
@@ -77,10 +77,11 @@ def _saved_requests(view, trace):
         request = decision.get("policy_request")
         if request is not None:
             present += 1
-            _require(isinstance(request, dict) and request.get("schema_version") == "query-planner.external.v2",
+            _require(isinstance(request, dict) and request.get("schema_version") == trace["schema_version"],
                      "invalid_saved_policy_request")
-            _require(request.get("question") == view["question"] and request.get("direction") == trace["direction"],
-                     "saved_policy_request_changed_task")
+            _require(request.get("question") == view["question"], "saved_policy_request_changed_task")
+            if trace["schema_version"] == "query-planner.external.v2" or "direction" in request:
+                _require(request.get("direction") == trace.get("direction"), "saved_policy_request_changed_task")
             _require(not ({"gold", "evaluation_target", "gold_evidence_ids", "generation_traces", "oracle"} & set(request)),
                      "private_targets_in_saved_policy_request")
             history = request.get("history", [])
@@ -163,9 +164,9 @@ def evaluate_radar_view(view, *, provenance, trace_validator, validator_version,
     trace_validator(view, terminal=bool) must be the separately maintained native
     provenance checker. Its content hash is recorded; it never receives targets.
     """
-    _require(provenance in {"real_task", "synthetic_fixture"}, "explicit_provenance_required")
+    _require(provenance in {"real_task", "synthetic_fixture", "historical_replay"}, "explicit_provenance_required")
     _require(isinstance(view, dict), "analysis_view_required")
-    _require(provenance != "real_task" or view.get("is_demo") is False, "real_task_requires_non_demo_analysis")
+    _require(provenance not in {"real_task", "historical_replay"} or view.get("is_demo") is False, "real_or_historical_requires_non_demo_analysis")
     report = {"schema_version": "kdd-route-radar-evaluation-v1", "evaluator_version": EVALUATOR_VERSION,
               "trajectory_origin": "persisted_radar_host_trace", "provenance": provenance,
               "analysis_id": view.get("id"), "investigation_id": view.get("investigation_id"), "analysis_state": view.get("state"),
@@ -175,10 +176,20 @@ def evaluate_radar_view(view, *, provenance, trace_validator, validator_version,
               "limitations": ["scientific_validity_not_assessed", "business_value_not_assessed",
                               "counterfactual_policy_benefit_requires_independent_runs"]}
     trace = view.get("query_policy")
-    if not isinstance(trace, dict) or trace.get("schema_version") != "query-planner.external.v2":
-        report["integrity"]["reason"] = "no_saved_v2_route_trace"
+    if not isinstance(trace, dict) or trace.get("schema_version") not in {"query-planner.external.v1", "query-planner.external.v2"}:
+        report["integrity"]["reason"] = "no_saved_supported_route_trace"
         return report
+    report["route_schema_version"] = trace["schema_version"]
     report["direction"] = trace.get("direction")
+    native_report = (view.get("result") or {}).get("report")
+    report["native_report"] = {"status": native_report.get("status") if isinstance(native_report, dict) else None,
+                               "sha256": digest(native_report) if native_report is not None else None,
+                               "independent_fact_review": "not_inferred_from_biocheck"}
+    report["execution_context"] = {"question_sha256": digest(view.get("question")),
+        "prompt_version": view.get("prompt_version"), "trigger": view.get("trigger"),
+        "parent_analysis_id": view.get("parent_analysis_id"), "is_demo": view.get("is_demo")}
+    if trace["schema_version"] == "query-planner.external.v1":
+        report["limitations"].append("frozen_legacy_action_space_not_new_v2_capability_equivalent")
     report["policy"] = {key: copy.deepcopy(trace.get(key)) for key in
                         ("requested", "effective", "version", "selector", "stop", "training_status")}
     report["environment"] = {"environment_ref": "bioradar-analysis:" + str(view.get("id")),
@@ -188,7 +199,10 @@ def evaluate_radar_view(view, *, provenance, trace_validator, validator_version,
     try:
         _require(isinstance(view.get("id"), str) and bool(view["id"]) and isinstance(view.get("input_hash"), str)
                  and bool(view["input_hash"]), "analysis_identity_or_fixed_input_hash_missing")
-        _require(trace.get("direction") in DIRECTIONS, "unsupported_direction")
+        _require(trace.get("direction") in DIRECTIONS or (trace["schema_version"] == "query-planner.external.v1" and trace.get("direction") is None),
+                 "unsupported_direction")
+        if trace.get("direction") is None:
+            report["limitations"].append("legacy_direction_not_recorded")
         _require(callable(trace_validator) and bool(validator_version), "independent_native_trace_validator_required")
         if not trace.get("decisions"):
             report["integrity"]["reason"] = "no_policy_decisions_persisted"
@@ -239,11 +253,18 @@ def evaluate_radar_view(view, *, provenance, trace_validator, validator_version,
             "stop_reason": (trace.get("reason") or final.get("reason")) if terminal else None,
             "last_decision_reason": final.get("reason"),
             "actual_cost": {"action_tool_calls": action_calls, "preparation_tool_calls": native.get("preparation_tool_calls"),
+                             "non_route_professional_tool_calls": native.get("non_route_professional_tool_calls"),
+                             "unknown_tool_calls": native.get("unknown_tool_calls"), "reserved_tool_calls": native.get("reserved_tool_calls"),
                             "total_query_tool_calls": trace.get("budget", {}).get("usage", {}).get("tool_calls"),
                             "action_tokens": action_tokens, "model_usage": model_usage},
             "unknown_action_token_receipts": sum(c.get("tokens") is None for c in action_costs),
             "pending_receipt_count": sum(q["status"] in PENDING for q in queries),
-            "saved_requests": requests}
+            "saved_requests": requests,
+            "coverage_issues": copy.deepcopy(final.get("state_summary", {}).get("coverage_issues", [])),
+            "unmet_reading": copy.deepcopy(final.get("state_summary", {}).get("unmet_reading", [])),
+            "action_attempt_counts": copy.deepcopy(final.get("state_summary", {}).get("action_attempt_counts", {})),
+            "model_stages": {stage: _model_usage([call for call in calls if (call.get("stage") or "not_recorded") == stage])
+                             for stage in sorted({call.get("stage") or "not_recorded" for call in calls})}}
         report["independent_outcome"] = _target_result(target, analysis_id=view["id"], environment=report["environment"],
             provenance=provenance, evidence=evidence, artifacts=artifacts, decision=stop_decision, terminal=terminal)
         if report["independent_outcome"]["review_status"] == "unreviewed":
