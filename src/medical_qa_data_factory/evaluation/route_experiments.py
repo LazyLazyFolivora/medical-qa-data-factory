@@ -153,7 +153,8 @@ def summarize_experiments(protocol, imported_reports, independent_reviews=()):
         for arm in experiment.arms:
             imported = reports.get(arm.analysis_id)
             row = {"analysis_id": arm.analysis_id, "label": arm.label, "status": "not_imported",
-                   "independent_facts": None, "acceptance_passed": None}
+                   "independent_facts": None, "acceptance_passed": None,
+                   "business_endpoint_result_summary": {endpoint: "unreviewed" for endpoint in experiment.judgement_endpoints}}
             if imported is not None:
                 if imported.get("trajectory_origin") != "persisted_radar_host_trace" or imported.get("executed_new_actions") != 0:
                     raise ValueError("experiment requires actual read-only Radar imports")
@@ -162,6 +163,7 @@ def summarize_experiments(protocol, imported_reports, independent_reviews=()):
                 if imported.get("policy", {}).get("version") != arm.policy_version:
                     raise ValueError("experiment policy version differs from actual imported policy")
                 review = _review_result(experiment, imported, reviews.get(arm.analysis_id))
+                row["business_endpoint_result_summary"].update({endpoint["id"]: endpoint["status"] for endpoint in review["judgement_endpoints"]})
                 metrics = imported.get("route_metrics") or {}
                 terminal = imported.get("assessment_scope") == "terminal_route_trace"
                 native_status = imported.get("native_report", {}).get("status")
@@ -203,4 +205,5 @@ def summarize_experiments(protocol, imported_reports, independent_reviews=()):
             "model_usage": {"known_token_lower_bound": known, "unknown_usage_calls": unknown,
                             "analyses_without_usage_assessment": missing,
                             "total_tokens": known if not unknown and not missing and len(available) == len(expected_ids) else None},
+            "acceptance_scope": "report_integrity_biocheck_and_frozen_fact_criteria_not_all_risk_hypotheses_supported",
             "scientific_or_business_pass_from_route_integrity": False}

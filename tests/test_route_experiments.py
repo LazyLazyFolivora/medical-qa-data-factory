@@ -82,6 +82,8 @@ def test_historical_endpoints_and_visibility_proof_are_separate_from_official_da
     reviewed.update(visibility_review_status="passed", visibility_basis_refs=["frozen-publication-archive-proof"])
     out = summarize_experiments(protocol, reports, [reviewed])
     assert out["counts"]["acceptance_passed"] == 1
+    assert out["experiments"][0]["arms"][0]["business_endpoint_result_summary"] == {"cluster_risk": "supported", "transmission_risk": "unsupported"}
+    assert "not_all_risk_hypotheses_supported" in out["acceptance_scope"]
     assert len(out["experiments"][0]["arms"][0]["independent_facts"]["judgement_endpoints"]) == 2
     experiment["provenance"] = "synthetic_fixture"
     with pytest.raises(ValueError, match="historical replay"):

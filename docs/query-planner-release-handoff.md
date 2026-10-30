@@ -241,3 +241,10 @@ python -m medical_qa_data_factory eval routes summarize-experiments \
 8 份独立契约运行位于 `data/runs/kdd-report-contract-20261031/independent-solver-contract-runs.jsonl`。
 该目录被 Git 忽略，属于 synthetic_fixture 接口回归，0 HTTP/模型调用，不是服务已联通或业务效果证据；
 独立事实目标保持 unreviewed，未拿合成答案计算成绩。冻结旧 baseline 的能力对照仍须真实分别执行。
+
+
+`acceptance_passed` 只表示报告完整性、BioCheck 和冻结事实判据的组合，不表示 D 的两个风险假设
+都得到支持。每个 arm 的 `business_endpoint_result_summary` 单列各判断终点
+supported / unsupported / not_evaluable / unreviewed；总字段 `acceptance_scope` 明确该边界。
+正确保留“某终点未获支持”的报告仍可能通过事实审查，假传言对照尤其如此；
+禁止把总 acceptance 计数当作 D 两终点命中率或预警有效性分数。
