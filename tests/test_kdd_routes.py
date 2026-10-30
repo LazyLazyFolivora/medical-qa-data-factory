@@ -159,6 +159,46 @@ def test_receipt_mismatch_is_rejected_before_next_policy_turn():
         run_solver(task, SyntheticReceiptWorld(manifest, states, "start"), test_policy)
 
 
+@pytest.mark.parametrize("field,returned,adopted", [
+    ("new_evidence_ids", [], ["fixture-outcome"]),
+    ("new_artifact_refs", [], [{"id": "result", "version": "1"}]),
+    ("check_updates", [{"id": "outcome", "status": "unknown"}],
+     [{"id": "outcome", "status": "passed", "evidence_ids": ["fixture-outcome"]}]),
+    ("observed_information", {"outcome": 0}, {"outcome": 1}),
+    ("actual_cost", {"tool_calls": 7}, {"tool_calls": 1}),
+    ("receipt_id", "returned-receipt", "different-receipt"),
+])
+def test_complete_receipt_must_match_before_another_policy_turn(field, returned, adopted):
+    task, manifest, states, target = fixture()
+    receipt = states["start"]["transitions"]["z-applicable"]["receipt"]
+    history = copy.deepcopy(receipt)
+    receipt[field] = returned; history[field] = adopted
+    states["z-applicable"]["observation"]["history"] = [history]
+    policy_turns = []
+    def policy(request):
+        policy_turns.append(request)
+        return test_policy(request)
+    with pytest.raises(ValueError, match="complete latest execution receipt"):
+        run_solver(task, SyntheticReceiptWorld(manifest, states, "start"), policy)
+    assert len(policy_turns) == 1
+
+
+def test_receipt_normalizes_empty_fields_reference_order_and_unknown_cost():
+    task, manifest, states, target = fixture()
+    receipt = states["start"]["transitions"]["z-applicable"]["receipt"]
+    receipt.update(new_evidence_ids=["fixture-outcome", "source-b"],
+                   new_artifact_refs=[], check_updates=[])
+    history = copy.deepcopy(receipt)
+    history["new_evidence_ids"].reverse()
+    history.pop("new_artifact_refs"); history.pop("check_updates")
+    history["actual_cost"]["tokens"] = None  # Absent and null both mean unknown, never zero.
+    after = states["z-applicable"]["observation"]
+    after["history"] = [history]; after["evidence"].append({"id": "source-b"})
+    run = run_solver(task, SyntheticReceiptWorld(manifest, states, "start"), test_policy)
+    assert run["final_decision"] == "complete"
+    assert run["actual_spent"] == {"tool_calls": 1}
+
+
 def test_partition_and_environment_mismatch_reject_release():
     task, manifest, states, target = fixture()
     duplicate = task.model_copy(update={"qid": "q2", "partition": "test"})

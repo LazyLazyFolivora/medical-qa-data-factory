@@ -243,15 +243,38 @@ def _observation(request, task, manifest):
     return copy.deepcopy(request)
 
 
+def _normalized_receipt(value):
+    # Compare the complete durable receipt, including future fields, so the
+    # solver and its cost report cannot consume two different execution truths.
+    # Only documented empty/set-like fields and unknown costs are normalized.
+    normalized = copy.deepcopy(value)
+    costs = _cost(normalized.get("actual_cost", {}), nullable=True)
+    normalized["actual_cost"] = {dimension: costs.get(dimension) for dimension in sorted(DIMENSIONS)}
+    normalized.setdefault("observed_information", {})
+    for name in ("new_evidence_ids", "new_artifact_refs", "check_updates"):
+        items = normalized.setdefault(name, [])
+        if not isinstance(items, list):
+            raise ValueError("receipt " + name + " must be a list")
+        if name == "check_updates":
+            for update in items:
+                if not isinstance(update, dict):
+                    raise ValueError("receipt check_updates must contain objects")
+                for refs in ("evidence_ids", "artifact_refs"):
+                    if not isinstance(update.setdefault(refs, []), list):
+                        raise ValueError("receipt check update references must be lists")
+                    update[refs] = sorted(update[refs], key=digest)
+        normalized[name] = sorted(items, key=digest)
+    return normalized
+
+
 def _receipt(value, action, after):
     if not isinstance(value, dict) or value.get("status") not in STATUSES:
         raise ValueError("execution requires a durable valid receipt")
     if value.get("action_id") != action["id"] or value.get("kind") != action["kind"] or value.get("arguments") != action["arguments"]:
         raise ValueError("receipt does not match selected action")
     current = [r for r in after.get("history", []) if r.get("action_id") == action["id"]]
-    if len(current) != 1 or any(current[0].get(k) != value.get(k) for k in ("kind", "arguments", "status")):
-        raise ValueError("host must adopt latest execution receipt before next decision")
-    _cost(value.get("actual_cost", {}), nullable=True)
+    if len(current) != 1 or _normalized_receipt(current[0]) != _normalized_receipt(value):
+        raise ValueError("host must adopt the complete latest execution receipt before next decision")
     return copy.deepcopy(value)
 
 
