@@ -13,10 +13,12 @@ build/
 .env
 .env.*
 !.env.example
+config/models.json
 *.log
 *.sqlite
 *.sqlite3
 data/runs/
+data/releases/
 data/cache/
 data/external/
 runs/
