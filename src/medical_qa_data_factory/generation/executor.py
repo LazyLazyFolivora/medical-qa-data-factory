@@ -42,6 +42,14 @@ class LiteratureExecutionPort(Protocol):
     ) -> tuple[list[Any], str, str | None]: ...
 
 
+class CtdExecutionPort(Protocol):
+    """Pinned CTD direct-evidence lookup used by the agent loop."""
+
+    def lookup(
+        self, request: dict[str, Any]
+    ) -> tuple[list[Any], str, str | None]: ...
+
+
 @dataclass
 class ExecutionOutcome:
     """What one execution produced, and the observation that records it."""
@@ -55,6 +63,9 @@ class ExecutionOutcome:
     truncated: bool = False
     error_code: str | None = None
     retryable: bool = False
+    provider_trace_id: str | None = None
+    provider_snapshot_id: str | None = None
+    artifact_summaries: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def succeeded(self) -> bool:
@@ -72,10 +83,12 @@ class Executor:
         self,
         *,
         kg: KGExecutionPort | None = None,
+        ctd: CtdExecutionPort | None = None,
         literature: LiteratureExecutionPort | None = None,
         tool_name: str = "kg_neighbors",
     ) -> None:
         self.kg = kg
+        self.ctd = ctd
         self.literature = literature
         self.tool_name = tool_name
         self.executed_action_hashes: list[str] = []
@@ -91,7 +104,9 @@ class Executor:
         started = time.monotonic()
         request = dict(sealed.request)
         try:
-            if sealed.action_type is ExplorationActionType.RETRIEVE_LITERATURE:
+            if sealed.action_type is ExplorationActionType.QUERY_CTD:
+                outcome = self._run_ctd(request)
+            elif sealed.action_type is ExplorationActionType.RETRIEVE_LITERATURE:
                 outcome = self._run_literature(
                     {**request, "sealed_action_id": sealed.sealed_action_id}
                 )
@@ -122,6 +137,17 @@ class Executor:
                 retryable=exc.retryable,
             )
         elapsed = int((time.monotonic() - started) * 1000)
+        if outcome.error_code:
+            observation_status = "error"
+        elif sealed.action_type is ExplorationActionType.FINISH:
+            observation_status = "success"
+        elif not outcome.new_evidence_ids and not outcome.new_path_ids:
+            # A provider call can execute correctly yet yield no learnable
+            # artifact.  Preserve that distinction in observations and
+            # planner trajectories instead of recording false success.
+            observation_status = "empty"
+        else:
+            observation_status = "success"
         observation = ToolObservation(
             observation_id=new_id("observation"),
             episode_id=episode_id,
@@ -132,7 +158,7 @@ class Executor:
             elapsed_ms=elapsed,
             decision_id=sealed.decision_id,
             action_type=sealed.action_type.value,
-            status="success" if not outcome.error_code else "error",
+            status=observation_status,
             discovered_entity_ids=outcome.discovered_entity_ids,
             new_evidence_ids=outcome.new_evidence_ids,
             new_path_ids=outcome.new_path_ids,
@@ -140,6 +166,9 @@ class Executor:
             truncated=outcome.truncated,
             error_code=outcome.error_code,
             retryable=outcome.retryable,
+            provider_trace_id=outcome.provider_trace_id,
+            provider_snapshot_id=outcome.provider_snapshot_id,
+            artifact_summaries=outcome.artifact_summaries,
         )
         self.executed_action_hashes.append(sealed.canonical_action_hash)
         outcome.observation = observation
@@ -176,6 +205,7 @@ class Executor:
             new_evidence_ids=new_evidence,
             discovered_entity_ids=discovered,
             rows_examined=len(edges),
+            provider_trace_id=str(trace_id),
         )
 
     def _run_literature(self, request: dict[str, Any]) -> ExecutionOutcome:
@@ -197,6 +227,48 @@ class Executor:
                 str(getattr(item, "evidence_id", item)) for item in chunks
             ],
             rows_examined=len(chunks),
+            provider_trace_id=str(trace_id),
+            provider_snapshot_id=(
+                str(snapshot_id) if snapshot_id is not None else None
+            ),
+        )
+
+    def _run_ctd(self, request: dict[str, Any]) -> ExecutionOutcome:
+        if self.ctd is None:
+            raise ToolCallError(
+                "ctd_unavailable", "no pinned CTD index is wired up"
+            )
+        try:
+            records, trace_id, snapshot_id = self.ctd.lookup(request)
+        except Exception as exc:  # provider boundary
+            code = str(getattr(exc, "code", "ctd_query_error"))
+            raise ToolCallError(
+                code,
+                f"the CTD lookup failed: {exc}",
+                retryable=code in {"ctd_unavailable", "ctd_query_timeout"},
+            ) from exc
+        artifact_ids: list[str] = []
+        summaries: list[dict[str, Any]] = []
+        for item in records:
+            artifact_id = getattr(item, "evidence_id", None)
+            record = getattr(item, "record", item)
+            if not artifact_id:
+                artifact_id = getattr(record, "source_record_locator", None)
+            if not artifact_id:
+                artifact_id = getattr(record, "content_hash", None)
+            if artifact_id and str(artifact_id) not in artifact_ids:
+                artifact_ids.append(str(artifact_id))
+            summary_builder = getattr(item, "planner_summary", None)
+            if callable(summary_builder):
+                summaries.append(dict(summary_builder()))
+        return ExecutionOutcome(
+            new_evidence_ids=artifact_ids,
+            rows_examined=len(records),
+            provider_trace_id=str(trace_id),
+            provider_snapshot_id=(
+                str(snapshot_id) if snapshot_id is not None else None
+            ),
+            artifact_summaries=summaries[:20],
         )
 
     def _run_finish(self, request: dict[str, Any]) -> ExecutionOutcome:

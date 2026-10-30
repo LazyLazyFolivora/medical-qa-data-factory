@@ -1,0 +1,651 @@
+{
+  "$defs": {
+    "CtdEvidenceFusionStatus": {
+      "enum": [
+        "eligible",
+        "insufficient",
+        "conflicting",
+        "rejected"
+      ],
+      "title": "CtdEvidenceFusionStatus",
+      "type": "string"
+    },
+    "EvidencePolarity": {
+      "enum": [
+        "increase",
+        "decrease",
+        "neutral",
+        "mixed",
+        "unknown"
+      ],
+      "title": "EvidencePolarity",
+      "type": "string"
+    },
+    "EvidenceRecord": {
+      "additionalProperties": false,
+      "description": "One immutable source observation, independent of a task or tool route.",
+      "properties": {
+        "content_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "document_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Document Text"
+        },
+        "evidence_id": {
+          "minLength": 1,
+          "title": "Evidence Id",
+          "type": "string"
+        },
+        "object_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Object Id"
+        },
+        "predicate_family": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Predicate Family"
+        },
+        "provider_id": {
+          "minLength": 1,
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "qualifiers": {
+          "additionalProperties": true,
+          "title": "Qualifiers",
+          "type": "object"
+        },
+        "record_type": {
+          "enum": [
+            "structured_relation",
+            "document"
+          ],
+          "title": "Record Type",
+          "type": "string"
+        },
+        "retrieved_at": {
+          "format": "date-time",
+          "title": "Retrieved At",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "source-neutral-evidence-v1",
+          "default": "source-neutral-evidence-v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "source_kind": {
+          "enum": [
+            "structured_database",
+            "knowledge_graph",
+            "literature"
+          ],
+          "title": "Source Kind",
+          "type": "string"
+        },
+        "source_locator": {
+          "minLength": 1,
+          "title": "Source Locator",
+          "type": "string"
+        },
+        "source_metadata": {
+          "additionalProperties": true,
+          "title": "Source Metadata",
+          "type": "object"
+        },
+        "subject_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subject Id"
+        }
+      },
+      "required": [
+        "evidence_id",
+        "provider_id",
+        "source_kind",
+        "snapshot_id",
+        "source_locator",
+        "content_hash",
+        "record_type",
+        "retrieved_at"
+      ],
+      "title": "EvidenceRecord",
+      "type": "object"
+    },
+    "NormalizedClaim": {
+      "additionalProperties": false,
+      "description": "A source-neutral semantic claim with explicit evidence roles.",
+      "properties": {
+        "claim_id": {
+          "minLength": 1,
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "claim_text": {
+          "default": "",
+          "title": "Claim Text",
+          "type": "string"
+        },
+        "context_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Context Evidence Ids",
+          "type": "array"
+        },
+        "contradicting_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Contradicting Evidence Ids",
+          "type": "array"
+        },
+        "legacy_claim_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Legacy Claim Id"
+        },
+        "normalizer_version": {
+          "minLength": 1,
+          "title": "Normalizer Version",
+          "type": "string"
+        },
+        "object_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Object Id"
+        },
+        "object_value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Object Value"
+        },
+        "polarity": {
+          "default": "unknown",
+          "enum": [
+            "increase",
+            "decrease",
+            "neutral",
+            "unknown"
+          ],
+          "title": "Polarity",
+          "type": "string"
+        },
+        "predicate_family": {
+          "minLength": 1,
+          "title": "Predicate Family",
+          "type": "string"
+        },
+        "qualifiers": {
+          "additionalProperties": true,
+          "title": "Qualifiers",
+          "type": "object"
+        },
+        "schema_version": {
+          "const": "source-neutral-evidence-v1",
+          "default": "source-neutral-evidence-v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "subject_id": {
+          "minLength": 1,
+          "title": "Subject Id",
+          "type": "string"
+        },
+        "supporting_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Supporting Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "claim_id",
+        "subject_id",
+        "predicate_family",
+        "normalizer_version"
+      ],
+      "title": "NormalizedClaim",
+      "type": "object"
+    },
+    "PubMedEvidenceSpan": {
+      "additionalProperties": false,
+      "properties": {
+        "end": {
+          "exclusiveMinimum": 0,
+          "title": "End",
+          "type": "integer"
+        },
+        "pmid": {
+          "minLength": 1,
+          "title": "Pmid",
+          "type": "string"
+        },
+        "quote": {
+          "minLength": 1,
+          "title": "Quote",
+          "type": "string"
+        },
+        "quote_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Quote Hash",
+          "type": "string"
+        },
+        "record_content_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Record Content Hash",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "pubmed-evidence-span-v1",
+          "default": "pubmed-evidence-span-v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "span_id": {
+          "minLength": 1,
+          "title": "Span Id",
+          "type": "string"
+        },
+        "start": {
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        },
+        "text_field": {
+          "const": "abstract",
+          "default": "abstract",
+          "title": "Text Field",
+          "type": "string"
+        },
+        "verified_at": {
+          "format": "date-time",
+          "title": "Verified At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "span_id",
+        "pmid",
+        "snapshot_id",
+        "record_content_hash",
+        "start",
+        "end",
+        "quote",
+        "quote_hash"
+      ],
+      "title": "PubMedEvidenceSpan",
+      "type": "object"
+    },
+    "PubMedFindingVerdict": {
+      "description": "What one independently verified PubMed span does for the claim.",
+      "enum": [
+        "supports",
+        "contradicts",
+        "context_only",
+        "uncertain"
+      ],
+      "title": "PubMedFindingVerdict",
+      "type": "string"
+    },
+    "StudyContextIntent": {
+      "description": "Intents allowed in the first CTD-backed release.",
+      "enum": [
+        "association_research",
+        "biomarker_research",
+        "therapeutic_research",
+        "risk_increase",
+        "risk_decrease",
+        "safety"
+      ],
+      "title": "StudyContextIntent",
+      "type": "string"
+    },
+    "StudyContextQualifiers": {
+      "additionalProperties": false,
+      "description": "Scientific conditions that materially narrow the claim.",
+      "properties": {
+        "additional_qualifiers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Additional Qualifiers",
+          "type": "object"
+        },
+        "disease_category": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Disease Category"
+        },
+        "dose_exposure": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dose Exposure"
+        },
+        "exposure_context": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exposure Context"
+        },
+        "exposure_duration": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exposure Duration"
+        },
+        "population": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Population"
+        },
+        "sample_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sample Type"
+        },
+        "study_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Study Type"
+        },
+        "temporal_scope": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temporal Scope"
+        }
+      },
+      "title": "StudyContextQualifiers",
+      "type": "object"
+    },
+    "VerifiedPubMedAssessment": {
+      "additionalProperties": false,
+      "description": "A finding with an independently re-readable span and evidence id.",
+      "properties": {
+        "claim_text": {
+          "title": "Claim Text",
+          "type": "string"
+        },
+        "evidence_id": {
+          "minLength": 1,
+          "title": "Evidence Id",
+          "type": "string"
+        },
+        "intent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StudyContextIntent"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "pmid": {
+          "minLength": 1,
+          "title": "Pmid",
+          "type": "string"
+        },
+        "polarity": {
+          "$ref": "#/$defs/EvidencePolarity"
+        },
+        "qualifiers": {
+          "$ref": "#/$defs/StudyContextQualifiers"
+        },
+        "span": {
+          "$ref": "#/$defs/PubMedEvidenceSpan"
+        },
+        "support_level": {
+          "title": "Support Level",
+          "type": "string"
+        },
+        "verdict": {
+          "$ref": "#/$defs/PubMedFindingVerdict"
+        }
+      },
+      "required": [
+        "pmid",
+        "verdict",
+        "polarity",
+        "support_level",
+        "claim_text",
+        "qualifiers",
+        "span",
+        "evidence_id"
+      ],
+      "title": "VerifiedPubMedAssessment",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Layered CTD/PubMed observations and their deterministic disposition.",
+  "properties": {
+    "claim": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/NormalizedClaim"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "context_evidence_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Context Evidence Ids",
+      "type": "array"
+    },
+    "contradicting_evidence_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Contradicting Evidence Ids",
+      "type": "array"
+    },
+    "ctd_direct_evidence": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Ctd Direct Evidence",
+      "type": "array"
+    },
+    "ctd_record_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Ctd Record Ids",
+      "type": "array"
+    },
+    "evidence_records": {
+      "items": {
+        "$ref": "#/$defs/EvidenceRecord"
+      },
+      "title": "Evidence Records",
+      "type": "array"
+    },
+    "fusion_id": {
+      "minLength": 1,
+      "title": "Fusion Id",
+      "type": "string"
+    },
+    "normalizer_version": {
+      "default": "ctd-pubmed-fusion-v1",
+      "title": "Normalizer Version",
+      "type": "string"
+    },
+    "pubmed_assessments": {
+      "items": {
+        "$ref": "#/$defs/VerifiedPubMedAssessment"
+      },
+      "title": "Pubmed Assessments",
+      "type": "array"
+    },
+    "reason_codes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Reason Codes",
+      "type": "array"
+    },
+    "schema_version": {
+      "default": "ctd-evidence-fusion-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/CtdEvidenceFusionStatus"
+    },
+    "supporting_evidence_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Supporting Evidence Ids",
+      "type": "array"
+    },
+    "uncertain_evidence_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Uncertain Evidence Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "fusion_id",
+    "status"
+  ],
+  "title": "CtdEvidenceFusion",
+  "type": "object"
+}

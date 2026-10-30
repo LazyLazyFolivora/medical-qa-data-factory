@@ -7,6 +7,7 @@ import json
 import mimetypes
 import re
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 from starlette.applications import Starlette
@@ -94,6 +95,7 @@ mimetypes.add_type("text/javascript", ".mjs")
 WEB_ROOT = Path(__file__).parent
 templates = Jinja2Templates(directory=WEB_ROOT / "templates")
 WEB_TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+OBJECTIVE_STALL_AFTER_SECONDS = 10 * 60
 AGENT_ACTION_LABELS = {
     "query_neighbors": "查询图谱邻居",
     "expand_entity": "扩展实体",
@@ -159,6 +161,39 @@ def _objective_run_root(workspace: str | Path, run_id: str) -> Path:
 
 def _objective_release_root(workspace: str | Path, run_id: str) -> Path:
     return Path(workspace) / "objective_releases" / run_id
+
+
+def _objective_progress_timing(
+    run_root: str | Path,
+    *,
+    terminal: bool,
+    now: datetime | None = None,
+) -> tuple[datetime | None, int, bool]:
+    commit_dir = Path(run_root) / "objective_runtime" / "commits"
+    commits = (
+        sorted(
+            commit_dir.glob("*.json"),
+            key=lambda item: int(item.stem),
+        )
+        if commit_dir.is_dir()
+        else []
+    )
+    if not commits:
+        return None, 0, False
+    last_commit_at = datetime.fromtimestamp(
+        commits[-1].stat().st_mtime,
+        tz=timezone.utc,
+    )
+    current_time = now or datetime.now(timezone.utc)
+    seconds_since_progress = max(
+        0,
+        int((current_time - last_commit_at).total_seconds()),
+    )
+    stalled = (
+        not terminal
+        and seconds_since_progress >= OBJECTIVE_STALL_AFTER_SECONDS
+    )
+    return last_commit_at, seconds_since_progress, stalled
 
 
 def _objective_run_payload(
@@ -293,8 +328,16 @@ def _objective_run_payload(
         RuntimeRunState.VERSION_INCOMPATIBLE,
         RuntimeRunState.CANCELLED,
     }
+    last_commit_at, seconds_since_progress, stalled = (
+        _objective_progress_timing(
+            run_root,
+            terminal=terminal,
+        )
+    )
     status = (
-        "failed"
+        "stalled"
+        if stalled
+        else "failed"
         if snapshot.run_state
         in {
             RuntimeRunState.PROVIDER_FAILED,
@@ -306,17 +349,37 @@ def _objective_run_payload(
         if terminal
         else "running"
     )
+    status_label = (
+        "长时间无进展"
+        if stalled
+        else OBJECTIVE_STATE_LABELS.get(
+            snapshot.run_state.value,
+            snapshot.run_state.value,
+        )
+    )
+    effective_stop_reason = snapshot.stop_reason
+    if stalled:
+        effective_stop_reason = (
+            f"主 Agent 已超过 {OBJECTIVE_STALL_AFTER_SECONDS // 60} 分钟"
+            "没有产生新的 runtime commit，任务可能卡在模型调用或后台异常；"
+            "当前 run 无法从该检查点自动继续。"
+        )
     return {
         "task_id": run_id,
         "engine": "objective",
         "status": status,
-        "status_label": OBJECTIVE_STATE_LABELS.get(
-            snapshot.run_state.value, snapshot.run_state.value
-        ),
+        "status_label": status_label,
         "run_state": snapshot.run_state.value,
         "state_revision": snapshot.state_revision,
         "commit_sequence": snapshot.commit_sequence,
-        "stop_reason": snapshot.stop_reason,
+        "stop_reason": effective_stop_reason,
+        "last_commit_at": (
+            last_commit_at.isoformat()
+            if last_commit_at is not None
+            else None
+        ),
+        "seconds_since_progress": seconds_since_progress,
+        "stalled": stalled,
         "target_question_count": (
             snapshot.goal.question_count_upper_bound
             if snapshot.goal is not None
@@ -353,6 +416,124 @@ def _objective_run_payload(
             f"/?task={run_id}"
         ),
     }
+
+
+def _objective_published_question_rows(
+    workspace: str | Path,
+) -> list[dict[str, object]]:
+    releases_root = Path(workspace) / "objective_releases"
+    if not releases_root.is_dir():
+        return []
+    rows: list[dict[str, object]] = []
+    release_dirs = sorted(
+        (item for item in releases_root.iterdir() if item.is_dir()),
+        key=lambda item: item.stat().st_mtime,
+        reverse=True,
+    )
+    for release_dir in release_dirs:
+        questions_path = release_dir / "public" / "questions.jsonl"
+        if not questions_path.is_file():
+            continue
+        run_id = release_dir.name
+        snapshot = None
+        try:
+            snapshot = ObjectiveRuntimeRepository(
+                _objective_run_root(workspace, run_id),
+                run_id=run_id,
+            ).load()
+        except Exception:
+            pass
+        contract_by_id = {}
+        draft_by_id = {}
+        resolution_by_id = {}
+        report_by_question_id = {}
+        if snapshot is not None:
+            for artifact in snapshot.artifacts.values():
+                if artifact.artifact_type == "frozen_question_contract":
+                    contract_by_id[artifact.artifact_id] = artifact.payload
+                elif artifact.artifact_type == "objective_question_draft":
+                    draft_by_id[artifact.artifact_id] = artifact.payload
+                elif artifact.artifact_type == "answer_resolution":
+                    resolution_by_id[artifact.artifact_id] = artifact.payload
+                elif artifact.artifact_type == "objective_validation_report":
+                    question_id = str(
+                        artifact.payload.get("question_id") or ""
+                    )
+                    if question_id:
+                        report_by_question_id[question_id] = artifact.payload
+        published_at = datetime.fromtimestamp(
+            questions_path.stat().st_mtime,
+            tz=timezone.utc,
+        )
+        if snapshot is not None:
+            commit_dir = (
+                _objective_run_root(workspace, run_id)
+                / "objective_runtime"
+                / "commits"
+            )
+            commits = (
+                sorted(
+                    commit_dir.glob("*.json"),
+                    key=lambda item: int(item.stem),
+                )
+                if commit_dir.is_dir()
+                else []
+            )
+            if commits:
+                published_at = datetime.fromtimestamp(
+                    commits[-1].stat().st_mtime,
+                    tz=timezone.utc,
+                )
+        for line in questions_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            payload = json.loads(line)
+            question_id = str(payload.get("question_id") or "")
+            report = report_by_question_id.get(question_id, {})
+            answers = payload.get("answer", [])
+            if not isinstance(answers, list):
+                answers = [answers]
+            sources = []
+            draft = draft_by_id.get(question_id)
+            contract = (
+                contract_by_id.get(str(draft.get("contract_id")))
+                if draft is not None
+                else None
+            )
+            resolution = None
+            if contract is not None and contract.get("resolution_id") is not None:
+                resolution = resolution_by_id.get(
+                    str(contract["resolution_id"])
+                )
+            if resolution is not None:
+                sources = [
+                    OBJECTIVE_PROVIDER_LABELS.get(source, source)
+                    for source in resolution.get("verification_sources", [])
+                ]
+            rows.append(
+                {
+                    "run_id": run_id,
+                    "question_id": question_id,
+                    "question": str(payload.get("question") or ""),
+                    "answers": [str(value) for value in answers],
+                    "explanation": str(payload.get("explanation") or ""),
+                    "entity_name": (
+                        snapshot.goal.target_entity
+                        if snapshot is not None and snapshot.goal is not None
+                        else ""
+                    ),
+                    "entity_type": (
+                        snapshot.goal.target_entity_type
+                        if snapshot is not None and snapshot.goal is not None
+                        else None
+                    ),
+                    "sources": sources,
+                    "verdict": str(report.get("verdict") or "PASS"),
+                    "published_at": published_at,
+                    "run_url": f"/?task={run_id}",
+                }
+            )
+    return rows
 
 
 def _objective_artifact_counts(
@@ -1317,6 +1498,21 @@ def create_app(
         )
         return templates.TemplateResponse(request, "questions.html", context)
 
+    async def published_questions(request: Request) -> HTMLResponse:
+        rows = _objective_published_question_rows(repository.root)
+        context = _base_context(request, repository)
+        context.update(
+            published_rows=rows,
+            published_count=len(rows),
+            published_run_count=len({row["run_id"] for row in rows}),
+            active_nav="published",
+        )
+        return templates.TemplateResponse(
+            request,
+            "published_questions.html",
+            context,
+        )
+
     async def entities(request: Request) -> HTMLResponse:
         entity_records = build_entity_workspaces(repository)
         counts = {
@@ -1556,11 +1752,11 @@ def create_app(
             entity_type = resolved_entity.entity_type or entity_type
         try:
             question_count = int(payload.get("question_count", 1))
-            max_actions = int(payload.get("max_actions", 12))
+            max_actions = int(payload.get("max_actions", 100))
             if not 1 <= question_count <= 20:
                 raise ValueError("题数上限必须在 1 到 20 之间")
-            if not 2 <= max_actions <= 40:
-                raise ValueError("主 Agent 最大动作数必须在 2 到 40 之间")
+            if not 2 <= max_actions <= 100:
+                raise ValueError("主 Agent 最大动作数必须在 2 到 100 之间")
         except (TypeError, ValueError) as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
         requested_providers = payload.get(
@@ -1960,6 +2156,11 @@ def create_app(
     routes = [
         Route("/", generation, name="generation"),
         Route("/questions", questions, name="questions"),
+        Route(
+            "/published",
+            published_questions,
+            name="published_questions",
+        ),
         Route(
             "/api/entities",
             search_entities_api,

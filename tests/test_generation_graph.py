@@ -11,6 +11,9 @@ from medical_qa_data_factory.generation.contracts import (
     StopReason,
     UpstreamEntitySeed,
 )
+from medical_qa_data_factory.generation.graph import (
+    validated_task_realization_stop_reason,
+)
 from medical_qa_data_factory.generation.repository import GenerationRepository
 from medical_qa_data_factory.generation.service import (
     EntityGenerationService,
@@ -31,6 +34,26 @@ ROWS = [
     ("ibuprofen", "exposure_disease", "aspirin", "D00521", "D001241", "exposure", "exposure", "DrugBank"),
     ("BRAP", "exposure_disease", "aspirin", "8315", "D001241", "gene", "exposure", "DrugBank"),
 ]
+
+
+def test_realization_distinguishes_no_candidate_from_rejected_candidates() -> None:
+    assert validated_task_realization_stop_reason(
+        {"react_candidate_statuses": {}}, accepted_question_ids=[]
+    ) == StopReason.NO_CANDIDATE_PROPOSED.value
+    assert validated_task_realization_stop_reason(
+        {"react_candidate_statuses": {"candidate-1": "rejected"}},
+        accepted_question_ids=[],
+    ) == StopReason.ALL_CANDIDATES_HARD_REJECTED.value
+
+
+def test_realization_preserves_nonterminal_candidate_stop_reason() -> None:
+    assert validated_task_realization_stop_reason(
+        {
+            "react_candidate_statuses": {"candidate-1": "needs_evidence"},
+            "react_stop_reason": StopReason.BUDGET_EXHAUSTED.value,
+        },
+        accepted_question_ids=[],
+    ) == StopReason.BUDGET_EXHAUSTED.value
 
 
 def _write_config(tmp_path: Path, database: Path) -> Path:
@@ -210,6 +233,17 @@ def test_formal_model_error_is_reported_without_rule_based_fallback(
     assert result.status == "partial"
     assert result.stop_reason == StopReason.MODEL_ERROR.value
     assert result.question_ids == []
+    task = LocalArtifactRepository(tmp_path / "ws").load_latest_task(
+        result.task_id
+    )
+    assert task.current_stage == "generation_stopped"
+    agent_errors = [
+        item for item in task.errors if item.get("node") == "agent_explore"
+    ]
+    assert agent_errors
+    assert "no fake response registered for role 'exploration_planner'" in (
+        agent_errors[0]["message"]
+    )
 
 
 def test_structured_mode_builds_registry_model_for_formal_entry(
@@ -386,6 +420,69 @@ def test_seed_query_timeout_fails_without_entering_exploration(
         result.episode_id
     )
     assert {step.node for step in steps} == {"verify_seed", "fail"}
+
+
+def test_repeated_edges_from_a_filtered_query_are_not_saved_twice(
+    tmp_path, primekg_db, monkeypatch
+) -> None:
+    config = _write_config(tmp_path, primekg_db)
+    monkeypatch.setenv("MEDICAL_QA_KG_CONFIG", str(config))
+    turns = {"value": 0}
+
+    def planner(request):
+        turns["value"] += 1
+        if turns["value"] == 1:
+            return {
+                "decision": "continue_search",
+                "next_action": {
+                    "action_type": "expand_entity",
+                    "subject_entity_id": "primekg:exposure:D001241",
+                    "direction": "both",
+                    "max_results": 5,
+                },
+                "expected_information": ["broad neighborhood"],
+            }
+        if turns["value"] == 2:
+            return {
+                "decision": "continue_search",
+                "next_action": {
+                    "action_type": "query_neighbors",
+                    "subject_entity_id": "primekg:exposure:D001241",
+                    "direction": "both",
+                    "max_results": 5,
+                },
+                "expected_information": ["narrow duplicate set"],
+            }
+        raise RuntimeError("finish test")
+
+    model = FakeStructuredModel(
+        responses={"entity_question_exploration_planner": planner}
+    )
+    service = EntityGenerationService(
+        workspace=tmp_path / "ws",
+        provider_id="primekg",
+        model_mode="structured",
+        model=model,
+    )
+
+    result = service.run(_request(tmp_path))
+
+    observations = GenerationRepository(
+        tmp_path / "ws"
+    ).list_observations_by_episode(result.episode_id)
+    action_observations = [
+        item for item in observations if item.action_type is not None
+    ]
+    assert len(action_observations) == 2
+    by_action = {
+        item.action_type: item for item in action_observations
+    }
+    assert by_action["expand_entity"].status == "success"
+    assert by_action["query_neighbors"].status == "empty"
+    assert all(
+        item.error_code != "idempotency_conflict"
+        for item in action_observations
+    )
 
 
 def test_provider_is_closed_on_success(tmp_path, primekg_db, monkeypatch) -> None:

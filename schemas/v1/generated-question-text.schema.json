@@ -1,0 +1,21 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "language": {
+      "default": "zh-CN",
+      "minLength": 2,
+      "title": "Language",
+      "type": "string"
+    },
+    "question_text": {
+      "minLength": 1,
+      "title": "Question Text",
+      "type": "string"
+    }
+  },
+  "required": [
+    "question_text"
+  ],
+  "title": "GeneratedQuestionText",
+  "type": "object"
+}

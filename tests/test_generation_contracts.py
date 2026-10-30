@@ -208,6 +208,7 @@ def test_stop_reason_covers_documented_set() -> None:
         "evidence_exhausted",
         "no_evidence",
         "no_valid_claims",
+        "no_candidate_proposed",
         "all_candidates_hard_rejected",
         "budget_exhausted",
         "invalid_upstream_identity",

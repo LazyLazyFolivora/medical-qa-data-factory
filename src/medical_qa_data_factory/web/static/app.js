@@ -93,6 +93,9 @@ document.addEventListener('DOMContentLoaded', () => {
     description,
     metrics,
     node,
+    payload,
+    toolCalls,
+    failure,
   }) => {
     const row = document.createElement('li');
     row.className = `trace-step ${status}`;
@@ -120,6 +123,62 @@ document.addEventListener('DOMContentLoaded', () => {
     const code = document.createElement('code');
     code.textContent = node;
     copy.append(title, detail, metricRow, code);
+    if (payload) {
+      const details = document.createElement('details');
+      details.className = 'agent-payload';
+      details.open = true;
+      const summary = document.createElement('summary');
+      summary.textContent = '查看模型动作 / 查询参数';
+      const pre = document.createElement('pre');
+      pre.textContent = payload;
+      details.append(summary, pre);
+      copy.append(details);
+    }
+    if (toolCalls?.length) {
+      const details = document.createElement('details');
+      details.className = 'tool-call-list';
+      const summary = document.createElement('summary');
+      summary.textContent = `查看 ${toolCalls.length} 次工具调用`;
+      details.append(summary);
+      toolCalls.forEach((call) => {
+        const item = document.createElement('div');
+        item.className = 'tool-call';
+        const heading = document.createElement('strong');
+        heading.textContent = `${call.tool_name} · ${call.status_label}`;
+        const operation = document.createElement('code');
+        operation.textContent = call.operation_key;
+        const metricsLine = document.createElement('span');
+        metricsLine.textContent = `${call.records_returned} 条返回 · ${call.elapsed_label}`;
+        item.append(heading, operation, metricsLine);
+        if (call.error_code) {
+          const error = document.createElement('span');
+          error.className = 'agent-error-code';
+          error.textContent = call.error_code;
+          item.append(error);
+        }
+        if (call.message) {
+          const message = document.createElement('p');
+          message.textContent = call.message;
+          item.append(message);
+        }
+        details.append(item);
+      });
+      copy.append(details);
+    }
+    if (failure) {
+      const failureNode = document.createElement('div');
+      failureNode.className = 'trace-failure';
+      const failureTitle = document.createElement('strong');
+      failureTitle.textContent = `失败于 ${failure.node}`;
+      const failureCode = document.createElement('code');
+      failureCode.textContent = failure.code || 'error';
+      const failureMessage = document.createElement('p');
+      failureMessage.textContent = failure.message || '该步骤未保存详细错误信息。';
+      const retryable = document.createElement('small');
+      retryable.textContent = failure.retryable ? '可重试' : '不可重试或未标记';
+      failureNode.append(failureTitle, failureCode, failureMessage, retryable);
+      copy.append(failureNode);
+    }
     row.append(markerNode, copy);
     return row;
   };
@@ -138,7 +197,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!liveGeneration) return;
     const operations = payload.operations || [];
     const plannerSteps = payload.planner_steps || [];
-    const target = payload.target_question_count || targetCount || 1;
+    const target = payload.max_questions || payload.target_question_count || targetCount || 1;
     const completed = payload.question_count || 0;
     liveGeneration.hidden = false;
     setPersistedTraceVisible(false);
@@ -194,6 +253,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 : '',
             ],
             node: operation.node,
+            toolCalls: operation.tool_calls || [],
+            failure: operation.error_code
+              ? {
+                  node: operation.node,
+                  code: operation.error_code,
+                  message: operation.error_message,
+                  retryable: operation.retryable,
+                }
+              : null,
           })
         )
       );
@@ -213,6 +281,15 @@ document.addEventListener('DOMContentLoaded', () => {
               step.rejection_code || '',
             ],
             node: step.subject_entity_id || '—',
+            payload: step.parameters_json,
+            failure: step.error_code
+              ? {
+                  node: step.node,
+                  code: step.error_code,
+                  message: step.error_message,
+                  retryable: false,
+                }
+              : null,
           })
         )
       );
@@ -255,6 +332,7 @@ document.addEventListener('DOMContentLoaded', () => {
         operations: [],
         planner_steps: [],
         question_count: 0,
+        max_questions: targetCount,
         target_question_count: targetCount,
       },
       targetCount
@@ -276,7 +354,7 @@ document.addEventListener('DOMContentLoaded', () => {
           entity_canonical_id: entitySelector.value,
           model_mode: document.querySelector('[data-model-mode]')?.value || 'rule-based',
           question_style_ids: questionStyleIds,
-          question_count: targetCount,
+          max_questions: targetCount,
           difficulty_targets: difficulty.split(',').filter(Boolean),
           language: document.querySelector('[data-language]')?.value || 'zh-CN',
         }),

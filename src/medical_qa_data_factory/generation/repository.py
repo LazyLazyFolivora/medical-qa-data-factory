@@ -22,6 +22,8 @@ from .contracts import (
     ToolObservation,
     VerificationResult,
 )
+from .exploration import AgentDecisionRecord, ValidationFeedbackRecord
+from .skills import SkillInvocation, SkillOutcome
 
 EPISODES = "episodes"
 STEPS = "generation_steps"
@@ -29,6 +31,10 @@ OBSERVATIONS = "tool_observations"
 VERIFICATIONS = "verification_results"
 REJECTIONS = "rejection_records"
 REVIEW_OPERATIONS = "review_operations"
+AGENT_DECISIONS = "entity_agent_decisions"
+VALIDATION_FEEDBACK = "candidate_validation_feedback"
+SKILL_INVOCATIONS = "skill_invocations"
+SKILL_OUTCOMES = "skill_outcomes"
 
 
 class IdempotencyConflictError(RuntimeError):
@@ -227,6 +233,72 @@ class GenerationRepository:
 
     def list_rejections_by_episode(self, episode_id: str) -> list[RejectionRecord]:
         return self._list_by_episode(REJECTIONS, episode_id, RejectionRecord)
+
+    def save_agent_decision(self, record: AgentDecisionRecord) -> str:
+        return self.save_idempotent(
+            AGENT_DECISIONS, record.record_id, record.record_id, record
+        )
+
+    def list_agent_decisions_by_episode(
+        self, episode_id: str
+    ) -> list[AgentDecisionRecord]:
+        return sorted(
+            self._list_by_episode(
+                AGENT_DECISIONS, episode_id, AgentDecisionRecord
+            ),
+            key=lambda item: item.turn,
+        )
+
+    def save_validation_feedback(
+        self, record: ValidationFeedbackRecord
+    ) -> str:
+        return self.save_idempotent(
+            VALIDATION_FEEDBACK, record.record_id, record.record_id, record
+        )
+
+    def list_validation_feedback_by_episode(
+        self, episode_id: str
+    ) -> list[ValidationFeedbackRecord]:
+        return sorted(
+            self._list_by_episode(
+                VALIDATION_FEEDBACK, episode_id, ValidationFeedbackRecord
+            ),
+            key=lambda item: (item.turn, item.feedback.candidate_id),
+        )
+
+    def save_skill_invocation(self, invocation: SkillInvocation) -> str:
+        return self.save_idempotent(
+            SKILL_INVOCATIONS,
+            invocation.invocation_id,
+            invocation.invocation_id,
+            invocation,
+        )
+
+    def list_skill_invocations_by_episode(
+        self, episode_id: str
+    ) -> list[SkillInvocation]:
+        return sorted(
+            self._list_by_episode(
+                SKILL_INVOCATIONS, episode_id, SkillInvocation
+            ),
+            key=lambda item: (item.turn, item.invocation_id),
+        )
+
+    def save_skill_outcome(self, outcome: SkillOutcome) -> str:
+        return self.save_idempotent(
+            SKILL_OUTCOMES,
+            outcome.invocation_id,
+            outcome.invocation_id,
+            outcome,
+        )
+
+    def list_skill_outcomes_by_episode(
+        self, episode_id: str
+    ) -> list[SkillOutcome]:
+        return sorted(
+            self._list_by_episode(SKILL_OUTCOMES, episode_id, SkillOutcome),
+            key=lambda item: (item.created_at, item.invocation_id),
+        )
 
     def _list_by_episode(self, collection: str, episode_id: str, model: Any) -> list[Any]:
         items: list[Any] = []

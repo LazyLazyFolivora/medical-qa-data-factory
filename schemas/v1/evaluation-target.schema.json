@@ -1,0 +1,392 @@
+{
+  "$defs": {
+    "AcceptableEvidenceSet": {
+      "additionalProperties": false,
+      "description": "A source-neutral Boolean completion alternative.",
+      "properties": {
+        "all_of": {
+          "items": {
+            "type": "string"
+          },
+          "title": "All Of",
+          "type": "array"
+        },
+        "any_of": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Any Of",
+          "type": "array"
+        }
+      },
+      "title": "AcceptableEvidenceSet",
+      "type": "object"
+    },
+    "AnswerContract": {
+      "additionalProperties": false,
+      "description": "The normalized answer and its declared cardinality.",
+      "properties": {
+        "accepted_aliases": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Accepted Aliases",
+          "type": "array"
+        },
+        "answer_type": {
+          "enum": [
+            "entity",
+            "entity_set",
+            "scalar",
+            "categorical"
+          ],
+          "title": "Answer Type",
+          "type": "string"
+        },
+        "canonical_answer_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Canonical Answer Ids",
+          "type": "array"
+        },
+        "cardinality": {
+          "enum": [
+            "exactly_one",
+            "one_or_more",
+            "exact_set"
+          ],
+          "title": "Cardinality",
+          "type": "string"
+        },
+        "normalization_rule": {
+          "default": "canonical identity match",
+          "title": "Normalization Rule",
+          "type": "string"
+        },
+        "scope_statement": {
+          "minLength": 1,
+          "title": "Scope Statement",
+          "type": "string"
+        }
+      },
+      "required": [
+        "answer_type",
+        "cardinality",
+        "scope_statement"
+      ],
+      "title": "AnswerContract",
+      "type": "object"
+    },
+    "ClaimPattern": {
+      "additionalProperties": false,
+      "description": "Source-neutral semantic condition needed to complete a task.",
+      "properties": {
+        "object_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Object Id"
+        },
+        "object_value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Object Value"
+        },
+        "predicate_family": {
+          "minLength": 1,
+          "title": "Predicate Family",
+          "type": "string"
+        },
+        "qualifier_constraints": {
+          "additionalProperties": true,
+          "title": "Qualifier Constraints",
+          "type": "object"
+        },
+        "subject_id": {
+          "minLength": 1,
+          "title": "Subject Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "subject_id",
+        "predicate_family"
+      ],
+      "title": "ClaimPattern",
+      "type": "object"
+    },
+    "CompletionRule": {
+      "additionalProperties": false,
+      "description": "Deterministic rule for deciding whether a task is complete.",
+      "properties": {
+        "mode": {
+          "const": "any_acceptable_set_satisfied",
+          "default": "any_acceptable_set_satisfied",
+          "title": "Mode",
+          "type": "string"
+        },
+        "require_answer_contract_match": {
+          "const": true,
+          "default": true,
+          "title": "Require Answer Contract Match",
+          "type": "boolean"
+        },
+        "require_complete_validation": {
+          "const": true,
+          "default": true,
+          "title": "Require Complete Validation",
+          "type": "boolean"
+        }
+      },
+      "title": "CompletionRule",
+      "type": "object"
+    },
+    "InformationRequirement": {
+      "additionalProperties": false,
+      "description": "Information that must be established, independent of a tool route.",
+      "properties": {
+        "claim_pattern": {
+          "$ref": "#/$defs/ClaimPattern"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "evidence_quality_rule": {
+          "default": "structured_or_supported_literature",
+          "title": "Evidence Quality Rule",
+          "type": "string"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "requirement_id": {
+          "minLength": 1,
+          "title": "Requirement Id",
+          "type": "string"
+        },
+        "weight": {
+          "default": 1.0,
+          "exclusiveMinimum": 0,
+          "title": "Weight",
+          "type": "number"
+        }
+      },
+      "required": [
+        "requirement_id",
+        "description",
+        "claim_pattern"
+      ],
+      "title": "InformationRequirement",
+      "type": "object"
+    },
+    "ProviderSnapshotRef": {
+      "additionalProperties": false,
+      "description": "One immutable provider snapshot used by a validation environment.",
+      "properties": {
+        "completeness": {
+          "minLength": 1,
+          "title": "Completeness",
+          "type": "string"
+        },
+        "detail": {
+          "additionalProperties": true,
+          "title": "Detail",
+          "type": "object"
+        },
+        "manifest_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manifest Hash"
+        },
+        "provider_id": {
+          "minLength": 1,
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Schema Version"
+        },
+        "snapshot_id": {
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider_id",
+        "snapshot_id",
+        "completeness"
+      ],
+      "title": "ProviderSnapshotRef",
+      "type": "object"
+    },
+    "ValidationEnvironment": {
+      "additionalProperties": false,
+      "description": "The replayable world in which answers and cardinality are certified.",
+      "properties": {
+        "completeness_scope": {
+          "minLength": 1,
+          "title": "Completeness Scope",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "environment_id": {
+          "minLength": 1,
+          "title": "Environment Id",
+          "type": "string"
+        },
+        "providers": {
+          "items": {
+            "$ref": "#/$defs/ProviderSnapshotRef"
+          },
+          "minItems": 1,
+          "title": "Providers",
+          "type": "array"
+        },
+        "schema_version": {
+          "default": "task-construction-v2",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "environment_id",
+        "providers",
+        "completeness_scope"
+      ],
+      "title": "ValidationEnvironment",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Hidden truth used by the evaluator, never by the planning policy.",
+  "properties": {
+    "acceptable_evidence_sets": {
+      "items": {
+        "$ref": "#/$defs/AcceptableEvidenceSet"
+      },
+      "title": "Acceptable Evidence Sets",
+      "type": "array"
+    },
+    "answer_contract": {
+      "$ref": "#/$defs/AnswerContract"
+    },
+    "completion_rule": {
+      "$ref": "#/$defs/CompletionRule"
+    },
+    "evidence_catalog_ref": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Evidence Catalog Ref"
+    },
+    "gold_claim_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Gold Claim Ids",
+      "type": "array"
+    },
+    "gold_evidence_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Gold Evidence Ids",
+      "type": "array"
+    },
+    "information_requirements": {
+      "items": {
+        "$ref": "#/$defs/InformationRequirement"
+      },
+      "title": "Information Requirements",
+      "type": "array"
+    },
+    "qid": {
+      "minLength": 1,
+      "title": "Qid",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": "task-construction-v2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "task_id": {
+      "minLength": 1,
+      "title": "Task Id",
+      "type": "string"
+    },
+    "validation_environment": {
+      "$ref": "#/$defs/ValidationEnvironment"
+    },
+    "validation_report_ref": {
+      "minLength": 1,
+      "title": "Validation Report Ref",
+      "type": "string"
+    }
+  },
+  "required": [
+    "qid",
+    "task_id",
+    "answer_contract",
+    "information_requirements",
+    "acceptable_evidence_sets",
+    "validation_environment",
+    "validation_report_ref"
+  ],
+  "title": "EvaluationTarget",
+  "type": "object"
+}

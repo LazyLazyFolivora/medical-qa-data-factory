@@ -14,6 +14,7 @@ from ..domain.common import ContractModel
 
 ModelRole = Literal[
     "exploration_planner",
+    "entity_question_exploration_planner",
     "evidence_curator",
     "sufficiency_judge",
     "claim_builder",

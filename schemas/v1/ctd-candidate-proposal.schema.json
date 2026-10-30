@@ -1,0 +1,689 @@
+{
+  "$defs": {
+    "AnswerCandidateOutcome": {
+      "additionalProperties": false,
+      "description": "Validation outcome for one entity in the declared candidate universe.",
+      "properties": {
+        "answer_id": {
+          "minLength": 1,
+          "title": "Answer Id",
+          "type": "string"
+        },
+        "claim_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Claim Ids",
+          "type": "array"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "reason_codes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reason Codes",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "matched",
+            "not_matched",
+            "ambiguous",
+            "unreadable",
+            "provider_failed",
+            "not_evaluated"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "answer_id",
+        "status"
+      ],
+      "title": "AnswerCandidateOutcome",
+      "type": "object"
+    },
+    "CtdEvidenceRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "chemical_id": {
+          "minLength": 1,
+          "title": "Chemical Id",
+          "type": "string"
+        },
+        "chemical_name": {
+          "minLength": 1,
+          "title": "Chemical Name",
+          "type": "string"
+        },
+        "content_hash": {
+          "minLength": 1,
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "direct_evidence": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Direct Evidence",
+          "type": "array"
+        },
+        "disease_aliases": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Disease Aliases",
+          "type": "array"
+        },
+        "disease_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Disease Id"
+        },
+        "disease_name": {
+          "minLength": 1,
+          "title": "Disease Name",
+          "type": "string"
+        },
+        "inference_genes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Inference Genes",
+          "type": "array"
+        },
+        "inference_score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inference Score"
+        },
+        "pubmed_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Pubmed Ids",
+          "type": "array"
+        },
+        "source_record_locator": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Record Locator"
+        },
+        "source_snapshot_id": {
+          "minLength": 1,
+          "title": "Source Snapshot Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "chemical_id",
+        "chemical_name",
+        "disease_name",
+        "source_snapshot_id",
+        "content_hash"
+      ],
+      "title": "CtdEvidenceRecord",
+      "type": "object"
+    },
+    "CtdQualifierCounterfactual": {
+      "additionalProperties": false,
+      "properties": {
+        "discriminates": {
+          "title": "Discriminates",
+          "type": "boolean"
+        },
+        "qualifier": {
+          "minLength": 1,
+          "title": "Qualifier",
+          "type": "string"
+        },
+        "reason_codes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reason Codes",
+          "type": "array"
+        },
+        "result_complete": {
+          "title": "Result Complete",
+          "type": "boolean"
+        },
+        "world_answer_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "World Answer Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "qualifier",
+        "result_complete",
+        "discriminates"
+      ],
+      "title": "CtdQualifierCounterfactual",
+      "type": "object"
+    },
+    "CtdWorldEvaluation": {
+      "additionalProperties": false,
+      "properties": {
+        "answer_records": {
+          "additionalProperties": {
+            "items": {
+              "$ref": "#/$defs/CtdEvidenceRecord"
+            },
+            "type": "array"
+          },
+          "title": "Answer Records",
+          "type": "object"
+        },
+        "chemical_id": {
+          "minLength": 1,
+          "title": "Chemical Id",
+          "type": "string"
+        },
+        "competitor_outcomes": {
+          "items": {
+            "$ref": "#/$defs/AnswerCandidateOutcome"
+          },
+          "title": "Competitor Outcomes",
+          "type": "array"
+        },
+        "context": {
+          "$ref": "#/$defs/StudyContext"
+        },
+        "evaluated_at": {
+          "format": "date-time",
+          "title": "Evaluated At",
+          "type": "string"
+        },
+        "evaluator_version": {
+          "default": "ctd-world-evaluator-v1",
+          "title": "Evaluator Version",
+          "type": "string"
+        },
+        "reason_codes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reason Codes",
+          "type": "array"
+        },
+        "result_complete": {
+          "title": "Result Complete",
+          "type": "boolean"
+        },
+        "rows_examined": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Rows Examined",
+          "type": "integer"
+        },
+        "schema_version": {
+          "default": "ctd-world-evaluation-v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "world_answer_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "World Answer Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "chemical_id",
+        "snapshot_id",
+        "context",
+        "result_complete"
+      ],
+      "title": "CtdWorldEvaluation",
+      "type": "object"
+    },
+    "LogicalDirection": {
+      "description": "How a step is walked.",
+      "enum": [
+        "forward",
+        "reverse"
+      ],
+      "title": "LogicalDirection",
+      "type": "string"
+    },
+    "QueryConstraint": {
+      "additionalProperties": false,
+      "description": "A path predicate that an answer candidate must satisfy.\n\nConstraints start from the answer variable and end at a fixed entity. They\nexpress intersections such as \"targeted by Drug A\" AND \"associated with\nDisease D\" without pinning the candidate answer itself.",
+      "properties": {
+        "constraint_id": {
+          "minLength": 1,
+          "title": "Constraint Id",
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/QueryStep"
+          },
+          "minItems": 1,
+          "title": "Steps",
+          "type": "array"
+        },
+        "terminal_entity_id": {
+          "minLength": 1,
+          "title": "Terminal Entity Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "constraint_id",
+        "steps",
+        "terminal_entity_id"
+      ],
+      "title": "QueryConstraint",
+      "type": "object"
+    },
+    "QueryStep": {
+      "additionalProperties": false,
+      "description": "One typed hop of a logical query.",
+      "properties": {
+        "direction": {
+          "$ref": "#/$defs/LogicalDirection"
+        },
+        "from_entity_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "From Entity Id"
+        },
+        "position": {
+          "minimum": 0,
+          "title": "Position",
+          "type": "integer"
+        },
+        "relation": {
+          "minLength": 1,
+          "title": "Relation",
+          "type": "string"
+        },
+        "target_entity_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Entity Type"
+        },
+        "to_entity_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "To Entity Id"
+        }
+      },
+      "required": [
+        "position",
+        "relation",
+        "direction"
+      ],
+      "title": "QueryStep",
+      "type": "object"
+    },
+    "StudyContext": {
+      "additionalProperties": false,
+      "description": "Biomedical qualifiers that must be visible in the public question.",
+      "properties": {
+        "additional_qualifiers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Additional Qualifiers",
+          "type": "object"
+        },
+        "disease_category": {
+          "minLength": 1,
+          "title": "Disease Category",
+          "type": "string"
+        },
+        "dose_or_regimen": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dose Or Regimen"
+        },
+        "exposure_context": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exposure Context"
+        },
+        "exposure_duration": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exposure Duration"
+        },
+        "polarity": {
+          "default": "unknown",
+          "enum": [
+            "increase",
+            "decrease",
+            "neutral",
+            "unknown"
+          ],
+          "title": "Polarity",
+          "type": "string"
+        },
+        "population": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Population"
+        },
+        "relation_intent": {
+          "enum": [
+            "association_research",
+            "biomarker_research",
+            "therapeutic_research",
+            "risk_increase",
+            "risk_decrease",
+            "safety"
+          ],
+          "title": "Relation Intent",
+          "type": "string"
+        },
+        "sample_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sample Type"
+        },
+        "study_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Study Type"
+        },
+        "temporal_scope": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temporal Scope"
+        }
+      },
+      "required": [
+        "disease_category",
+        "relation_intent"
+      ],
+      "title": "StudyContext",
+      "type": "object"
+    },
+    "TaskCandidate": {
+      "additionalProperties": false,
+      "description": "A discovery-time task hypothesis that has not been validated.",
+      "properties": {
+        "answer_entity_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Answer Entity Type"
+        },
+        "candidate_claim_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Candidate Claim Ids",
+          "type": "array"
+        },
+        "candidate_id": {
+          "minLength": 1,
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "constraints": {
+          "items": {
+            "$ref": "#/$defs/QueryConstraint"
+          },
+          "title": "Constraints",
+          "type": "array"
+        },
+        "discovery_source": {
+          "minLength": 1,
+          "title": "Discovery Source",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "generator_version": {
+          "minLength": 1,
+          "title": "Generator Version",
+          "type": "string"
+        },
+        "private_answer_names": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Private Answer Names",
+          "type": "array"
+        },
+        "proposed_answer_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Proposed Answer Ids",
+          "type": "array"
+        },
+        "public_entity_names": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Public Entity Names",
+          "type": "object"
+        },
+        "public_study_context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StudyContext"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "question_type": {
+          "enum": [
+            "single_relation_entity",
+            "constrained_entity",
+            "hidden_bridge_two_hop",
+            "explicit_bridge_two_hop",
+            "study_context_qualified_disease",
+            "ctd_direct_evidence_disease",
+            "primekg_ctd_pubmed_therapeutic_research_disease",
+            "primekg_ctd_pubmed_marker_mechanism",
+            "primekg_ctd_pubmed_association"
+          ],
+          "title": "Question Type",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": "task-construction-v2",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "seed_entity_id": {
+          "minLength": 1,
+          "title": "Seed Entity Id",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/QueryStep"
+          },
+          "minItems": 1,
+          "title": "Steps",
+          "type": "array"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "seed_entity_id",
+        "question_type",
+        "steps",
+        "proposed_answer_ids",
+        "private_answer_names",
+        "snapshot_id",
+        "evidence_ids",
+        "discovery_source",
+        "generator_version"
+      ],
+      "title": "TaskCandidate",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "candidate": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TaskCandidate"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "counterfactuals": {
+      "items": {
+        "$ref": "#/$defs/CtdQualifierCounterfactual"
+      },
+      "title": "Counterfactuals",
+      "type": "array"
+    },
+    "evaluation": {
+      "$ref": "#/$defs/CtdWorldEvaluation"
+    },
+    "reason_codes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Reason Codes",
+      "type": "array"
+    }
+  },
+  "required": [
+    "evaluation"
+  ],
+  "title": "CtdCandidateProposal",
+  "type": "object"
+}

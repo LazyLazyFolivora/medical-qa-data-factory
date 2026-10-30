@@ -1,0 +1,225 @@
+{
+  "$defs": {
+    "AnswerCandidateOutcome": {
+      "additionalProperties": false,
+      "description": "Validation outcome for one entity in the declared candidate universe.",
+      "properties": {
+        "answer_id": {
+          "minLength": 1,
+          "title": "Answer Id",
+          "type": "string"
+        },
+        "claim_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Claim Ids",
+          "type": "array"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "reason_codes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reason Codes",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "matched",
+            "not_matched",
+            "ambiguous",
+            "unreadable",
+            "provider_failed",
+            "not_evaluated"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "answer_id",
+        "status"
+      ],
+      "title": "AnswerCandidateOutcome",
+      "type": "object"
+    },
+    "QualifierCounterfactualResult": {
+      "additionalProperties": false,
+      "description": "Competition result after publicly removing one task condition.",
+      "properties": {
+        "discriminates": {
+          "title": "Discriminates",
+          "type": "boolean"
+        },
+        "qualifier": {
+          "minLength": 1,
+          "title": "Qualifier",
+          "type": "string"
+        },
+        "reason_codes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reason Codes",
+          "type": "array"
+        },
+        "result_complete": {
+          "title": "Result Complete",
+          "type": "boolean"
+        },
+        "world_answer_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "World Answer Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "qualifier",
+        "result_complete",
+        "discriminates"
+      ],
+      "title": "QualifierCounterfactualResult",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Immutable result of executing and checking a TaskSpec.",
+  "properties": {
+    "competitor_outcomes": {
+      "items": {
+        "$ref": "#/$defs/AnswerCandidateOutcome"
+      },
+      "title": "Competitor Outcomes",
+      "type": "array"
+    },
+    "environment_id": {
+      "minLength": 1,
+      "title": "Environment Id",
+      "type": "string"
+    },
+    "evidence_dependency_digest": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Evidence Dependency Digest"
+    },
+    "matched_claim_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Matched Claim Ids",
+      "type": "array"
+    },
+    "passed": {
+      "title": "Passed",
+      "type": "boolean"
+    },
+    "qualifier_counterfactuals": {
+      "items": {
+        "$ref": "#/$defs/QualifierCounterfactualResult"
+      },
+      "title": "Qualifier Counterfactuals",
+      "type": "array"
+    },
+    "query_digest": {
+      "minLength": 1,
+      "title": "Query Digest",
+      "type": "string"
+    },
+    "query_id": {
+      "minLength": 1,
+      "title": "Query Id",
+      "type": "string"
+    },
+    "reason_codes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Reason Codes",
+      "type": "array"
+    },
+    "report_id": {
+      "minLength": 1,
+      "title": "Report Id",
+      "type": "string"
+    },
+    "result_complete": {
+      "title": "Result Complete",
+      "type": "boolean"
+    },
+    "rows_examined": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Rows Examined",
+      "type": "integer"
+    },
+    "schema_version": {
+      "default": "task-construction-v2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "slice_answer_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Slice Answer Ids",
+      "type": "array"
+    },
+    "supporting_evidence_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Supporting Evidence Ids",
+      "type": "array"
+    },
+    "task_id": {
+      "minLength": 1,
+      "title": "Task Id",
+      "type": "string"
+    },
+    "validated_at": {
+      "format": "date-time",
+      "title": "Validated At",
+      "type": "string"
+    },
+    "validator_version": {
+      "minLength": 1,
+      "title": "Validator Version",
+      "type": "string"
+    },
+    "world_answer_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "World Answer Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "report_id",
+    "task_id",
+    "query_id",
+    "query_digest",
+    "environment_id",
+    "passed",
+    "result_complete",
+    "validator_version"
+  ],
+  "title": "ValidationReport",
+  "type": "object"
+}

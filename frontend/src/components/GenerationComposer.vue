@@ -14,7 +14,6 @@ const form = reactive({
   questionCount: 3,
   difficulties: ["easy", "medium"],
   styleId: "",
-  modelMode: props.model.default_mode || "rule-based",
 });
 
 watch(
@@ -23,13 +22,6 @@ watch(
     if (!form.styleId && styles.length) form.styleId = styles[0].skill_id;
   },
   { immediate: true },
-);
-
-watch(
-  () => props.model.default_mode,
-  (mode) => {
-    if (mode) form.modelMode = mode;
-  },
 );
 
 const difficultyLabel = computed(() => {
@@ -54,13 +46,12 @@ const toggleDifficulty = (value) => {
 };
 
 const submit = () => {
-  if (!props.selectedEntity || props.running) return;
+  if (!props.selectedEntity || props.running || !props.model.ready) return;
   emit("submit", {
     entity: props.selectedEntity,
     questionCount: Number(form.questionCount),
     difficulties: [...form.difficulties],
     styleId: form.styleId,
-    modelMode: form.modelMode,
   });
 };
 </script>
@@ -126,36 +117,17 @@ const submit = () => {
         </select>
       </label>
 
-      <fieldset class="config-field engine-field" :disabled="running">
-        <legend>生成引擎</legend>
+      <div class="config-field engine-field">
+        <span>生成引擎</span>
         <div class="engine-switch">
-          <label :class="{ selected: form.modelMode === 'objective' }">
-            <input
-              v-model="form.modelMode"
-              type="radio"
-              value="objective"
-              :disabled="!model.ready"
-            />
+          <div class="engine-option selected">
             <strong>主 Agent 循环</strong>
-            <small>自主检索、验证与发布复核</small>
-          </label>
-          <label :class="{ selected: form.modelMode === 'structured' }">
-            <input
-              v-model="form.modelMode"
-              type="radio"
-              value="structured"
-              :disabled="!model.ready"
-            />
-            <strong>Agent</strong>
-            <small>{{ model.ready ? "原有实体探索链路" : model.detail }}</small>
-          </label>
-          <label :class="{ selected: form.modelMode === 'rule-based' }">
-            <input v-model="form.modelMode" type="radio" value="rule-based" />
-            <strong>规则基线</strong>
-            <small>确定性单跳流程</small>
-          </label>
+            <small>
+              {{ model.ready ? "自主检索、验证与发布复核" : model.detail }}
+            </small>
+          </div>
         </div>
-      </fieldset>
+      </div>
     </div>
 
     <footer class="composer-actions">
@@ -166,7 +138,7 @@ const submit = () => {
       <button
         class="primary-action"
         type="submit"
-        :disabled="running || !selectedEntity"
+        :disabled="running || !selectedEntity || !model.ready"
       >
         <span>{{ running ? "正在生成" : "开始生成" }}</span>
         <span aria-hidden="true">{{ running ? "···" : "→" }}</span>

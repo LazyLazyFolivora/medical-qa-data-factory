@@ -1,0 +1,182 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "additional_qualifiers": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Additional Qualifiers",
+      "type": "object"
+    },
+    "answer_disclosed": {
+      "default": false,
+      "title": "Answer Disclosed",
+      "type": "boolean"
+    },
+    "cardinality": {
+      "enum": [
+        "exactly_one",
+        "one_or_more",
+        "exact_set"
+      ],
+      "title": "Cardinality",
+      "type": "string"
+    },
+    "chemical_name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Chemical Name"
+    },
+    "disease_category": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Disease Category"
+    },
+    "dose_or_regimen": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Dose Or Regimen"
+    },
+    "exposure_context": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Exposure Context"
+    },
+    "exposure_duration": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Exposure Duration"
+    },
+    "polarity": {
+      "enum": [
+        "increase",
+        "decrease",
+        "neutral",
+        "unknown"
+      ],
+      "title": "Polarity",
+      "type": "string"
+    },
+    "population": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Population"
+    },
+    "relation_intent": {
+      "enum": [
+        "association_research",
+        "biomarker_research",
+        "therapeutic_research",
+        "risk_increase",
+        "risk_decrease",
+        "safety"
+      ],
+      "title": "Relation Intent",
+      "type": "string"
+    },
+    "relation_strength": {
+      "default": "unknown",
+      "enum": [
+        "research",
+        "association",
+        "risk",
+        "safety",
+        "causal",
+        "efficacy",
+        "unknown"
+      ],
+      "title": "Relation Strength",
+      "type": "string"
+    },
+    "sample_type": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Sample Type"
+    },
+    "study_type": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Study Type"
+    },
+    "temporal_scope": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Temporal Scope"
+    },
+    "uncertain": {
+      "default": false,
+      "title": "Uncertain",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "relation_intent",
+    "polarity",
+    "cardinality"
+  ],
+  "title": "QuestionSemanticView",
+  "type": "object"
+}

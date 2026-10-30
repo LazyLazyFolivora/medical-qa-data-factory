@@ -15,6 +15,7 @@ class ModelErrorCode(str, Enum):
     CONFIG_ERROR = "model_config_error"
     AUTH_ERROR = "model_auth_error"
     RATE_LIMITED = "model_rate_limited"
+    PROVIDER_UNAVAILABLE = "model_provider_unavailable"
     TIMEOUT = "model_timeout"
     NETWORK_ERROR = "model_network_error"
     PARSE_ERROR = "model_parse_error"
@@ -30,6 +31,7 @@ class ModelErrorCode(str, Enum):
 RETRYABLE_CODES: frozenset[str] = frozenset(
     {
         ModelErrorCode.RATE_LIMITED.value,
+        ModelErrorCode.PROVIDER_UNAVAILABLE.value,
         ModelErrorCode.TIMEOUT.value,
         ModelErrorCode.NETWORK_ERROR.value,
     }
@@ -65,6 +67,7 @@ class ModelError(RuntimeError):
         mapping = {
             ModelErrorCode.AUTH_ERROR: AttemptOutcome.AUTH_ERROR,
             ModelErrorCode.RATE_LIMITED: AttemptOutcome.RATE_LIMITED,
+            ModelErrorCode.PROVIDER_UNAVAILABLE: AttemptOutcome.PROVIDER_ERROR,
             ModelErrorCode.TIMEOUT: AttemptOutcome.TIMEOUT,
             ModelErrorCode.PARSE_ERROR: AttemptOutcome.PARSE_ERROR,
             ModelErrorCode.SCHEMA_ERROR: AttemptOutcome.PARSE_ERROR,

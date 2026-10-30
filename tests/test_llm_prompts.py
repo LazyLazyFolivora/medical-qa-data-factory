@@ -58,6 +58,9 @@ def test_entity_planner_prompt_requires_one_executable_choice() -> None:
     body = template_for("entity_question_exploration_planner").body.lower()
     assert "exactly one of next_action and selected_skill_id" in body
     assert "never leave both empty" in body
+    assert "propose exactly one answer entity" in body
+    assert "do not reverse the primary relation" in body
+    assert "copy an exact need_id" in body
 
 
 def test_the_separated_role_pairs_are_declared() -> None:

@@ -4,7 +4,7 @@
 {% block content %}
 <header class="page-heading compact entity-heading">
   <div><p class="eyebrow">SEED ENTITY</p><h1>{{ record.entity.raw_mention }}</h1><p>{{ record.entity.canonical_name or '尚未规范化' }} · <code>{{ record.entity.canonical_id or record.entity.entity_ref_id }}</code></p></div>
-  <div class="heading-actions"><span class="entity-type">{{ record.entity.entity_type or 'unknown' }}</span><span class="status status-{{ record.entity.link_status.value }}"><i></i>{{ record.entity.link_status.value }}</span><button class="primary-button" disabled title="下一阶段接入">基于此实体生成</button></div>
+  <div class="heading-actions"><span class="entity-type">{{ record.entity.entity_type or 'unknown' }}</span><span class="status status-{{ record.entity.link_status.value }}"><i></i>{{ record.entity.link_status.value }}</span><a class="primary-button button-link" href="{{ url_for('generation') }}?entity={{ (record.entity.canonical_id or record.entity.entity_ref_id)|urlencode }}">用此实体生成题目</a></div>
 </header>
 
 <section class="task-summary entity-detail-summary" aria-label="实体产出">

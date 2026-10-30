@@ -28,6 +28,16 @@ from medical_qa_data_factory.generation.contracts import (
     UpstreamEntitySeed,
 )
 from medical_qa_data_factory.generation.repository import GenerationRepository
+from medical_qa_data_factory.generation.training import (
+    PlannerExecution,
+    PlannerOutcome,
+    PlannerSelectedAction,
+    PlannerState,
+    PlannerStep,
+)
+from medical_qa_data_factory.generation.training_repository import (
+    TrainingRepository,
+)
 from medical_qa_data_factory.evidence_enrichment.models import (
     EnrichmentStatus,
     EvidencePolarity,
@@ -71,15 +81,21 @@ def tiny_kg_provider(monkeypatch, tiny_primekg, tmp_path):
     provider.close()
 
 
-def build_demo_workspace(root):
+def build_demo_workspace(
+    root,
+    *,
+    entity_ref_id: str = "seed-aspirin",
+    canonical_id: str = "demo:aspirin",
+    entity_type: str = "drug",
+):
     repository = LocalArtifactRepository(root)
     seed = EntityRef(
-        entity_ref_id="seed-aspirin",
+        entity_ref_id=entity_ref_id,
         raw_mention="阿司匹林",
         canonical_name="aspirin",
-        canonical_id="demo:aspirin",
+        canonical_id=canonical_id,
         namespace="demo",
-        entity_type="drug",
+        entity_type=entity_type,
         aliases=["阿司匹林"],
         link_status=LinkStatus.EXACT,
         link_score=1.0,
@@ -100,34 +116,150 @@ def build_demo_workspace(root):
     return result
 
 
-def test_generation_workspace_is_the_home_page(tmp_path):
+def test_generation_workspace_serves_the_vue_application(tmp_path):
     build_demo_workspace(tmp_path)
+    client = TestClient(create_app(tmp_path))
+
+    response = client.get("/")
+    workspace = client.get("/api/generation-workspace").json()
+
+    assert response.status_code == 200
+    assert "data-vue-generation-app" in response.text
+    assert "/static/generation-app/app.js" in response.text
+    assert "/static/generation-app/app.css" in response.text
+    assert workspace["selected_entity_id"] == "demo:aspirin"
+    assert workspace["selected_task"]["task_id"] == "aspirin-web-demo"
+    assert workspace["questions"][0]["answer"] == "PTGS1"
+
+
+def test_vue_assets_are_served_with_browser_executable_mime_types(tmp_path):
+    client = TestClient(create_app(tmp_path))
+
+    script = client.get("/static/generation-app/app.js")
+    stylesheet = client.get("/static/generation-app/app.css")
+
+    assert script.status_code == 200
+    assert script.headers["content-type"].startswith("text/javascript")
+    assert stylesheet.status_code == 200
+    assert stylesheet.headers["content-type"].startswith("text/css")
+
+
+def test_generation_workspace_api_describes_question_limit(
+    tmp_path,
+):
+    build_demo_workspace(tmp_path)
+    client = TestClient(create_app(tmp_path))
+
+    response = client.get("/api/generation-workspace")
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["selected_task"]["target_question_count"] == 1
+    assert payload["selected_task"]["question_count"] == 1
+
+
+def test_generation_workspace_serves_one_vue_root(tmp_path):
+    result = build_demo_workspace(tmp_path)
+    repository = LocalArtifactRepository(tmp_path)
+    current_task = repository.load_latest_task(result.task.task_id)
+    newer_task = GenerationTask.create(
+        task_id="aspirin-web-empty-new",
+        generation_mode=current_task.generation_mode,
+        seed_entities=current_task.seed_entities,
+        target_question_count=1,
+    )
+    repository.save_task(newer_task)
     client = TestClient(create_app(tmp_path))
 
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "生成医学问题" in response.text
-    assert "生成的问题" in response.text
-    assert "阿司匹林" in response.text
-    assert "PTGS1" in response.text
-    assert "DEMO" in response.text
+    assert response.text.count('id="generation-app"') == 1
+    assert "data-vue-generation-app" in response.text
+
+
+def test_generation_workspace_api_scopes_results_to_the_latest_task(tmp_path):
+    result = build_demo_workspace(tmp_path)
+    repository = LocalArtifactRepository(tmp_path)
+    current_task = repository.load_latest_task(result.task.task_id)
+    newer_task = GenerationTask.create(
+        task_id="aspirin-web-empty-new",
+        generation_mode=current_task.generation_mode,
+        seed_entities=current_task.seed_entities,
+        target_question_count=1,
+    )
+    repository.save_task(newer_task)
+    client = TestClient(create_app(tmp_path))
+
+    response = client.get("/api/generation-workspace")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["selected_task"]["task_id"] == "aspirin-web-empty-new"
+    assert payload["questions"] == []
+    assert {
+        item["task_id"] for item in payload["tasks"]
+    } == {"aspirin-web-demo", "aspirin-web-empty-new"}
+    assert payload["model"]["default_mode"] in {"rule-based", "structured"}
+    assert payload["question_styles"]
+
+
+def test_generation_workspace_api_can_select_an_explicit_task(tmp_path):
+    result = build_demo_workspace(tmp_path)
+    repository = LocalArtifactRepository(tmp_path)
+    current_task = repository.load_latest_task(result.task.task_id)
+    newer_task = GenerationTask.create(
+        task_id="aspirin-web-empty-new",
+        generation_mode=current_task.generation_mode,
+        seed_entities=current_task.seed_entities,
+        target_question_count=1,
+    )
+    repository.save_task(newer_task)
+    client = TestClient(create_app(tmp_path))
+
+    response = client.get(
+        "/api/generation-workspace",
+        params={"task": result.task.task_id},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["selected_task"]["task_id"] == result.task.task_id
+    assert payload["questions"][0]["question_id"] == result.questions[0].question_id
+    assert payload["selected_task"]["detail_url"].endswith(
+        f"/tasks/{result.task.task_id}"
+    )
+
+
+def test_generation_workspace_api_rejects_an_unknown_task(tmp_path):
+    client = TestClient(create_app(tmp_path))
+
+    response = client.get(
+        "/api/generation-workspace",
+        params={"task": "web-missing"},
+    )
+
+    assert response.status_code == 404
 
 
 def test_empty_workspace_exposes_primekg_seed_candidates(tmp_path):
     client = TestClient(create_app(tmp_path))
 
-    response = client.get("/")
+    response = client.get("/api/generation-workspace")
+    payload = response.json()
 
     assert response.status_code == 200
-    assert 'data-entity-search' in response.text
-    assert 'data-model-mode' in response.text
-    assert 'data-question-style' in response.text
-    assert "普通用户搜索" in response.text
-    assert "医学学习者" in response.text
-    assert "未配置模型" in response.text
-    assert 'value="primekg:drug:1191"' in response.text
-    assert "headache" in response.text
+    assert payload["entities"]
+    assert any(
+        item["canonical_id"] == "primekg:drug:1191"
+        for item in payload["entities"]
+    )
+    assert {item["skill_id"] for item in payload["question_styles"]} >= {
+        "layperson-search-v1",
+        "medical-learner-v1",
+    }
+    assert payload["model"]["ready"] is False
+    assert "未配置模型" in payload["model"]["detail"]
 
 
 def test_generation_progress_endpoint_reports_persisted_steps(tmp_path):
@@ -162,7 +294,40 @@ def test_generation_progress_endpoint_reports_persisted_steps(tmp_path):
             sequence=1,
             status="started",
             input_digest="digest",
+            tool_observation_ids=["observation-live-progress"],
             started_at=now,
+        )
+    )
+    audit.save_observation(
+        ToolObservation(
+            observation_id="observation-live-progress",
+            episode_id="episode-live-progress",
+            tool_name="kg_primekg",
+            operation_key="live|query_neighbors|outgoing",
+            request_digest="live-request",
+            row_count=4,
+            elapsed_ms=1200,
+        )
+    )
+    TrainingRepository(str(tmp_path)).save_step(
+        PlannerStep(
+            step_id="planner-step-live-progress",
+            trajectory_id="trajectory-live-progress",
+            episode_id="episode-live-progress",
+            turn=1,
+            state=PlannerState(),
+            selected_action=PlannerSelectedAction(
+                action_type="query_neighbors",
+                parameters={
+                    "action_type": "query_neighbors",
+                    "direction": "outgoing",
+                    "relations": ["exposure_disease"],
+                },
+                expected_information="live planner query",
+                evidence_gap="no evidence",
+            ),
+            execution=PlannerExecution(policy_result="accepted", status="success"),
+            outcome=PlannerOutcome(evidence_gain=4, useful=True),
         )
     )
     client = TestClient(create_app(tmp_path))
@@ -174,6 +339,14 @@ def test_generation_progress_endpoint_reports_persisted_steps(tmp_path):
     assert payload["status"] == "running"
     assert payload["operations"]
     assert payload["current_step"]["node"] == "agent_explore"
+    assert payload["max_questions"] == 1
+    assert payload["planner_steps"][0]["parameters"]["relations"] == [
+        "exposure_disease"
+    ]
+    assert "query_neighbors" in payload["planner_steps"][0]["parameters_json"]
+    assert payload["operations"][0]["tool_calls"][0]["operation_key"] == (
+        "live|query_neighbors|outgoing"
+    )
 
 
 def test_generation_progress_endpoint_is_pending_before_task_creation(tmp_path):
@@ -412,16 +585,33 @@ def test_workbench_can_run_structured_agent_path(
     assert question.query_intent["question_intent"] == "association_research"
     assert question.query_intent["answer_candidate_count"] == 1
 
+    task_id = response.json()["task_id"]
+    detail = client.get(f"/tasks/{task_id}")
+    assert detail.status_code == 200
+    assert "Agent 编排" in detail.text
+    assert "查询图谱邻居" in detail.text
+    assert "query_neighbors" in detail.text
+    assert "primekg:drug:1191" in detail.text
+    assert "outgoing" in detail.text
+    assert "10" in detail.text
+
 
 def test_entity_workspace_remains_available_as_the_question_library(tmp_path):
     build_demo_workspace(tmp_path)
     client = TestClient(create_app(tmp_path))
 
+    home = client.get("/")
     response = client.get("/entities")
+    detail = client.get("/entities/seed-aspirin")
 
+    assert '>生成<' in home.text
     assert response.status_code == 200
     assert "种子实体工作台" in response.text
     assert "阿司匹林" in response.text
+    assert "用此实体生成题目" in response.text
+    assert "?entity=demo%3Aaspirin" in response.text
+    assert detail.status_code == 200
+    assert "用此实体生成题目" in detail.text
 
 
 def test_workbench_generation_runs_the_generation_service(tmp_path, monkeypatch):
@@ -453,7 +643,7 @@ def test_workbench_generation_runs_the_generation_service(tmp_path, monkeypatch)
             "entity_ref_id": "seed-aspirin",
             "run_id": "web-test-run",
             "question_style_ids": ["medical-learner-v1"],
-            "question_count": 2,
+            "max_questions": 2,
             "difficulty_targets": ["easy", "hard"],
             "language": "zh-CN",
         },
@@ -461,6 +651,7 @@ def test_workbench_generation_runs_the_generation_service(tmp_path, monkeypatch)
 
     assert response.status_code == 200
     assert response.json()["question_ids"] == ["question-web"]
+    assert response.json()["max_questions"] == 2
     assert captured["service"]["provider_id"] == "demo"
     assert captured["service"]["model_mode"] == "rule-based"
     request = captured["request"]
@@ -476,6 +667,11 @@ def test_workbench_generation_runs_the_generation_service(tmp_path, monkeypatch)
     ]
     assert request.generation_spec.question_style_ids == ["medical-learner-v1"]
     assert request.generation_spec.variants_per_blueprint == 3
+    assert request.safety_budget is not None
+    assert request.safety_budget.max_tool_calls == 20
+    assert request.safety_budget.max_edges_observed == 500
+    assert request.safety_budget.max_model_attempts == 20
+    assert request.safety_budget.max_wall_time_seconds == 300
 
 
 def test_workbench_generation_validates_inputs(tmp_path):
@@ -484,11 +680,45 @@ def test_workbench_generation_validates_inputs(tmp_path):
 
     response = client.post(
         "/api/generate",
-        json={"entity_ref_id": "seed-aspirin", "question_count": 21},
+        json={"entity_ref_id": "seed-aspirin", "max_questions": 21},
     )
 
     assert response.status_code == 400
     assert "1 到 20" in response.json()["error"]
+
+
+def test_workbench_generation_accepts_legacy_question_count(
+    tmp_path, monkeypatch
+):
+    build_demo_workspace(tmp_path)
+    captured = {}
+
+    class FakeGenerationService:
+        def __init__(self, **kwargs):
+            pass
+
+        def run(self, request):
+            captured["question_count"] = request.question_count
+            return SimpleNamespace(
+                task_id=request.task_id,
+                episode_id="episode-legacy-count",
+                status="completed",
+                question_ids=[],
+                target_question_count=request.question_count,
+            )
+
+    monkeypatch.setattr(
+        web_app_module, "EntityGenerationService", FakeGenerationService
+    )
+    client = TestClient(create_app(tmp_path))
+
+    response = client.post(
+        "/api/generate",
+        json={"entity_ref_id": "seed-aspirin", "question_count": 2},
+    )
+
+    assert response.status_code == 200
+    assert captured["question_count"] == 2
 
 
 def test_workbench_generation_rejects_unknown_entity(tmp_path):
@@ -558,14 +788,16 @@ def test_generation_workspace_visualizes_persisted_execution_trace(tmp_path):
     )
     client = TestClient(create_app(tmp_path))
 
-    response = client.get("/")
+    response = client.get("/api/generation-workspace")
+    payload = response.json()
 
     assert response.status_code == 200
-    assert "本次生成做了什么" in response.text
-    assert "探索图谱关系" in response.text
-    assert "1 次查询" in response.text
-    assert "7 条返回" in response.text
-    assert "420 ms" in response.text
+    operation = payload["selected_task"]["operations"][0]
+    assert operation["node"] == "collect_neighbors"
+    assert operation["label"] == "探索图谱关系"
+    assert operation["tool_call_count"] == 1
+    assert operation["records_returned"] == 7
+    assert operation["elapsed_label"] == "420 ms"
 
 
 def test_runs_page_reads_latest_workspace_records(tmp_path):
@@ -619,6 +851,29 @@ def test_entity_detail_collects_evidence_questions_and_runs(tmp_path):
     assert "PTGS1" in response.text
 
 
+def test_entity_detail_supports_entity_type_with_path_separator(tmp_path):
+    entity_ref_id = "entity-primekg:gene/protein:P12345"
+    build_demo_workspace(
+        tmp_path,
+        entity_ref_id=entity_ref_id,
+        canonical_id="primekg:gene/protein:P12345",
+        entity_type="gene/protein",
+    )
+    app = create_app(tmp_path)
+    client = TestClient(app)
+
+    home = client.get("/")
+    detail_path = app.url_path_for(
+        "entity_detail", entity_ref_id=entity_ref_id
+    )
+    detail = client.get(str(detail_path))
+
+    assert home.status_code == 200
+    assert str(detail_path) == "/entities/entity-primekg:gene/protein:P12345"
+    assert detail.status_code == 200
+    assert "实体产出" in detail.text
+
+
 def test_task_detail_links_generated_artifacts(tmp_path):
     result = build_demo_workspace(tmp_path)
     client = TestClient(create_app(tmp_path))
@@ -630,6 +885,103 @@ def test_task_detail_links_generated_artifacts(tmp_path):
     assert "对应生成的题目" in response.text
     assert result.bundles[0].bundle_id in response.text
     assert result.questions[0].question_id in response.text
+
+
+def test_task_detail_shows_agent_query_and_exact_failed_step(tmp_path):
+    build_demo_workspace(tmp_path)
+    now = utc_now()
+    episode_id = "episode-agent-failure-detail"
+    audit = GenerationRepository(tmp_path)
+    audit.save_episode(
+        GenerationEpisode(
+            episode_id=episode_id,
+            episode_version=f"{episode_id}.v1",
+            task_id="aspirin-web-demo",
+            seed=UpstreamEntitySeed(
+                provider_id="primekg",
+                native_id="9240",
+                entity_type="gene/protein",
+                canonical_name="PNMA1",
+            ),
+            state=EpisodeState.FAILED,
+            policy_version="test",
+            question_target=1,
+            step_ids=["step-agent-failure"],
+            stop_reason=StopReason.MODEL_ERROR,
+            started_at=now,
+            completed_at=now,
+        )
+    )
+    audit.save_observation(
+        ToolObservation(
+            observation_id="observation-agent-failure",
+            episode_id=episode_id,
+            tool_name="kg_primekg",
+            operation_key="PNMA1|neighbors|outgoing",
+            request_digest="request-digest",
+            row_count=0,
+            elapsed_ms=17359,
+            error_code="model_error",
+            message="continue_search requires exactly one action",
+        )
+    )
+    audit.save_step(
+        AgentStep(
+            step_id="step-agent-failure",
+            step_version="step-agent-failure.v1",
+            episode_id=episode_id,
+            node="agent_explore",
+            sequence=2,
+            status="failed",
+            input_digest="input-digest",
+            tool_observation_ids=["observation-agent-failure"],
+            error_code="model_error",
+            elapsed_ms=17359,
+            started_at=now,
+            completed_at=now,
+        )
+    )
+    TrainingRepository(str(tmp_path)).save_step(
+        PlannerStep(
+            step_id="planner-step-agent-failure",
+            trajectory_id="trajectory-agent-failure",
+            episode_id=episode_id,
+            turn=1,
+            state=PlannerState(),
+            selected_action=PlannerSelectedAction(
+                action_type="query_neighbors",
+                parameters={
+                    "action_type": "query_neighbors",
+                    "subject_entity_id": "primekg:gene/protein:9240",
+                    "direction": "outgoing",
+                    "relations": ["exposure_disease"],
+                    "max_results": 7,
+                },
+                expected_information="PNMA1 的关联疾病",
+                evidence_gap="尚未收集邻居证据",
+            ),
+            execution=PlannerExecution(
+                policy_result="accepted",
+                status="error",
+            ),
+            outcome=PlannerOutcome(useful=False),
+        )
+    )
+    client = TestClient(create_app(tmp_path))
+
+    response = client.get("/tasks/aspirin-web-demo")
+
+    assert response.status_code == 200
+    assert "Agent 编排" in response.text
+    assert "第 1 轮" in response.text
+    assert "PNMA1 的关联疾病" in response.text
+    assert "primekg:gene/protein:9240" in response.text
+    assert "exposure_disease" in response.text
+    assert "max_results" in response.text
+    assert "失败于 agent_explore" in response.text
+    assert "model_error" in response.text
+    assert "PNMA1|neighbors|outgoing" in response.text
+    assert "continue_search requires exactly one action" in response.text
 
 
 def test_review_page_renders_evidence_spine(tmp_path):

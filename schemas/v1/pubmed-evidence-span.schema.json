@@ -1,0 +1,74 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "end": {
+      "exclusiveMinimum": 0,
+      "title": "End",
+      "type": "integer"
+    },
+    "pmid": {
+      "minLength": 1,
+      "title": "Pmid",
+      "type": "string"
+    },
+    "quote": {
+      "minLength": 1,
+      "title": "Quote",
+      "type": "string"
+    },
+    "quote_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Quote Hash",
+      "type": "string"
+    },
+    "record_content_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Record Content Hash",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "pubmed-evidence-span-v1",
+      "default": "pubmed-evidence-span-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "snapshot_id": {
+      "minLength": 1,
+      "title": "Snapshot Id",
+      "type": "string"
+    },
+    "span_id": {
+      "minLength": 1,
+      "title": "Span Id",
+      "type": "string"
+    },
+    "start": {
+      "minimum": 0,
+      "title": "Start",
+      "type": "integer"
+    },
+    "text_field": {
+      "const": "abstract",
+      "default": "abstract",
+      "title": "Text Field",
+      "type": "string"
+    },
+    "verified_at": {
+      "format": "date-time",
+      "title": "Verified At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "span_id",
+    "pmid",
+    "snapshot_id",
+    "record_content_hash",
+    "start",
+    "end",
+    "quote",
+    "quote_hash"
+  ],
+  "title": "PubMedEvidenceSpan",
+  "type": "object"
+}

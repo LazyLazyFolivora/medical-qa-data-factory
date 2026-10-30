@@ -31,7 +31,7 @@
     <tbody>
       {% for record in entity_records %}
       <tr data-search="{{ record.entity.raw_mention }} {{ record.entity.canonical_name or '' }} {{ record.entity.canonical_id or '' }} {{ record.entity.entity_type or '' }}">
-        <td><a class="record-link entity-name" href="{{ url_for('entity_detail', entity_ref_id=record.entity.entity_ref_id) }}">{{ record.entity.raw_mention }}</a><small>{{ record.entity.canonical_name or '尚未规范化' }} · {{ record.entity.canonical_id or record.entity.entity_ref_id }}</small></td>
+        <td><a class="record-link entity-name" href="{{ url_for('entity_detail', entity_ref_id=record.entity.entity_ref_id) }}">{{ record.entity.raw_mention }}</a><small>{{ record.entity.canonical_name or '尚未规范化' }} · {{ record.entity.canonical_id or record.entity.entity_ref_id }}</small><a class="row-action entity-generate-entry" href="{{ url_for('generation') }}?entity={{ (record.entity.canonical_id or record.entity.entity_ref_id)|urlencode }}">用此实体生成题目 →</a></td>
         <td><span class="entity-type">{{ record.entity.entity_type or 'unknown' }}</span><small>{{ record.entity.namespace or '无命名空间' }} · {{ record.entity.link_status.value }}</small></td>
         <td>{{ record.tasks|length }}</td>
         <td><span class="coverage kg-dot">KG {{ record.kg_count }}</span><span class="coverage literature-dot">文献 {{ record.literature_count }}</span></td>

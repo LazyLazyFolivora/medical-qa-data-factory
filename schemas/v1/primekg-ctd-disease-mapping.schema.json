@@ -1,0 +1,44 @@
+{
+  "$defs": {
+    "CtdMappingStatus": {
+      "enum": [
+        "mapped_exact",
+        "mapped_crosswalk",
+        "ambiguous",
+        "unmapped"
+      ],
+      "title": "CtdMappingStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "ctd_disease_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Ctd Disease Ids",
+      "type": "array"
+    },
+    "primekg_disease_id": {
+      "title": "Primekg Disease Id",
+      "type": "string"
+    },
+    "reason_codes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Reason Codes",
+      "type": "array"
+    },
+    "status": {
+      "$ref": "#/$defs/CtdMappingStatus"
+    }
+  },
+  "required": [
+    "status",
+    "primekg_disease_id"
+  ],
+  "title": "PrimeKgCtdDiseaseMapping",
+  "type": "object"
+}

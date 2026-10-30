@@ -818,11 +818,12 @@
 
 .engine-switch {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 7px;
 }
 
-.engine-switch label {
+.engine-switch label,
+.engine-switch .engine-option {
   position: relative;
   display: grid;
   gap: 2px;
@@ -833,7 +834,8 @@
   background: #fff;
 }
 
-.engine-switch label.selected {
+.engine-switch label.selected,
+.engine-switch .engine-option.selected {
   border-color: #85afb5;
   background: #f2f8f8;
 }

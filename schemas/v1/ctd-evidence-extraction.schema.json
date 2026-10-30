@@ -1,0 +1,265 @@
+{
+  "$defs": {
+    "EvidencePolarity": {
+      "enum": [
+        "increase",
+        "decrease",
+        "neutral",
+        "mixed",
+        "unknown"
+      ],
+      "title": "EvidencePolarity",
+      "type": "string"
+    },
+    "PubMedFinding": {
+      "additionalProperties": false,
+      "description": "Constrained extraction proposed by the model for one PMID.",
+      "properties": {
+        "citation": {
+          "$ref": "#/$defs/PubMedSpanCitation"
+        },
+        "claim_text": {
+          "default": "",
+          "title": "Claim Text",
+          "type": "string"
+        },
+        "intent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StudyContextIntent"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "pmid": {
+          "minLength": 1,
+          "title": "Pmid",
+          "type": "string"
+        },
+        "polarity": {
+          "$ref": "#/$defs/EvidencePolarity",
+          "default": "unknown"
+        },
+        "qualifier_evidence": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Qualifier Evidence",
+          "type": "object"
+        },
+        "qualifiers": {
+          "$ref": "#/$defs/StudyContextQualifiers"
+        },
+        "support_level": {
+          "default": "literature_supported",
+          "title": "Support Level",
+          "type": "string"
+        },
+        "verdict": {
+          "$ref": "#/$defs/PubMedFindingVerdict"
+        }
+      },
+      "required": [
+        "pmid",
+        "verdict",
+        "citation"
+      ],
+      "title": "PubMedFinding",
+      "type": "object"
+    },
+    "PubMedFindingVerdict": {
+      "description": "What one independently verified PubMed span does for the claim.",
+      "enum": [
+        "supports",
+        "contradicts",
+        "context_only",
+        "uncertain"
+      ],
+      "title": "PubMedFindingVerdict",
+      "type": "string"
+    },
+    "PubMedSpanCitation": {
+      "additionalProperties": false,
+      "properties": {
+        "end": {
+          "exclusiveMinimum": 0,
+          "title": "End",
+          "type": "integer"
+        },
+        "pmid": {
+          "minLength": 1,
+          "title": "Pmid",
+          "type": "string"
+        },
+        "quote": {
+          "minLength": 1,
+          "title": "Quote",
+          "type": "string"
+        },
+        "start": {
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        },
+        "text_field": {
+          "const": "abstract",
+          "default": "abstract",
+          "title": "Text Field",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pmid",
+        "start",
+        "end",
+        "quote"
+      ],
+      "title": "PubMedSpanCitation",
+      "type": "object"
+    },
+    "StudyContextIntent": {
+      "description": "Intents allowed in the first CTD-backed release.",
+      "enum": [
+        "association_research",
+        "biomarker_research",
+        "therapeutic_research",
+        "risk_increase",
+        "risk_decrease",
+        "safety"
+      ],
+      "title": "StudyContextIntent",
+      "type": "string"
+    },
+    "StudyContextQualifiers": {
+      "additionalProperties": false,
+      "description": "Scientific conditions that materially narrow the claim.",
+      "properties": {
+        "additional_qualifiers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Additional Qualifiers",
+          "type": "object"
+        },
+        "disease_category": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Disease Category"
+        },
+        "dose_exposure": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dose Exposure"
+        },
+        "exposure_context": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exposure Context"
+        },
+        "exposure_duration": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exposure Duration"
+        },
+        "population": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Population"
+        },
+        "sample_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sample Type"
+        },
+        "study_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Study Type"
+        },
+        "temporal_scope": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temporal Scope"
+        }
+      },
+      "title": "StudyContextQualifiers",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The only model output accepted by the Step 4 fusion gate.",
+  "properties": {
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/PubMedFinding"
+      },
+      "minItems": 1,
+      "title": "Findings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "findings"
+  ],
+  "title": "CtdEvidenceExtraction",
+  "type": "object"
+}

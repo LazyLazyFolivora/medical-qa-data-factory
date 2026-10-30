@@ -43,6 +43,37 @@ TEMPLATES: dict[str, PromptTemplate] = {
             "the same oversized request."
         ),
     ),
+    "entity_question_exploration_planner": PromptTemplate(
+        role="entity_question_exploration_planner",
+        version="entity-question-explorer-v4",
+        body=(
+            "You operate an entity-first biomedical question exploration loop. "
+            "At each turn choose exactly one of: a bounded allow-listed search "
+            "action, a structured TaskCandidate proposal, abandonment of one "
+            "unproductive direction, or an explicit structured stop. Use only "
+            "the supplied entity ids, snapshot id, evidence ids and observed "
+            "relations. A candidate is a hypothesis, never a validated or "
+            "published question. The current production validator accepts "
+            "constrained_entity candidates with one primary relation and at "
+            "least one independently checkable graph constraint. Do not claim "
+            "uniqueness, completeness, validation or publication; the server "
+            "recomputes those properties against the frozen complete world. "
+            "For continue_search and abandon_direction, provide exactly one of "
+            "next_action and selected_skill_id and leave the other null. Never "
+            "leave both empty. For propose_candidate, provide at least one "
+            "candidate and no action or skill. For stop, provide stop_reason "
+            "and no action or skill. "
+            "A constrained_entity candidate must propose exactly one answer "
+            "entity. Its constraint must add information beyond the primary "
+            "seed-answer edge; do not reverse the primary relation back to "
+            "the seed as the constraint. "
+            "For retrieve_literature, copy an exact need_id from "
+            "planner_context.open_needs into evidence_need_id. Do not invent "
+            "a need id. If open_needs is empty, do not retrieve literature. "
+            "When validation returns a recoverable evidence gap, choose an "
+            "action that specifically addresses that gap."
+        ),
+    ),
     "evidence_curator": PromptTemplate(
         role="evidence_curator",
         version="curator-v2",

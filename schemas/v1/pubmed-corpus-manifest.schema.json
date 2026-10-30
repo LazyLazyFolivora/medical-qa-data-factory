@@ -1,0 +1,46 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "built_at": {
+      "format": "date-time",
+      "title": "Built At",
+      "type": "string"
+    },
+    "manifest_id": {
+      "minLength": 1,
+      "title": "Manifest Id",
+      "type": "string"
+    },
+    "record_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Record Hashes",
+      "type": "object"
+    },
+    "requested_pmids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Requested Pmids",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "pubmed-corpus-manifest-v1",
+      "default": "pubmed-corpus-manifest-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "snapshot_id": {
+      "minLength": 1,
+      "title": "Snapshot Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "manifest_id",
+    "snapshot_id"
+  ],
+  "title": "PubMedCorpusManifest",
+  "type": "object"
+}

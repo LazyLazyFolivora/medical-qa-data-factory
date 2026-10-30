@@ -173,7 +173,7 @@ class PrimeKGSQLiteProvider:
         default_limit: int = 100,
         max_limit: int = 1000,
         max_hops: int = 2,
-        query_timeout_ms: int = 10000,
+        query_timeout_ms: int = 30000,
         entity_catalog_path: str | Path | None = None,
         sha256: str | None = None,
         provider_id: str = PROVIDER_ID,
@@ -295,7 +295,7 @@ class PrimeKGSQLiteProvider:
             connection = sqlite3.connect(uri, uri=True, check_same_thread=False)
             connection.row_factory = sqlite3.Row
             connection.execute("PRAGMA query_only = ON")
-            connection.execute("PRAGMA busy_timeout = 5000")
+            connection.execute("PRAGMA busy_timeout = 15000")
         except sqlite3.Error as exc:
             raise GraphUnavailableError(f"cannot open primekg database: {exc}") from exc
         self._connection = connection

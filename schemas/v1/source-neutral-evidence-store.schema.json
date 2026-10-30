@@ -1,0 +1,286 @@
+{
+  "$defs": {
+    "EvidenceRecord": {
+      "additionalProperties": false,
+      "description": "One immutable source observation, independent of a task or tool route.",
+      "properties": {
+        "content_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "document_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Document Text"
+        },
+        "evidence_id": {
+          "minLength": 1,
+          "title": "Evidence Id",
+          "type": "string"
+        },
+        "object_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Object Id"
+        },
+        "predicate_family": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Predicate Family"
+        },
+        "provider_id": {
+          "minLength": 1,
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "qualifiers": {
+          "additionalProperties": true,
+          "title": "Qualifiers",
+          "type": "object"
+        },
+        "record_type": {
+          "enum": [
+            "structured_relation",
+            "document"
+          ],
+          "title": "Record Type",
+          "type": "string"
+        },
+        "retrieved_at": {
+          "format": "date-time",
+          "title": "Retrieved At",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "source-neutral-evidence-v1",
+          "default": "source-neutral-evidence-v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "source_kind": {
+          "enum": [
+            "structured_database",
+            "knowledge_graph",
+            "literature"
+          ],
+          "title": "Source Kind",
+          "type": "string"
+        },
+        "source_locator": {
+          "minLength": 1,
+          "title": "Source Locator",
+          "type": "string"
+        },
+        "source_metadata": {
+          "additionalProperties": true,
+          "title": "Source Metadata",
+          "type": "object"
+        },
+        "subject_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subject Id"
+        }
+      },
+      "required": [
+        "evidence_id",
+        "provider_id",
+        "source_kind",
+        "snapshot_id",
+        "source_locator",
+        "content_hash",
+        "record_type",
+        "retrieved_at"
+      ],
+      "title": "EvidenceRecord",
+      "type": "object"
+    },
+    "NormalizedClaim": {
+      "additionalProperties": false,
+      "description": "A source-neutral semantic claim with explicit evidence roles.",
+      "properties": {
+        "claim_id": {
+          "minLength": 1,
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "claim_text": {
+          "default": "",
+          "title": "Claim Text",
+          "type": "string"
+        },
+        "context_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Context Evidence Ids",
+          "type": "array"
+        },
+        "contradicting_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Contradicting Evidence Ids",
+          "type": "array"
+        },
+        "legacy_claim_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Legacy Claim Id"
+        },
+        "normalizer_version": {
+          "minLength": 1,
+          "title": "Normalizer Version",
+          "type": "string"
+        },
+        "object_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Object Id"
+        },
+        "object_value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Object Value"
+        },
+        "polarity": {
+          "default": "unknown",
+          "enum": [
+            "increase",
+            "decrease",
+            "neutral",
+            "unknown"
+          ],
+          "title": "Polarity",
+          "type": "string"
+        },
+        "predicate_family": {
+          "minLength": 1,
+          "title": "Predicate Family",
+          "type": "string"
+        },
+        "qualifiers": {
+          "additionalProperties": true,
+          "title": "Qualifiers",
+          "type": "object"
+        },
+        "schema_version": {
+          "const": "source-neutral-evidence-v1",
+          "default": "source-neutral-evidence-v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "subject_id": {
+          "minLength": 1,
+          "title": "Subject Id",
+          "type": "string"
+        },
+        "supporting_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Supporting Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "claim_id",
+        "subject_id",
+        "predicate_family",
+        "normalizer_version"
+      ],
+      "title": "NormalizedClaim",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Closed evidence/claim collection consumed by deterministic matchers.",
+  "properties": {
+    "claims": {
+      "items": {
+        "$ref": "#/$defs/NormalizedClaim"
+      },
+      "title": "Claims",
+      "type": "array"
+    },
+    "records": {
+      "items": {
+        "$ref": "#/$defs/EvidenceRecord"
+      },
+      "title": "Records",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "source-neutral-evidence-v1",
+      "default": "source-neutral-evidence-v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "title": "EvidenceStore",
+  "type": "object"
+}

@@ -85,17 +85,30 @@ class OpenAICompatibleModel:
         body = self._build_body(request, schema)
         max_attempts = max(1, self.config.max_retries + 1)
         last_error: ModelError | None = None
+        repair = False
         for attempt_index in range(max_attempts):
-            repaired = attempt_index > 0
             attempt_body = (
-                self._build_body(request, schema, repair=True)
-                if repaired
+                self._build_body(
+                    request,
+                    schema,
+                    repair=True,
+                    repair_error=last_error.message if last_error else None,
+                )
+                if repair
                 else body
             )
-            response = self._attempt(
-                request, attempt_body, repaired=repaired
-            )
-            response.record.repaired = repaired
+            try:
+                response = self._attempt(
+                    request, attempt_body, repaired=repair
+                )
+            except ModelError as exc:
+                if self.calls:
+                    self.calls[-1].repaired = repair
+                last_error = exc
+                if exc.retryable and attempt_index + 1 < max_attempts:
+                    continue
+                raise
+            response.record.repaired = repair
             try:
                 parsed, usage = self._parse(response, response_model)
             except ModelError as exc:
@@ -109,6 +122,7 @@ class OpenAICompatibleModel:
                     or attempt_index + 1 >= max_attempts
                 ):
                     raise
+                repair = True
                 continue
             usage_record = self._usage_record(request, usage)
             self.usage_records.append(usage_record)
@@ -142,6 +156,7 @@ class OpenAICompatibleModel:
         schema: dict[str, Any],
         *,
         repair: bool = False,
+        repair_error: str | None = None,
     ) -> dict[str, Any]:
         if not request.system_prompt_version.strip():
             raise ModelError(
@@ -182,7 +197,13 @@ class OpenAICompatibleModel:
             },
         ]
         if repair:
-            messages.append({"role": "system", "content": REPAIR_PROMPT})
+            repair_message = REPAIR_PROMPT
+            if repair_error:
+                repair_message = (
+                    f"{repair_message}\nValidation error to correct:\n"
+                    f"{repair_error}"
+                )
+            messages.append({"role": "system", "content": repair_message})
         body: dict[str, Any] = {
             "model": self.config.model_id,
             "messages": messages,
@@ -280,6 +301,23 @@ class OpenAICompatibleModel:
             raise ModelError(
                 ModelErrorCode.RATE_LIMITED,
                 f"model provider rate limited the call (HTTP 429)",
+                status_code=status,
+                provider_request_id=provider_request_id,
+            )
+        if status >= 500:
+            record = ModelCallRecord(
+                attempt_id=new_id("attempt"),
+                role=request.role,
+                status="failed",
+                http_status=status,
+                provider_request_id=provider_request_id,
+                error_code=ModelErrorCode.PROVIDER_UNAVAILABLE.value,
+                elapsed_ms=elapsed,
+            )
+            self.calls.append(record)
+            raise ModelError(
+                ModelErrorCode.PROVIDER_UNAVAILABLE,
+                f"model provider is temporarily unavailable (HTTP {status})",
                 status_code=status,
                 provider_request_id=provider_request_id,
             )

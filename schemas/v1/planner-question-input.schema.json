@@ -1,0 +1,64 @@
+{
+  "additionalProperties": false,
+  "description": "The allow-listed, gold-free view visible to a planning policy.",
+  "properties": {
+    "budget": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Budget",
+      "type": "object"
+    },
+    "environment_ref": {
+      "minLength": 1,
+      "title": "Environment Ref",
+      "type": "string"
+    },
+    "max_steps": {
+      "default": 8,
+      "minimum": 1,
+      "title": "Max Steps",
+      "type": "integer"
+    },
+    "note": {
+      "default": "",
+      "title": "Note",
+      "type": "string"
+    },
+    "qid": {
+      "minLength": 1,
+      "title": "Qid",
+      "type": "string"
+    },
+    "qtype": {
+      "minLength": 1,
+      "title": "Qtype",
+      "type": "string"
+    },
+    "question": {
+      "minLength": 1,
+      "title": "Question",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": "task-construction-v2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sufficiency_threshold": {
+      "default": 1.0,
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Sufficiency Threshold",
+      "type": "number"
+    }
+  },
+  "required": [
+    "qid",
+    "question",
+    "qtype",
+    "environment_ref"
+  ],
+  "title": "PlannerQuestionInput",
+  "type": "object"
+}

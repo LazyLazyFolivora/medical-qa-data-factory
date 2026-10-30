@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 
 from ..domain import EntityRef, EvidenceBundle, GenerationTask, QuestionSpec
 from ..generation.repository import GenerationRepository
@@ -120,6 +121,20 @@ class QuestionLibraryRow(GeneratedQuestionRow):
 
 
 @dataclass(frozen=True)
+class GenerationToolCallRow:
+    """One concrete tool request linked to a pipeline step."""
+
+    tool_name: str
+    operation_key: str
+    status: str
+    status_label: str
+    records_returned: int
+    elapsed_label: str
+    error_code: str | None
+    message: str
+
+
+@dataclass(frozen=True)
 class GenerationOperationRow:
     """Human-readable projection of one persisted agent step."""
 
@@ -133,6 +148,10 @@ class GenerationOperationRow:
     tool_call_count: int
     records_returned: int
     output_count: int
+    error_code: str | None
+    error_message: str
+    retryable: bool
+    tool_calls: list[GenerationToolCallRow]
 
 
 @dataclass(frozen=True)
@@ -156,6 +175,10 @@ _OPERATION_COPY = {
     "collect_neighbors": ("探索图谱关系", "查询入边与出边，收集候选证据"),
     "agent_explore": ("规划探索路径", "根据当前证据决定下一步查询"),
     "curate_evidence": ("筛选证据", "去重并保留可用于出题的关系"),
+    "realize_validated_tasks": (
+        "发布已验证题目",
+        "只将完整世界验证通过的任务写成题面并再次校验语义",
+    ),
     "build_claims": (
         "增强证据并构建主张",
         "读取 CTD/PubMed 证据，判断关系语义并构建可验证主张",
@@ -180,6 +203,36 @@ def _elapsed_label(elapsed_ms: int | None) -> str:
     return f"{elapsed_ms / 1000:.1f} s"
 
 
+def _checkpoint_step_errors(workspace: str, episode_id: str) -> dict[str, str]:
+    """Recover legacy checkpoint diagnostics for pages created before task errors."""
+
+    path = Path(workspace) / "checkpoints" / "generation.sqlite"
+    if not path.exists():
+        return {}
+    try:
+        from langgraph.checkpoint.sqlite import SqliteSaver
+
+        errors: dict[str, str] = {}
+        with SqliteSaver.from_conn_string(str(path)) as checkpointer:
+            snapshots = checkpointer.list(
+                {"configurable": {"thread_id": episode_id}}
+            )
+            for snapshot in snapshots:
+                values = snapshot.checkpoint.get("channel_values", {})
+                proposal_error = values.get("_proposal_error")
+                if proposal_error:
+                    errors["agent_explore"] = str(proposal_error)
+                for error in values.get("errors", []):
+                    node = str(error.get("node") or error.get("source") or "")
+                    message = str(error.get("message") or "").strip()
+                    if node and message and node not in errors:
+                        errors[node] = message
+        return errors
+    except Exception:
+        # Diagnostics are optional and must never make the detail page fail.
+        return {}
+
+
 def build_generation_activity(
     workspace: str,
     task: GenerationTask | None,
@@ -198,19 +251,70 @@ def build_generation_activity(
         item.observation_id: item
         for item in episodes.list_observations_by_episode(episode.episode_id)
     }
+    steps = episodes.list_steps_by_episode(episode.episode_id)
+    checkpoint_errors = (
+        _checkpoint_step_errors(workspace, episode.episode_id)
+        if any(step.status == "failed" for step in steps)
+        else {}
+    )
     operations: list[GenerationOperationRow] = []
     total_elapsed_ms = 0
     total_tool_calls = 0
     total_records_returned = 0
-    for step in episodes.list_steps_by_episode(episode.episode_id):
+    for step in steps:
         step_observations = [
             observations[item]
             for item in step.tool_observation_ids
             if item in observations
         ]
+        tool_calls = [
+            GenerationToolCallRow(
+                tool_name=item.tool_name,
+                operation_key=item.operation_key,
+                status=item.status or ("error" if item.error_code else "success"),
+                status_label={
+                    "success": "成功",
+                    "empty": "无结果",
+                    "warning": "有告警",
+                    "error": "失败",
+                    "rejected": "已拒绝",
+                }.get(
+                    item.status or ("error" if item.error_code else "success"),
+                    item.status or "成功",
+                ),
+                records_returned=item.row_count,
+                elapsed_label=_elapsed_label(item.elapsed_ms),
+                error_code=item.error_code,
+                message=item.message,
+            )
+            for item in step_observations
+        ]
         label, description = _OPERATION_COPY.get(
             step.node,
             (step.node.replace("_", " ").title(), "执行生成流水线步骤"),
+        )
+        step_errors = [
+            error
+            for error in task.errors
+            if str(error.get("source") or error.get("node") or "") == step.node
+        ]
+        error_code = step.error_code or next(
+            (
+                str(error.get("error_type") or error.get("code"))
+                for error in step_errors
+                if error.get("error_type") or error.get("code")
+            ),
+            None,
+        )
+        error_message = " ".join(
+            str(error.get("message") or "")
+            for error in step_errors
+            if error.get("message")
+        )
+        if step.status == "failed":
+            error_message = checkpoint_errors.get(step.node, error_message)
+        retryable = step.retryable or any(
+            bool(error.get("retryable")) for error in step_errors
         )
         records_returned = sum(item.row_count for item in step_observations)
         tool_call_count = len(step_observations)
@@ -235,6 +339,10 @@ def build_generation_activity(
                 tool_call_count=tool_call_count,
                 records_returned=records_returned,
                 output_count=len(step.output_artifact_ids),
+                error_code=error_code,
+                error_message=error_message,
+                retryable=retryable,
+                tool_calls=tool_calls,
             )
         )
     return GenerationActivity(

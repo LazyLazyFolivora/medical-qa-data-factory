@@ -55,7 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
     objective_generate.add_argument("--entity-id")
     objective_generate.add_argument("--entity-type")
     objective_generate.add_argument("--question-count", type=int, default=1)
-    objective_generate.add_argument("--max-actions", type=int, default=20)
+    objective_generate.add_argument("--max-actions", type=int, default=100)
     objective_generate.add_argument("--max-cost", type=float, default=10.0)
     objective_generate.add_argument("--max-model-calls", type=int, default=40)
     objective_generate.add_argument(

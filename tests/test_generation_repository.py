@@ -18,6 +18,12 @@ from medical_qa_data_factory.generation.repository import (
     GenerationRepository,
     IdempotencyConflictError,
 )
+from medical_qa_data_factory.generation.skills import (
+    SkillOutcome,
+    SkillRuntimeContext,
+    SkillSelection,
+    build_default_skill_registry,
+)
 
 NOW = "2026-10-17T00:00:00Z"
 LATER = "2026-10-17T00:05:00Z"
@@ -150,6 +156,48 @@ def test_append_only_collections_are_listable_per_episode(tmp_path: Path) -> Non
 def test_graph_thread_id_equals_episode_id(tmp_path: Path) -> None:
     repo = GenerationRepository(tmp_path)
     assert repo.graph_thread_id("ep1") == "ep1"
+
+
+def test_skill_invocations_and_outcomes_are_append_only(tmp_path: Path) -> None:
+    repo = GenerationRepository(tmp_path)
+    registry = build_default_skill_registry()
+    invocation = registry.prepare_invocation(
+        SkillSelection(
+            skill_id="primekg-neighbor-exploration",
+            arguments={
+                "subject_entity_id": "primekg:drug:1",
+                "direction": "outgoing",
+            },
+        ),
+        runtime=SkillRuntimeContext(
+            available_tool_names=["kg_neighbors"],
+            allowed_action_types=["query_neighbors"],
+            remaining_tool_calls=2,
+            remaining_edge_budget=10,
+        ),
+        episode_id="ep1",
+        turn=1,
+        state_digest="state-digest",
+    )
+    outcome = SkillOutcome(
+        invocation_id=invocation.invocation_id,
+        episode_id="ep1",
+        status="success",
+        summary="skill produced one evidence artifact",
+        artifact_ids=["evidence-1"],
+        evidence_artifact_ids=["evidence-1"],
+        produced_artifact_types=["kg_evidence"],
+        evidence_gain=1,
+    )
+
+    assert repo.save_skill_invocation(invocation) == "written"
+    assert repo.save_skill_outcome(outcome) == "written"
+    assert repo.list_skill_invocations_by_episode("ep1") == [invocation]
+    assert repo.list_skill_outcomes_by_episode("ep1") == [outcome]
+    replay = SkillOutcome.model_validate(
+        {**outcome.model_dump(mode="json"), "created_at": LATER}
+    )
+    assert repo.save_skill_outcome(replay) == "existing"
 
 
 def test_episode_versions_keep_history(tmp_path: Path) -> None:

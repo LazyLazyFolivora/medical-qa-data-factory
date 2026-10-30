@@ -104,7 +104,7 @@ class ObjectiveQuestionAgentLoop:
         main_agent: MainAgentPort,
         model: Any,
         providers: Mapping[str, EvidenceProviderPort],
-        max_actions: int = 20,
+        max_actions: int = 100,
         max_consecutive_empty_retrievals: int = 3,
     ) -> None:
         self.runtime = runtime
@@ -348,6 +348,14 @@ class ObjectiveQuestionAgentLoop:
     ) -> None:
         claims = self._models(snapshot, "candidate_claim", CandidateClaim)
         anchors = self._models(snapshot, "evidence_anchor", EvidenceAnchor)
+        published_count = sum(
+            state is HypothesisState.PUBLISHED
+            for state in snapshot.hypotheses.values()
+        )
+        remaining_question_count = max(
+            0,
+            self.goal.question_count_upper_bound - published_count,
+        )
         capability = default_objective_role_registry()[
             SubagentRole.QUESTION_DESIGN
         ]
@@ -359,7 +367,7 @@ class ObjectiveQuestionAgentLoop:
                 "target_entity": self.goal.target_entity,
                 "allowed_fact_types": self.goal.allowed_fact_types,
                 "question_count_upper_bound": (
-                    self.goal.question_count_upper_bound
+                    remaining_question_count
                 ),
                 "difficulty_targets": self.goal.difficulty_targets,
                 "style_targets": self.goal.style_targets,

@@ -16,9 +16,15 @@
 3. [生成问题的题型与语言规范](generated-question-types-and-language-criteria.md)：什么样的问题可以进入数据集；
 4. [PrimeKG 集成设计](primekg-integration-design.md)：数据源接入与图查询基础；
 5. [运行指南](running-guide.md)：现有命令和运行方式。
+6. [生成题目 Vue 前端](generation-frontend-vue.md)：生成页面的交互、任务身份、API 契约、构建和验收方法。
+7. [Agent 生成循环、预算与约束](generation-loop-and-budgets.md)：外层/内层循环、预算语义、答案唯一性和约束来源。
 
 当前重建工作：
 
+- [证据先行题目空间改造计划](../../plans/evidence-first-question-derivation-refactor-plan-2026-10-28.md)：从实体和客观证据反推题目，取代“疾病题先行”或“方向题唯一”的实现假设。
+- [客观医学题目方法论](objective-question-methodology.md)：证据、候选事实、答案验证、题面冻结和发布门禁的长期不变量。
+- [客观医学题目验收标准](objective-question-acceptance.md)：Step 1 契约和全部 27 个可执行验收案例。
+- [客观医学题目生成器](objective-question-generator.md)：主 Agent 决策循环的运行命令、输出和当前 provider 边界。
 - [原架构重建实施计划](original-architecture-reconstruction-plan.md)：删除独立 MVP，在原始主干上实现真实 Validation World、任务验证和发布链路。
 - [CTD 正式接入开发计划](ctd-formal-integration-development-plan.md)：将现有 CTD/PubMed enrichment 接入 task-first 正式链路。
 - [CTD 正式接入验收标准](ctd-formal-integration-acceptance-criteria.md)：CTD-backed task 的代码、数据、题面和真实 pilot 门禁。

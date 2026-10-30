@@ -507,6 +507,37 @@ class PolicyGate:
                 },
                 None,
             )
+        if action.action_type is ExplorationActionType.QUERY_CTD:
+            if action.chemical_entity_id not in known_entities:
+                return {}, (
+                    PolicyRejectionCode.UNKNOWN_ENTITY,
+                    f"the CTD chemical entity {action.chemical_entity_id!r} "
+                    "is not known in this run",
+                )
+            entity_parts = action.chemical_entity_id.split(":")
+            entity_type = entity_parts[-2] if len(entity_parts) >= 2 else ""
+            if entity_type != "exposure":
+                return {}, (
+                    PolicyRejectionCode.TARGET_TYPE_NOT_ALLOWED,
+                    "CTD direct lookup currently requires an identity-preserving "
+                    "PrimeKG exposure entity",
+                )
+            if action.max_results > self.policy.max_results_per_query:
+                return {}, (
+                    PolicyRejectionCode.LIMIT_TOO_LARGE,
+                    f"max_results {action.max_results} exceeds the policy "
+                    f"limit {self.policy.max_results_per_query}",
+                )
+            return (
+                {
+                    "operation": action.action_type.value,
+                    "chemical_entity_id": action.chemical_entity_id,
+                    "disease_name": action.disease_name,
+                    "direct_evidence": list(action.direct_evidence),
+                    "max_results": action.max_results,
+                },
+                None,
+            )
         if action.action_type is ExplorationActionType.RETRIEVE_LITERATURE:
             explicit_need = action.evidence_need_id
             if explicit_need is not None and explicit_need not in self.policy.open_need_ids:
@@ -616,6 +647,8 @@ class PolicyGate:
 
 
 def _tool_name_for(action: ExplorationAction) -> str:
+    if action.action_type is ExplorationActionType.QUERY_CTD:
+        return "ctd_lookup"
     if action.action_type is ExplorationActionType.RETRIEVE_LITERATURE:
         return "literature_search"
     if action.action_type is ExplorationActionType.FINISH:

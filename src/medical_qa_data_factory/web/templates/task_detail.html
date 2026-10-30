@@ -8,7 +8,7 @@
 </header>
 
 <section class="task-summary">
-  <div><span>目标题目</span><strong>{{ task.target_question_count or 0 }}</strong></div>
+  <div><span>最多题数</span><strong>{{ task.target_question_count or 0 }}</strong></div>
   <div><span>已生成题目</span><strong>{{ question_rows|length }}</strong></div>
   <div><span>证据</span><strong>{{ evidence_count }}</strong></div>
   <div><span>停止原因</span><strong>{% if stop_reason %}<code>{{ stop_reason }}</code>{% else %}—{% endif %}</strong></div>
@@ -50,11 +50,65 @@
     <div class="section-title"><div><p class="eyebrow">ISSUES</p><h2>错误与提示</h2></div><span>{{ task.errors|length }}</span></div>
     <div class="issue-list">
       {% for error in task.errors %}
-      <article class="issue"><strong>{{ error.source }} · {{ error.error_type }}</strong><p>{{ error.message }}</p><small>{{ '可重试' if error.retryable else '不可重试' }}</small></article>
+      {% set issue_source = error.get('source') or error.get('node') or 'pipeline' %}
+      {% set issue_code = error.get('error_type') or error.get('code') or 'error' %}
+      <article class="issue"><strong>{{ issue_source }} · {{ issue_code }}</strong><p>{{ error.get('message') or '该步骤没有保存错误正文。' }}</p><small>{{ '可重试' if error.get('retryable') else '不可重试或未标记' }}</small></article>
       {% else %}<p class="empty-copy">没有记录到工具故障或阻塞错误。</p>{% endfor %}
     </div>
   </section>
 </div>
+
+<section class="section-block agent-planning">
+  <div class="section-title">
+    <div><p class="eyebrow">AGENT TRACE</p><h2>Agent 编排</h2></div>
+    <span>{{ planner_steps|length }} 个决策</span>
+  </div>
+  {% if planner_steps %}
+  <ol class="agent-step-list">
+    {% for step in planner_steps %}
+    <li class="agent-step {{ 'failed' if step.policy_result == 'rejected' or step.error_code else '' }}">
+      <div class="agent-step-heading">
+        <span class="agent-turn">第 {{ step.turn }} 轮</span>
+        <strong>{{ step.action_label }}</strong>
+        <span class="agent-status">{{ step.status_label }}</span>
+      </div>
+      <dl class="agent-step-facts">
+        <div><dt>规划意图</dt><dd>{{ step.expected_information or '未说明' }}</dd></div>
+        <div><dt>证据缺口</dt><dd>{{ step.evidence_gap or '无' }}</dd></div>
+        <div><dt>动作类型</dt><dd><code>{{ step.action_type }}</code></dd></div>
+        {% if step.skill_id %}<div><dt>调用 Skill</dt><dd><code>{{ step.skill_id }}</code></dd></div>{% endif %}
+        {% if step.subject_entity_id %}<div><dt>目标实体</dt><dd><code>{{ step.subject_entity_id }}</code></dd></div>{% endif %}
+        <div><dt>策略判定</dt><dd>{{ step.policy_result }}{% if step.rejection_code %} · {{ step.rejection_code }}{% endif %}</dd></div>
+        <div><dt>证据增量</dt><dd>{{ step.evidence_gain }}</dd></div>
+      </dl>
+      {% if step.parameters_json %}
+      <details class="agent-payload" open>
+        <summary>查看本轮模型动作 / 查询参数</summary>
+        <pre>{{ step.parameters_json }}</pre>
+      </details>
+      {% endif %}
+      {% if step.observation %}
+      <div class="agent-observation">
+        <strong>工具执行</strong>
+        <code>{{ step.observation.tool_name }}</code>
+        <span>{{ step.observation.operation_key }}</span>
+        <span>{{ step.observation.rows_examined }} 条检查</span>
+        <span>{{ step.observation.new_evidence_ids|length }} 条新证据</span>
+        {% if step.observation.truncated %}<span>结果已截断</span>{% endif %}
+        {% if step.observation.error_code %}<span class="agent-error-code">{{ step.observation.error_code }}</span>{% endif %}
+        {% if step.observation.message %}<p>{{ step.observation.message }}</p>{% endif %}
+      </div>
+      {% endif %}
+      {% if step.error_code %}
+      <div class="agent-failure"><strong>失败于 {{ step.node }}</strong><code>{{ step.error_code }}</code>{% if step.error_message %}<p>{{ step.error_message }}</p>{% endif %}</div>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <p class="empty-copy">模型尚未形成可执行决策。失败位置和原始错误保存在下方的流水线步骤中。</p>
+  {% endif %}
+</section>
 
 {% if activity %}
 <section class="section-block">
@@ -75,6 +129,28 @@
           <span>{{ operation.elapsed_label }}</span>
         </div>
         <code>{{ operation.node }}</code>
+        {% if operation.error_code %}
+        <div class="trace-failure">
+          <strong>失败于 {{ operation.node }}</strong>
+          <code>{{ operation.error_code }}</code>
+          <p>{{ operation.error_message or '该步骤未保存详细错误信息。' }}</p>
+          <small>{{ '可重试' if operation.retryable else '不可重试或未标记' }}</small>
+        </div>
+        {% endif %}
+        {% if operation.tool_calls %}
+        <details class="tool-call-list">
+          <summary>查看 {{ operation.tool_calls|length }} 次工具调用</summary>
+          {% for call in operation.tool_calls %}
+          <div class="tool-call">
+            <strong>{{ call.tool_name }} · {{ call.status_label }}</strong>
+            <code>{{ call.operation_key }}</code>
+            <span>{{ call.records_returned }} 条返回 · {{ call.elapsed_label }}</span>
+            {% if call.error_code %}<span class="agent-error-code">{{ call.error_code }}</span>{% endif %}
+            {% if call.message %}<p>{{ call.message }}</p>{% endif %}
+          </div>
+          {% endfor %}
+        </details>
+        {% endif %}
       </div>
     </li>
     {% endfor %}

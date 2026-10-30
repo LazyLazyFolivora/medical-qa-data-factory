@@ -57,6 +57,17 @@ class TaskCompiler:
             raise TaskCompilationError(
                 "a single-answer candidate must propose exactly one entity"
             )
+        primary = candidate.steps[0]
+        for constraint in candidate.constraints:
+            constraint_step = constraint.steps[0]
+            if (
+                constraint.terminal_entity_id == candidate.seed_entity_id
+                and constraint_step.relation == primary.relation
+            ):
+                raise TaskCompilationError(
+                    "constraint must add independent information beyond "
+                    "the primary seed-answer edge"
+                )
         if candidate.proposed_answer_ids[0] in candidate.public_entity_names:
             raise TaskCompilationError(
                 "the answer entity cannot be exposed through public names"

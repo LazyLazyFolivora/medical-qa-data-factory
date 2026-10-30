@@ -400,7 +400,7 @@ PrimeKG 原始 `source` 字段必须保留，但 `source_database` 固定为 `pr
       "default_limit": 100,
       "max_limit": 1000,
       "max_hops": 2,
-      "query_timeout_ms": 10000
+      "query_timeout_ms": 30000
     }
   }
 }

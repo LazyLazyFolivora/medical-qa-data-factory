@@ -135,10 +135,12 @@ class PlannerState(ContractModel):
     target_difficulty: list[DifficultyTarget] = Field(default_factory=list)
     unsatisfied_constraints: list[str] = Field(default_factory=list)
     available_actions: list[str] = Field(default_factory=list)
+    available_skills: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class PlannerSelectedAction(ContractModel):
     action_type: str = Field(min_length=1)
+    skill_id: str | None = None
     parameters: dict[str, Any] = Field(default_factory=dict)
     expected_information: str = Field(min_length=1)
     evidence_gap: str = Field(min_length=1)
@@ -152,6 +154,7 @@ class PlannerExecution(ContractModel):
         "success", "empty", "error", "rejected", "finish"
     ] = "rejected"
     rejection_code: str | None = None
+    rejection_message: str | None = None
 
 
 class PlannerOutcome(ContractModel):

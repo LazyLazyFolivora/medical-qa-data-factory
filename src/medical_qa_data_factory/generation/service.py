@@ -206,6 +206,7 @@ def build_model_components(
             "model": model,
             "model_required": True,
             "agentic_exploration": True,
+            "entity_question_loop": True,
         }
     return {**components, "model_required": False, "agentic_exploration": False}
 
@@ -607,7 +608,12 @@ class EntityGenerationService:
             self._record_stop_reason(episode_id, stop_reason)
         queued = list(final.get("accepted_question_ids", []))
         status = episode.state.value
-        self._update_task_status(task, status)
+        self._update_task_status(
+            task,
+            status,
+            question_count=len(queued),
+            errors=final.get("errors", []),
+        )
         return GenerationRunResult(
             task_id=request.task_id,
             episode_id=episode_id,
@@ -638,8 +644,15 @@ class EntityGenerationService:
             )
         )
 
-    def _update_task_status(self, task: GenerationTask, status: str) -> None:
-        from ..workflow import transition_task
+    def _update_task_status(
+        self,
+        task: GenerationTask,
+        status: str,
+        *,
+        question_count: int = 0,
+        errors: list[dict[str, Any]] | None = None,
+    ) -> None:
+        from ..workflow import revise_task, transition_task
 
         mapping = {
             EpisodeState.COMPLETED.value: TaskStatus.COMPLETED,
@@ -647,6 +660,15 @@ class EntityGenerationService:
             EpisodeState.FAILED.value: TaskStatus.FAILED,
         }
         target = mapping.get(status, TaskStatus.PARTIAL)
+        current_stage = (
+            "question_generated"
+            if question_count > 0
+            else (
+                "generation_failed"
+                if target is TaskStatus.FAILED
+                else "generation_stopped"
+            )
+        )
         latest = self.repository.load_latest_task(task.task_id)
         if latest.status is TaskStatus.PENDING:
             # Match the existing pipeline: a task always enters `running`
@@ -658,13 +680,22 @@ class EntityGenerationService:
                 current_stage="evidence_collection",
             )
             self.repository.save_task(latest)
-        if latest.status is target:
-            return
-        self.repository.save_task(
-            transition_task(
+        changed = False
+        if latest.status is not target:
+            latest = transition_task(
                 latest,
                 target,
                 summary=f"generation episode finished with status {status}",
-                current_stage="question_generated",
+                current_stage=current_stage,
             )
-        )
+            changed = True
+        if errors and errors != latest.errors:
+            latest = revise_task(
+                latest,
+                operation="record_errors",
+                summary="record generation pipeline errors",
+                errors=errors,
+            )
+            changed = True
+        if changed:
+            self.repository.save_task(latest)

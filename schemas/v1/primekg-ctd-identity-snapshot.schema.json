@@ -1,0 +1,153 @@
+{
+  "$defs": {
+    "CtdDiseaseCrosswalk": {
+      "additionalProperties": false,
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/CtdDiseaseCrosswalkEntry"
+          },
+          "title": "Entries",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "ctd-disease-crosswalk-v1",
+          "default": "ctd-disease-crosswalk-v1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "title": "CtdDiseaseCrosswalk",
+      "type": "object"
+    },
+    "CtdDiseaseCrosswalkEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "ctd_disease_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Ctd Disease Ids",
+          "type": "array"
+        },
+        "primekg_disease_id": {
+          "minLength": 1,
+          "title": "Primekg Disease Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "primekg_disease_id",
+        "ctd_disease_ids"
+      ],
+      "title": "CtdDiseaseCrosswalkEntry",
+      "type": "object"
+    },
+    "PrimeKgCtdChemicalCrosswalk": {
+      "additionalProperties": false,
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/PrimeKgCtdChemicalCrosswalkEntry"
+          },
+          "title": "Entries",
+          "type": "array"
+        },
+        "schema_version": {
+          "default": "primekg-ctd-chemical-crosswalk-v1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "title": "PrimeKgCtdChemicalCrosswalk",
+      "type": "object"
+    },
+    "PrimeKgCtdChemicalCrosswalkEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "ctd_chemical_id": {
+          "minLength": 1,
+          "title": "Ctd Chemical Id",
+          "type": "string"
+        },
+        "primekg_chemical_id": {
+          "minLength": 1,
+          "title": "Primekg Chemical Id",
+          "type": "string"
+        },
+        "source_edge_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Source Edge Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "primekg_chemical_id",
+        "ctd_chemical_id",
+        "source_edge_ids"
+      ],
+      "title": "PrimeKgCtdChemicalCrosswalkEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "audit_counts": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Audit Counts",
+      "type": "object"
+    },
+    "chemical_crosswalk": {
+      "$ref": "#/$defs/PrimeKgCtdChemicalCrosswalk"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "ctd_snapshot_id": {
+      "minLength": 1,
+      "title": "Ctd Snapshot Id",
+      "type": "string"
+    },
+    "disease_crosswalk": {
+      "$ref": "#/$defs/CtdDiseaseCrosswalk"
+    },
+    "fully_mapped_chemical_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Fully Mapped Chemical Ids",
+      "type": "array"
+    },
+    "method": {
+      "default": "primekg_ctd_source_exact_alias_v1",
+      "title": "Method",
+      "type": "string"
+    },
+    "primekg_snapshot_id": {
+      "minLength": 1,
+      "title": "Primekg Snapshot Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": "primekg-ctd-identity-snapshot-v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "primekg_snapshot_id",
+    "ctd_snapshot_id",
+    "chemical_crosswalk",
+    "disease_crosswalk"
+  ],
+  "title": "PrimeKgCtdIdentitySnapshot",
+  "type": "object"
+}

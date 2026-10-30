@@ -227,20 +227,56 @@ def test_a_401_is_an_auth_error() -> None:
 
 def test_a_429_is_a_retryable_rate_limit() -> None:
     with _Server([{"status": 429, "body": {}}]) as server:
-        model = OpenAICompatibleModel(config=_config(server.url))
+        model = OpenAICompatibleModel(
+            config=_config(server.url, max_retries=0)
+        )
         with pytest.raises(ModelError) as excinfo:
             model.generate_structured(_request(), Answer)
     assert excinfo.value.code is ModelErrorCode.RATE_LIMITED
     assert excinfo.value.retryable is True
 
 
-def test_a_500_is_a_provider_error() -> None:
+def test_a_500_is_a_retryable_provider_unavailable_error() -> None:
     with _Server([{"status": 500, "body": {}}]) as server:
+        model = OpenAICompatibleModel(
+            config=_config(server.url, max_retries=0)
+        )
+        with pytest.raises(ModelError) as excinfo:
+            model.generate_structured(_request(), Answer)
+    assert excinfo.value.code is ModelErrorCode.PROVIDER_UNAVAILABLE
+    assert excinfo.value.status_code == 500
+    assert excinfo.value.retryable is True
+
+
+def test_a_transient_502_is_retried_without_becoming_a_schema_repair() -> None:
+    with _Server(
+        [
+            {"status": 502, "body": {}},
+            {
+                "status": 200,
+                "body": _envelope(json.dumps({"value": "recovered"})),
+            },
+        ]
+    ) as server:
+        model = OpenAICompatibleModel(
+            config=_config(server.url, max_retries=1)
+        )
+        result = model.generate_structured(_request(), Answer)
+
+    assert result.parsed["value"] == "recovered"
+    assert len(model.calls) == 2
+    assert model.calls[0].error_code == "model_provider_unavailable"
+    assert model.calls[1].repaired is False
+
+
+def test_a_400_remains_a_non_retryable_internal_provider_error() -> None:
+    with _Server([{"status": 400, "body": {}}]) as server:
         model = OpenAICompatibleModel(config=_config(server.url))
         with pytest.raises(ModelError) as excinfo:
             model.generate_structured(_request(), Answer)
     assert excinfo.value.code is ModelErrorCode.INTERNAL_ERROR
-    assert excinfo.value.status_code == 500
+    assert excinfo.value.status_code == 400
+    assert excinfo.value.retryable is False
 
 
 def test_a_timeout_is_classified_as_a_timeout() -> None:

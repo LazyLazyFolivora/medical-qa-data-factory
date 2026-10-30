@@ -13,7 +13,7 @@ const selectedEntityId = ref("");
 const tasks = ref([]);
 const selectedTask = ref(null);
 const questions = ref([]);
-const model = reactive({ ready: false, detail: "", default_mode: "rule-based" });
+const model = reactive({ ready: false, detail: "" });
 const questionStyles = ref([]);
 const starting = ref(false);
 const runNotice = ref("");
@@ -49,7 +49,6 @@ const applyWorkspace = (payload, { updateUrl = true } = {}) => {
   entityError.value = payload.entity_error || "";
   model.ready = Boolean(payload.model?.ready);
   model.detail = payload.model?.detail || "";
-  model.default_mode = payload.model?.default_mode || "rule-based";
   if (updateUrl && selectedEntityId.value) {
     window.history.replaceState(
       {},
@@ -128,28 +127,43 @@ const pollProgress = async (taskId, target) => {
 };
 
 const pollObjectiveProgress = async (taskId, target) => {
-  const response = await fetch(
-    `/api/objective/${encodeURIComponent(taskId)}`,
-    { cache: "no-store" },
-  );
-  const progress = await response.json();
-  if (!response.ok) throw new Error(progress.error || "无法读取主 Agent 进度");
-  selectedTask.value = {
-    ...(selectedTask.value || {}),
-    ...progress,
-    engine: "objective",
-    task_id: taskId,
-    target_question_count: target,
-    detail_url: `/?task=${taskId}`,
-  };
-  questions.value = progress.questions || [];
-  runNotice.value =
-    progress.status === "running"
-      ? `主 Agent 正在执行：${
-          progress.main_agent_steps?.at(-1)?.action_label || "规划下一步"
-        }`
-      : progress.status_label;
-  return progress;
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(
+      `/api/objective/${encodeURIComponent(taskId)}`,
+      { cache: "no-store", signal: controller.signal },
+    );
+    const progress = await response.json();
+    if (!response.ok) throw new Error(progress.error || "无法读取主 Agent 进度");
+    selectedTask.value = {
+      ...(selectedTask.value || {}),
+      ...progress,
+      engine: "objective",
+      task_id: taskId,
+      target_question_count: target,
+      detail_url: `/?task=${taskId}`,
+    };
+    questions.value = progress.questions || [];
+    runNotice.value = progress.stalled
+      ? `主 Agent 已经 ${Math.floor(
+          (progress.seconds_since_progress || 0) / 60,
+        )} 分钟没有新进展，任务可能已经卡住。`
+      : progress.status === "running"
+        ? `主 Agent 正在执行：${
+            progress.main_agent_steps?.at(-1)?.action_label || "规划下一步"
+          }`
+        : progress.status_label;
+    return progress;
+  } catch (error) {
+    runNotice.value =
+      error?.name === "AbortError"
+        ? "读取主 Agent 进度超时，后台暂时没有响应。"
+        : `进度读取失败：${error.message || error}`;
+    return null;
+  } finally {
+    window.clearTimeout(timeout);
+  }
 };
 
 const startGeneration = async (configuration) => {
@@ -161,7 +175,7 @@ const startGeneration = async (configuration) => {
     : `web-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   selectedTask.value = {
     task_id: taskId,
-    engine: configuration.modelMode === "objective" ? "objective" : "legacy",
+    engine: "objective",
     status: "pending",
     status_label: "准备生成",
     target_question_count: configuration.questionCount,
@@ -173,74 +187,42 @@ const startGeneration = async (configuration) => {
   questions.value = [];
   window.clearInterval(progressTimer);
   progressTimer = window.setInterval(
-    () =>
-      configuration.modelMode === "objective"
-        ? pollObjectiveProgress(taskId, configuration.questionCount)
-        : pollProgress(taskId, configuration.questionCount),
+    () => pollObjectiveProgress(taskId, configuration.questionCount),
     800,
   );
-  if (configuration.modelMode === "objective") {
-    await pollObjectiveProgress(taskId, configuration.questionCount);
-  } else {
-    await pollProgress(taskId, configuration.questionCount);
-  }
+  await pollObjectiveProgress(taskId, configuration.questionCount);
   taskSection.value?.scrollIntoView({ behavior: "smooth", block: "start" });
 
   try {
-    const objective = configuration.modelMode === "objective";
-    const response = await fetch(
-      objective ? "/api/objective/generate" : "/api/generate",
-      {
+    const response = await fetch("/api/objective/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        objective
-          ? {
-              run_id: taskId,
-              entity_canonical_id: configuration.entity.canonical_id,
-              entity_name:
-                configuration.entity.canonical_name ||
-                configuration.entity.name,
-              entity_type: configuration.entity.entity_type,
-              question_count: configuration.questionCount,
-              max_actions: 12,
-              providers: [
-                "hgnc",
-                "ncbi_gene",
-                "ensembl",
-                "primekg",
-                "pubmed",
-              ],
-            }
-          : {
-              run_id: taskId,
-              entity_canonical_id: configuration.entity.canonical_id,
-              model_mode: configuration.modelMode,
-              question_style_ids: [configuration.styleId],
-              max_questions: configuration.questionCount,
-              difficulty_targets: configuration.difficulties,
-              language: "zh-CN",
-            },
-      ),
-    },
-    );
+      body: JSON.stringify({
+        run_id: taskId,
+        entity_canonical_id: configuration.entity.canonical_id,
+        entity_name:
+          configuration.entity.canonical_name || configuration.entity.name,
+        entity_type: configuration.entity.entity_type,
+        question_count: configuration.questionCount,
+        max_actions: 100,
+        providers: [
+          "hgnc",
+          "ncbi_gene",
+          "ensembl",
+          "primekg",
+          "pubmed",
+        ],
+      }),
+    });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "生成失败");
-    if (objective) {
-      selectedTask.value = { ...payload, engine: "objective" };
-      questions.value = payload.questions || [];
-    } else {
-      await pollProgress(taskId, configuration.questionCount);
-    }
+    selectedTask.value = { ...payload, engine: "objective" };
+    questions.value = payload.questions || [];
     await loadWorkspace({ task: taskId });
     runNotice.value =
-      objective
-        ? payload.published_count > 0
-          ? `主 Agent 发布了 ${payload.published_count} 道题`
-          : "主 Agent 已完成，但没有题目通过发布门禁"
-        : payload.question_ids?.length > 0
-          ? `本次生成了 ${payload.question_ids.length} 个候选问题`
-          : "任务完成，但没有题目通过验收";
+      payload.published_count > 0
+        ? `主 Agent 发布了 ${payload.published_count} 道题`
+        : "主 Agent 已完成，但没有题目通过发布门禁";
   } catch (error) {
     runNotice.value = `生成失败：${error.message || error}`;
     try {

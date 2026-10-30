@@ -201,9 +201,17 @@ class HgncMaterialProvider(_StructuredProvider):
         if not docs:
             return self._empty(request)
         record = docs[0]
+        stable_payload = dict(payload)
+        header = payload.get("responseHeader")
+        if isinstance(header, dict):
+            stable_payload["responseHeader"] = {
+                key: value
+                for key, value in header.items()
+                if key != "QTime"
+            }
         return self._result(
             request,
-            payload,
+            stable_payload,
             source_record_id=str(record.get("hgnc_id") or symbol),
             fields=[
                 ("symbol", record.get("symbol")),

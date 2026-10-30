@@ -101,6 +101,9 @@ direction、source filter 和 query scope，不表示现实世界绝对完整。
 | PCQ-C07 | marker/mechanism 不得升级为因果、预防或疗效 |
 | PCQ-C08 | CTD 中已知多疾病关系不得靠静默选择一条记录变成单答案 |
 | PCQ-C09 | CTD mapping 失败、记录缺失或提供者失败均不能当作负例 |
+| PCQ-C10 | Agent 仅在固定 CTD sidecar 可用时看到 CTD Skill；每次调用保存精确过滤条件、snapshot、trace、locator 与 content hash |
+| PCQ-C11 | CTD 空结果记录为 `empty/warning`，不得作为成功证据或最终问题发布依据 |
+| PCQ-C12 | 当前 Agent CTD Skill 仅接受 identity-preserving PrimeKG exposure；drug/chemical 必须先经过冻结 crosswalk，禁止把 PrimeKG native ID 猜作 CTD ChemicalID |
 
 ## 7. PubMed 证据验收
 
@@ -117,6 +120,9 @@ direction、source filter 和 query scope，不表示现实世界绝对完整。
 | PCQ-P09 | support 与 contradict 无法通过 qualifier 解释时标记 conflicted |
 | PCQ-P10 | timeout、rate limit、network/provider failure、空结果和无摘要必须区分 |
 | PCQ-P11 | 相同 PMID/snapshot/text 重放得到稳定 document/span/claim ID |
+| PCQ-P12 | PubMed Skill 仅在已有 KG evidence 且存在开放 evidence need 时解锁 |
+| PCQ-P13 | 每次 PubMed 调用保存精确 query、结果上限、trace/snapshot 和新增 evidence IDs；密钥不得进入轨迹 |
+| PCQ-P14 | PubMed 空结果、无摘要、限流、超时和 provider error 在 Observation/SkillOutcome/PlannerStep 三层语义一致 |
 
 ## 8. 答案与竞争集验收
 

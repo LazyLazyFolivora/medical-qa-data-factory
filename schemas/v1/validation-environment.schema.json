@@ -1,0 +1,100 @@
+{
+  "$defs": {
+    "ProviderSnapshotRef": {
+      "additionalProperties": false,
+      "description": "One immutable provider snapshot used by a validation environment.",
+      "properties": {
+        "completeness": {
+          "minLength": 1,
+          "title": "Completeness",
+          "type": "string"
+        },
+        "detail": {
+          "additionalProperties": true,
+          "title": "Detail",
+          "type": "object"
+        },
+        "manifest_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manifest Hash"
+        },
+        "provider_id": {
+          "minLength": 1,
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Schema Version"
+        },
+        "snapshot_id": {
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider_id",
+        "snapshot_id",
+        "completeness"
+      ],
+      "title": "ProviderSnapshotRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The replayable world in which answers and cardinality are certified.",
+  "properties": {
+    "completeness_scope": {
+      "minLength": 1,
+      "title": "Completeness Scope",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "environment_id": {
+      "minLength": 1,
+      "title": "Environment Id",
+      "type": "string"
+    },
+    "providers": {
+      "items": {
+        "$ref": "#/$defs/ProviderSnapshotRef"
+      },
+      "minItems": 1,
+      "title": "Providers",
+      "type": "array"
+    },
+    "schema_version": {
+      "default": "task-construction-v2",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "environment_id",
+    "providers",
+    "completeness_scope"
+  ],
+  "title": "ValidationEnvironment",
+  "type": "object"
+}

@@ -43,7 +43,7 @@ def build_primekg_provider(
         default_limit=int(settings.get("default_limit", 100)),
         max_limit=int(settings.get("max_limit", 1000)),
         max_hops=int(settings.get("max_hops", 2)),
-        query_timeout_ms=int(settings.get("query_timeout_ms", 10000)),
+        query_timeout_ms=int(settings.get("query_timeout_ms", 30000)),
         entity_catalog_path=catalog_path,
         sha256=settings.get("sha256"),
         provider_id=provider_id,

@@ -43,6 +43,8 @@ class PlannerContext(ContractModel):
     available_tools: list[str] = Field(default_factory=list)
     #: The finite action types currently meaningful from this state.
     available_actions: list[str] = Field(default_factory=list)
+    #: Discoverable workflows whose prerequisites are satisfied in this state.
+    available_skills: list[dict[str, Any]] = Field(default_factory=list)
     can_pin_snapshot: bool = False
     remaining_tool_calls: int = 0
     max_hops: int = 3
@@ -147,6 +149,7 @@ def build_planner_context(
     policy: RunPolicy,
     available_tools: Sequence[str],
     available_actions: Sequence[str] = (),
+    available_skills: Sequence[dict[str, Any]] = (),
     evidence_summary: dict[str, Any] | None = None,
     remaining_edge_budget: int | None = None,
     recent_policy_rejections: Sequence[dict[str, Any]] = (),
@@ -173,6 +176,9 @@ def build_planner_context(
                 "new_evidence_ids": item.new_evidence_ids,
                 "discovered_entity_ids": item.discovered_entity_ids,
                 "error_code": item.error_code,
+                "provider_trace_id": item.provider_trace_id,
+                "provider_snapshot_id": item.provider_snapshot_id,
+                "artifact_summaries": item.artifact_summaries[:20],
             }
             for item in observations[-20:]
         ],
@@ -182,6 +188,7 @@ def build_planner_context(
         executed_action_hashes=list(executed_action_hashes)[-20:],
         available_tools=list(available_tools),
         available_actions=list(available_actions),
+        available_skills=[dict(item) for item in available_skills],
         can_pin_snapshot=policy.can_pin_snapshot,
         remaining_tool_calls=policy.remaining_tool_calls,
         max_hops=policy.max_hops,

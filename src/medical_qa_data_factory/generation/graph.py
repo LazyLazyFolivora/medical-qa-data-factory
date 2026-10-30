@@ -27,12 +27,17 @@ from ..domain import (
     QuestionTaxonomy,
     QuestionVariant,
     ToolSnapshot,
+    ValidationCheck,
     ValidationLevel,
+    ValidationSeverity,
+    ValidationStatus,
 )
 from ..domain.common import new_id, utc_now
 from ..domain.questions import (
+    AnswerForm,
     Answerability,
     EvidenceRequirements,
+    GoldAnswer,
 )
 from ..domain.questions import Route as QuestionRoute
 from ..knowledge_graph import EntityLookup, NeighborQuery
@@ -43,6 +48,7 @@ from ..repository import LocalArtifactRepository, RecordAlreadyExistsError
 from .budgets import GenerationBudget
 from .actions import RunPolicy
 from .claims import RuleBasedClaimBuilder
+from .candidate_assessment import GraphTaskCandidateAssessor
 from .contracts import (
     AgentStep,
     EntityGenerationRequest,
@@ -55,12 +61,15 @@ from .contracts import (
     ToolObservation,
     UpstreamEntitySeed,
 )
+from .ctd_execution import CtdEvidenceExecutor
 from .curation import curate_evidence
 from .evidence_needs import build_need_for_edge
 from .grouping import REVIEW_GROUP_VERSION
 from .literature_execution import LiteratureEvidenceExecutor
 from .planning import QuestionPlanner
 from .executor import Executor, ToolCallError
+from .entity_planner import StructuredEntityQuestionPlanner
+from .exploration import AgentDecisionRecord, ValidationFeedbackRecord
 from .planner import StructuredModelPlanner
 from .react_graph import ReactContext, build_react_graph
 from .repository import VOLATILE_FIELDS, GenerationRepository
@@ -76,6 +85,7 @@ from .routing import (
 )
 from .semantics import RelationSemanticsPolicy
 from .state import EntityGenerationState
+from .skills import build_default_skill_registry
 from .training import (
     PlannerStep,
     PlannerTrajectory,
@@ -85,6 +95,8 @@ from .training import (
     stable_training_id,
 )
 from .training_repository import TrainingRepository
+from .task_contracts import ValidatedTask
+from .task_realization import TaskQuestionWriter, TaskTextSemanticVerifier
 from .verification import RuleBasedAnswerVerifier
 from .writing import RuleBasedQuestionWriter
 
@@ -101,6 +113,48 @@ def stable_id(episode_id: str, artifact_type: str, logical_key: str) -> str:
     """Deterministic identity: the same input always yields the same id."""
     seed = digest_of([episode_id, artifact_type, logical_key])[:24]
     return f"{artifact_type}.{seed}"
+
+
+def validated_task_realization_stop_reason(
+    state: EntityGenerationState,
+    *,
+    accepted_question_ids: list[str],
+) -> str:
+    """Describe why the validated-task path did or did not publish a question.
+
+    An empty candidate set is not equivalent to a set of candidates that all
+    failed validation.  Keeping those cases separate makes the run actionable:
+    the former needs better exploration/candidate construction, while the
+    latter needs a different hypothesis or validation evidence.
+    """
+
+    if accepted_question_ids:
+        return StopReason.EVIDENCE_SUFFICIENT.value
+    statuses = dict(state.get("react_candidate_statuses", {}))
+    if not statuses:
+        return StopReason.NO_CANDIDATE_PROPOSED.value
+    if all(status == "rejected" for status in statuses.values()):
+        return StopReason.ALL_CANDIDATES_HARD_REJECTED.value
+    return str(
+        state.get("react_stop_reason")
+        or state.get("stop_reason")
+        or StopReason.EVIDENCE_EXHAUSTED.value
+    )
+
+
+def literature_enrichment_id(
+    episode_id: str, edge_id: str, retrieval_query: str
+) -> str:
+    """Identify an edge/query attempt without colliding across retries."""
+
+    query_digest = hashlib.sha256(
+        retrieval_query.encode("utf-8")
+    ).hexdigest()
+    return stable_id(
+        episode_id,
+        "enrichment",
+        f"{edge_id}|{query_digest}",
+    )
 
 
 def error_code_of(exc: Exception) -> str:
@@ -131,6 +185,8 @@ class GenerationContext:
     model: Any = None
     model_config_id: str = "rule-based"
     agentic_exploration: bool = False
+    #: Use the v2 decision contract that can propose TaskCandidate objects.
+    entity_question_loop: bool = False
     literature_provider: Any = None
     literature_provider_id: str | None = None
     literature_knowledge_base_ids: tuple[str, ...] = ()
@@ -889,7 +945,10 @@ def build_graph(
             in {item.value for item in generation_spec.allowed_sources}
             and generation_spec.evidence_constraints.literature_policy.value
             != "forbidden"
-            and context.literature_provider is not None
+            and (
+                context.literature_provider is not None
+                or context.evidence_enricher is not None
+            )
         )
         step_id = recorder.begin(
             state,
@@ -956,6 +1015,11 @@ def build_graph(
                         snapshot=result.snapshot,
                         query_trace=result.trace,
                     )
+                    if evidence.evidence_id in self.evidence:
+                        # A broader query may already have persisted this edge.
+                        # Keep the first append-only record instead of treating
+                        # a later, narrower lookup as new evidence.
+                        continue
                     self.evidence[evidence.evidence_id] = evidence
                     # Persist before the observation can cite this id. The
                     # later bundle is a curated view over these raw records.
@@ -983,32 +1047,126 @@ def build_graph(
                 return observed_edges, result.trace.query_id
 
         kg = CapturingKG()
+        ctd_index = getattr(context.evidence_enricher, "ctd_index", None)
+
+        ctd_executor = (
+            CtdEvidenceExecutor(
+                index=ctd_index,
+                on_attempt=budget.spend_tool_call,
+                on_record=lambda artifact_id, record: save_artifact(
+                    context.repository,
+                    "ctd_evidence",
+                    artifact_id,
+                    record.content_hash,
+                    record,
+                ),
+            )
+            if ctd_index is not None
+            else None
+        )
+
         literature_evidence: dict[str, LiteratureEvidence] = {}
         literature_executor = None
 
         class CapturingLiterature:
             def search(self, sealed_request: dict[str, Any]):
                 nonlocal literature_executor
-                if literature_executor is None:
+                if literature_executor is not None:
+                    try:
+                        evidence_ids, trace_id, snapshot_id = (
+                            literature_executor.search(sealed_request)
+                        )
+                    finally:
+                        budget.spend_tool_call()
+                elif context.evidence_enricher is not None:
+                    need_ids = [
+                        str(item)
+                        for item in sealed_request.get("need_ids", [])
+                    ]
+                    if not need_ids or need_ids[0] not in kg.needs:
+                        raise ToolCallError(
+                            "need_not_found",
+                            "the sealed PubMed action has no open evidence need",
+                        )
+                    need = kg.needs[need_ids[0]]
+                    edge = kg.evidence.get(need.kg_evidence_id or "")
+                    if edge is None:
+                        raise ToolCallError(
+                            "kg_evidence_not_found",
+                            "the PubMed need has no persisted KG evidence",
+                        )
+                    answer_entity_id = (
+                        edge.tail.canonical_id
+                        if edge.head.canonical_id == seed.canonical_id
+                        else edge.head.canonical_id
+                    ) or ""
+                    try:
+                        result = context.evidence_enricher.enrich(
+                            edge,
+                            seed_entity_id=seed.canonical_id,
+                            answer_entity_id=answer_entity_id,
+                            retrieval_query=str(
+                                sealed_request.get("query") or ""
+                            )
+                            or None,
+                        )
+                    finally:
+                        budget.spend_tool_call()
+                    executed_query = str(
+                        sealed_request.get("query") or ""
+                    )
+                    enrichment_id = literature_enrichment_id(
+                        state["episode_id"], edge.evidence_id, executed_query
+                    )
+                    save_artifact(
+                        context.repository,
+                        "evidence_enrichment",
+                        enrichment_id,
+                        enrichment_id,
+                        result,
+                    )
+                    if not result.literature_evidence:
+                        raise ToolCallError(
+                            "pubmed_evidence_insufficient",
+                            "; ".join(result.reason_codes)
+                            or "PubMed returned no verified supporting passage",
+                        )
+                    evidence_ids = []
+                    for evidence in result.literature_evidence:
+                        save_artifact(
+                            context.repository,
+                            "literature_evidence",
+                            evidence.evidence_id,
+                            evidence.evidence_id,
+                            evidence,
+                        )
+                        literature_evidence[evidence.evidence_id] = evidence
+                        evidence_ids.append(evidence.evidence_id)
+                    kg.satisfied_need_ids.add(need.need_id)
+                    trace_id = f"pubmed.{enrichment_id}"
+                    snapshot_id = (
+                        result.pubmed_corpus_manifest.corpus_digest
+                        if result.pubmed_corpus_manifest is not None
+                        else None
+                    )
+                else:
                     raise ToolCallError(
                         "literature_unavailable",
-                        "no formal literature provider is configured",
+                        "no formal literature or PubMed provider is configured",
                     )
-                evidence_ids, trace_id, snapshot_id = literature_executor.search(
-                    sealed_request
-                )
                 for evidence_id in evidence_ids:
-                    literature_evidence[evidence_id] = (
-                        context.repository.load(
-                            "literature_evidence",
-                            evidence_id,
-                            evidence_id,
-                            LiteratureEvidence,
+                    if evidence_id not in literature_evidence:
+                        literature_evidence[evidence_id] = (
+                            context.repository.load(
+                                "literature_evidence",
+                                evidence_id,
+                                evidence_id,
+                                LiteratureEvidence,
+                            )
                         )
-                    )
                 return evidence_ids, trace_id, snapshot_id
 
-        if allow_literature:
+        if allow_literature and context.literature_provider is not None:
             literature_executor = LiteratureEvidenceExecutor(
                 provider=context.literature_provider,
                 repository_root=str(context.repository.root),
@@ -1027,15 +1185,79 @@ def build_graph(
             "expand_entity",
             "finish",
         ]
+        if ctd_index is not None:
+            available_tools.append("ctd_lookup")
+            available_actions.insert(2, "query_ctd")
         if allow_literature:
             available_tools.append("literature_search")
             available_actions.insert(2, "retrieve_literature")
         evidence_constraints = generation_spec.evidence_constraints
+        entity_planner = (
+            StructuredEntityQuestionPlanner(context.model)
+            if context.entity_question_loop and context.model is not None
+            else None
+        )
+
+        def persist_validated_task(validated: ValidatedTask) -> None:
+            save_artifact(
+                context.repository,
+                "validated_tasks",
+                validated.task.task_id,
+                validated.validation_report_id,
+                validated,
+            )
+
+        def persist_validation_report(report: Any) -> None:
+            save_artifact(
+                context.repository,
+                "validation_reports",
+                report.report_id,
+                report.report_id,
+                report,
+            )
+
+        def persist_agent_decision(turn: int, decision: Any) -> None:
+            context.episodes.save_agent_decision(
+                AgentDecisionRecord(
+                    record_id=stable_id(
+                        state["episode_id"], "agent-decision", str(turn)
+                    ),
+                    episode_id=state["episode_id"],
+                    turn=turn,
+                    decision=decision,
+                )
+            )
+
+        def persist_validation_feedback(turn: int, feedback: Any) -> None:
+            context.episodes.save_validation_feedback(
+                ValidationFeedbackRecord(
+                    record_id=stable_id(
+                        state["episode_id"],
+                        "validation-feedback",
+                        f"{turn}|{feedback.candidate_id}",
+                    ),
+                    episode_id=state["episode_id"],
+                    turn=turn,
+                    feedback=feedback,
+                )
+            )
+
+        candidate_assessor = (
+            GraphTaskCandidateAssessor(
+                context.provider,
+                on_validated=persist_validated_task,
+                on_validation_report=persist_validation_report,
+            )
+            if entity_planner is not None
+            else None
+        )
         react = build_react_graph(
             ReactContext(
                 planner=planner,
+                entity_planner=entity_planner,
                 executor=Executor(
                     kg=kg,
+                    ctd=ctd_executor,
                     literature=(
                         CapturingLiterature() if allow_literature else None
                     ),
@@ -1069,6 +1291,12 @@ def build_graph(
                 episode_id=state["episode_id"],
                 seed_entity_id=seed.canonical_id,
                 seed_entity_name=seed.name,
+                seed_entity_type=seed.entity_type,
+                skill_registry=(
+                    build_default_skill_registry()
+                    if entity_planner is not None
+                    else None
+                ),
                 available_tools=tuple(available_tools),
                 available_action_types=tuple(available_actions),
                 generation_spec=(
@@ -1095,8 +1323,19 @@ def build_graph(
                 on_planner_step=TrainingRepository(
                     str(context.repository.root)
                 ).save_step,
+                on_agent_decision=persist_agent_decision,
+                on_validation_feedback=persist_validation_feedback,
+                on_skill_invocation=context.episodes.save_skill_invocation,
+                on_skill_outcome=context.episodes.save_skill_outcome,
                 model_config_id=context.model_config_id,
                 max_turns=safety.max_model_attempts,
+                max_questions=request.question_count,
+                candidate_assessor=candidate_assessor,
+                validation_snapshot_id=(
+                    context.provider.snapshot().data_snapshot_id
+                    if entity_planner is not None
+                    else None
+                ),
             )
         )
         final = react.invoke(
@@ -1138,9 +1377,21 @@ def build_graph(
                 "react_rejections",
                 "react_planner_steps",
                 "react_stagnation_count",
+                "react_stop_reason",
+                "react_candidates",
+                "react_candidate_statuses",
+                "react_validation_feedback",
+                "react_agent_decisions",
+                "react_open_gaps",
+                "react_gap_candidate_ids",
+                "react_published_task_ids",
+                "react_entity_loop_active",
+                "react_skill_invocations",
+                "react_skill_outcomes",
             )
             if key in final
         }
+        updates["react_stop_reason"] = exploration_stop
         return with_state(
             state,
             **updates,
@@ -1148,7 +1399,7 @@ def build_graph(
             literature_evidence=literature_payload,
             tool_calls=budget.tool_calls,
             edges_observed=budget.edges_observed,
-            stop_reason=None if evidence else exploration_stop,
+            stop_reason=exploration_stop,
             errors=(
                 state.get("errors", [])
                 if evidence
@@ -1157,7 +1408,10 @@ def build_graph(
                     {
                         "node": "agent_explore",
                         "code": final.get("stop_reason") or "no_evidence",
-                        "message": "model-driven exploration produced no evidence",
+                        "message": (
+                            final.get("_proposal_error")
+                            or "model-driven exploration produced no evidence"
+                        ),
                     },
                 ]
             ),
@@ -1175,7 +1429,11 @@ def build_graph(
         seed_canonical_id = str(state["seed_entity"].get("canonical_id"))
         raw = [KGEvidence.model_validate(item) for item in state.get("edges", [])]
         report = curate_evidence(raw, seed_canonical_id=seed_canonical_id, policy=policy)
-        evidence = [item.evidence for item in report.curated]
+        evidence = (
+            list({item.evidence_id: item for item in raw}.values())
+            if state.get("react_entity_loop_active", False)
+            else [item.evidence for item in report.curated]
+        )
         literature = [
             LiteratureEvidence.model_validate(item)
             for item in state.get("literature_evidence", [])
@@ -1210,6 +1468,314 @@ def build_graph(
                 StopReason.NO_EVIDENCE.value
                 if not evidence and not literature
                 else None
+            ),
+        )
+
+    # ---------------- realize_validated_tasks ----------------
+    def realize_validated_tasks(
+        state: EntityGenerationState,
+    ) -> EntityGenerationState:
+        """Write only independently validated TaskCandidate objects.
+
+        This is the v2 publication path.  It deliberately bypasses the old
+        blueprint writer so a candidate validated by the ReAct loop cannot be
+        replaced by a different, heuristically generated question downstream.
+        """
+
+        budget = context.budget
+        assert budget is not None
+        budget.spend_step()
+        task_ids = list(state.get("react_published_task_ids", []))
+        step_id = recorder.begin(
+            state,
+            "realize_validated_tasks",
+            {"validated_task_ids": task_ids},
+        )
+        started = time.monotonic()
+        bundle = context.repository.load_bundle(
+            state["bundle_id"], state["bundle_version"]
+        )
+        request_contract = EntityGenerationRequest.model_validate(
+            state["request"]
+        )
+        writer = TaskQuestionWriter()
+        semantic_verifier = TaskTextSemanticVerifier()
+        accepted: list[str] = []
+        rejected: list[str] = []
+        rejection_ids: list[str] = []
+
+        for validated_task_id in task_ids:
+            validated = context.repository.load_latest(
+                "validated_tasks", validated_task_id, ValidatedTask
+            )
+            question_id = stable_id(
+                state["episode_id"], "question", validated.task.task_id
+            )
+            try:
+                variant = writer.write(validated, qid=question_id)
+                semantic = semantic_verifier.verify(variant, validated)
+            except Exception as exc:
+                semantic = None
+                reason_codes = ["validated_task_realization_failed"]
+                message = f"{type(exc).__name__}: {exc}"
+            else:
+                reason_codes = list(semantic.reason_codes)
+                message = "; ".join(reason_codes)
+
+            if semantic is None or not semantic.passed:
+                rejection = RejectionRecord(
+                    rejection_id=stable_id(
+                        state["episode_id"],
+                        "rejection",
+                        f"{validated.task.task_id}|task_text_semantics",
+                    ),
+                    episode_id=state["episode_id"],
+                    draft_id=question_id,
+                    stage="task_text_semantic_verification",
+                    reason_codes=reason_codes or ["semantic_verification_failed"],
+                    message=message or "question text changed task semantics",
+                    blocking=True,
+                    created_at=utc_now(),
+                )
+                context.episodes.save_rejection(rejection)
+                rejection_ids.append(rejection.rejection_id)
+                rejected.append(question_id)
+                continue
+
+            save_artifact(
+                context.repository,
+                "task_text_semantic_reports",
+                semantic.variant_id,
+                semantic.verifier_version,
+                semantic,
+            )
+            task = validated.task
+            answer_ids = list(validated.answer_contract.canonical_answer_ids)
+            aliases = list(validated.answer_contract.accepted_aliases)
+            short_answer = aliases[0] if aliases else answer_ids[0]
+            relations = [item.relation for item in task.query.steps]
+            directions = [item.direction.value for item in task.query.steps]
+            constraint_entity_ids = [
+                item.terminal_entity_id for item in task.query.constraints
+            ]
+            question = QuestionSpec(
+                question_id=question_id,
+                logical_question_id=stable_id(
+                    request_contract.workspace,
+                    "logical",
+                    task.query.dependency_digest,
+                ),
+                question_version=f"{question_id}.draft",
+                bundle_ids=[bundle.bundle_id],
+                generation_mode=GenerationMode.AUTOMATIC,
+                canonical_question=variant.question_text,
+                question_variants=[
+                    QuestionVariant(
+                        variant_id=variant.variant_id,
+                        text=variant.question_text,
+                        language=variant.language,
+                        persona="system",
+                        style="validated-task",
+                        generation_source="agent",
+                        semantic_check_status="passed",
+                    )
+                ],
+                taxonomy=QuestionTaxonomy(
+                    domain_intent=task.question_type,
+                    answer_form=AnswerForm.ENTITY,
+                    reasoning_pattern=["constrained_lookup", "complete_world"],
+                    hop_complexity=(
+                        len(task.query.steps)
+                        + sum(
+                            len(item.steps) for item in task.query.constraints
+                        )
+                    ),
+                    difficulty_tags=["world_validated"],
+                ),
+                query_intent={
+                    "route": QuestionRoute.KG.value,
+                    "question_type": task.question_type,
+                    "task_id": task.task_id,
+                    "candidate_id": task.candidate_id,
+                    "query_id": task.query.query_id,
+                    "query_digest": task.query.dependency_digest,
+                    "validation_environment_id": (
+                        task.validation_environment.environment_id
+                    ),
+                    "validation_report_id": validated.validation_report_id,
+                    "provider_id": request_contract.seed.provider_id,
+                    "seed_entity_id": task.seed_entity_id,
+                    "seed_entity_type": request_contract.seed.entity_type,
+                    "relations": relations,
+                    "directions": directions,
+                    "answer_entity_type": task.query.answer_entity_type,
+                    "intermediate_entity_ids": constraint_entity_ids,
+                    "answer_candidate_count": len(answer_ids),
+                },
+                answerability=Answerability.ANSWERABLE,
+                gold_answer=GoldAnswer(
+                    answer_mode=AnswerForm.ENTITY,
+                    values=[
+                        {
+                            "provider_id": request_contract.seed.provider_id,
+                            "canonical_id": answer_id,
+                            "entity_type": task.query.answer_entity_type,
+                            "canonical_name": (
+                                aliases[index]
+                                if index < len(aliases)
+                                else answer_id
+                            ),
+                        }
+                        for index, answer_id in enumerate(answer_ids)
+                    ],
+                    short_answer=short_answer,
+                    acceptable_variants=aliases,
+                    confidence=1.0,
+                ),
+                evidence_requirements=EvidenceRequirements(
+                    required_claim_ids=list(validated.gold_claim_ids),
+                    required_kg_evidence_ids=list(
+                        task.candidate_evidence_ids
+                    ),
+                    sufficiency_rule_version="validated-task-v2",
+                ),
+                expected_route=QuestionRoute.KG,
+                verified_route=QuestionRoute.KG,
+                validation_level=ValidationLevel.DRAFT,
+                split_group_id=stable_id(
+                    request_contract.workspace,
+                    "split",
+                    task.query.dependency_digest,
+                ),
+                review_group_key=digest_of(
+                    {
+                        "seed": task.seed_entity_id,
+                        "relations": relations,
+                        "directions": directions,
+                        "constraints": constraint_entity_ids,
+                        "answer_entity_type": task.query.answer_entity_type,
+                    }
+                ),
+                review_group_version=REVIEW_GROUP_VERSION,
+                generation_episode_id=state["episode_id"],
+                created_at=utc_now(),
+                changes=[
+                    ChangeRecord(
+                        change_id=new_id("change"),
+                        actor_type=ActorType.AGENT,
+                        operation="validated_task_realization",
+                        summary=(
+                            "written from an independently validated task"
+                        ),
+                        created_at=utc_now(),
+                        parent_version=None,
+                        new_version=f"{question_id}.draft",
+                    )
+                ],
+            )
+            save_artifact(
+                context.repository,
+                "questions",
+                question.question_id,
+                question.question_version,
+                question,
+            )
+            machine_version = (
+                f"{question_id}.mv-{VERIFICATION_POLICY_VERSION}"
+            )
+            validation_checks = [
+                ValidationCheck(
+                    check_id=stable_id(
+                        question_id,
+                        "check",
+                        validated.validation_report_id,
+                    ),
+                    check_type="complete_world_task_validation",
+                    status=ValidationStatus.PASSED,
+                    severity=ValidationSeverity.BLOCKING,
+                    message=(
+                        "candidate answer, cardinality, constraints and "
+                        "competitors passed complete-world validation"
+                    ),
+                    validator_version="task-validator-v2",
+                    artifact_ids=[validated.validation_report_id],
+                    question_id=question_id,
+                    evaluated_question_version=question.question_version,
+                    input_digest=task.query.dependency_digest,
+                    evaluated_at=validated.validated_at,
+                ),
+                ValidationCheck(
+                    check_id=stable_id(
+                        question_id,
+                        "check",
+                        semantic.variant_id,
+                    ),
+                    check_type="task_text_semantic_equivalence",
+                    status=ValidationStatus.PASSED,
+                    severity=ValidationSeverity.BLOCKING,
+                    message="question wording preserves the validated task semantics",
+                    validator_version=semantic.verifier_version,
+                    artifact_ids=[semantic.variant_id],
+                    question_id=question_id,
+                    evaluated_question_version=question.question_version,
+                    input_digest=(
+                        semantic.reconstructed_query_digest
+                        or task.query.dependency_digest
+                    ),
+                    evaluated_at=semantic.created_at,
+                ),
+            ]
+            machine_validated = question.model_copy(
+                update={
+                    "question_version": machine_version,
+                    "validation_level": ValidationLevel.MACHINE_VALIDATED,
+                    "validation_checks": validation_checks,
+                    "changes": [
+                        *question.changes,
+                        ChangeRecord(
+                            change_id=new_id("change"),
+                            actor_type=ActorType.AGENT,
+                            operation="validated_task_publication",
+                            summary=(
+                                "complete-world task and text semantics passed"
+                            ),
+                            created_at=utc_now(),
+                            parent_version=question.question_version,
+                            new_version=machine_version,
+                        ),
+                    ],
+                }
+            )
+            save_artifact(
+                context.repository,
+                "questions",
+                machine_validated.question_id,
+                machine_validated.question_version,
+                machine_validated,
+            )
+            if machine_validated.validation_level is ValidationLevel.REJECTED:
+                rejected.append(question_id)
+            else:
+                accepted.append(question_id)
+
+        recorder.finish(
+            state,
+            "realize_validated_tasks",
+            step_id,
+            output_artifact_ids=accepted,
+            elapsed_ms=int((time.monotonic() - started) * 1000),
+        )
+        return with_state(
+            state,
+            accepted_question_ids=accepted,
+            rejected_question_ids=rejected,
+            rejection_record_ids=[
+                *state.get("rejection_record_ids", []),
+                *rejection_ids,
+            ],
+            stop_reason=validated_task_realization_stop_reason(
+                state,
+                accepted_question_ids=accepted,
             ),
         )
 
@@ -1798,6 +2364,7 @@ def build_graph(
     graph.add_node("collect_neighbors", collect_neighbors)
     graph.add_node("agent_explore", agent_explore)
     graph.add_node("curate_evidence", curate_evidence_node)
+    graph.add_node("realize_validated_tasks", realize_validated_tasks)
     graph.add_node("build_claims", build_claims)
     graph.add_node("plan_questions", plan_questions)
     graph.add_node("write_questions", write_questions)
@@ -1840,8 +2407,35 @@ def build_graph(
     )
     graph.add_conditional_edges(
         "curate_evidence",
-        after_curate_evidence,
-        {Route.FINALIZE_PARTIAL: "finalize_partial", Route.NEXT: "build_claims"},
+        lambda state: (
+            Route.FINALIZE_PARTIAL
+            if after_curate_evidence(state) == Route.FINALIZE_PARTIAL
+            else (
+                "realize_validated_tasks"
+                if (
+                    context.entity_question_loop
+                    and state.get("react_entity_loop_active", False)
+                )
+                else Route.NEXT
+            )
+        ),
+        {
+            Route.FINALIZE_PARTIAL: "finalize_partial",
+            Route.NEXT: "build_claims",
+            "realize_validated_tasks": "realize_validated_tasks",
+        },
+    )
+    graph.add_conditional_edges(
+        "realize_validated_tasks",
+        lambda state: (
+            Route.NEXT
+            if state.get("accepted_question_ids")
+            else Route.FINALIZE_PARTIAL
+        ),
+        {
+            Route.NEXT: "finalize_artifact_links",
+            Route.FINALIZE_PARTIAL: "finalize_partial",
+        },
     )
     graph.add_conditional_edges(
         "build_claims",

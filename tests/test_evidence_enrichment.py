@@ -26,6 +26,7 @@ from medical_qa_data_factory.evidence_enrichment.pubmed import (
     PubMedClient,
     PubMedFetchResult,
     PubMedProviderStatus,
+    PubMedSearchResult,
 )
 from medical_qa_data_factory.evidence_enrichment.service import (
     EvidenceEnrichmentResult,
@@ -135,6 +136,22 @@ class _StaticPubMed:
         return self.result
 
 
+class _EmptyRecordingPubMed:
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+
+    def search_result(self, query: str, *, limit: int = 10):
+        self.queries.append(query)
+        return PubMedSearchResult(
+            status=PubMedProviderStatus.EMPTY,
+            snapshot_id="pubmed:test",
+            query=query,
+        )
+
+    def fetch_result(self, pmids: list[str], *, limit: int | None = None):
+        raise AssertionError("an empty explicit search must fail before fetch")
+
+
 def _pubmed_record(
     pmid: str,
     abstract: str,
@@ -180,6 +197,33 @@ def test_ctd_index_builds_and_maps_exact_pair(tmp_path: Path) -> None:
     assert metadata["rows_processed"] == 1
     assert records[0].direct_evidence == ["marker/mechanism"]
     assert records[0].pubmed_ids == ["12345678"]
+
+
+def test_explicit_pubmed_query_is_the_query_actually_executed(
+    tmp_path: Path,
+) -> None:
+    source = _ctd_fixture(tmp_path)
+    index_path = tmp_path / "ctd.sqlite"
+    build_ctd_index(source, index_path)
+    pubmed = _EmptyRecordingPubMed()
+    service = EvidenceEnrichmentService(
+        ctd_index=CtdEvidenceIndex(index_path),
+        model=FakeStructuredModel(),
+        pubmed=pubmed,
+    )
+    exact_query = '\"aspirin\"[tiab] AND \"prostate cancer\"[tiab]'
+
+    result = service.enrich(
+        _edge(),
+        seed_entity_id=ASPIRIN.canonical_id or "",
+        answer_entity_id=CANCER.canonical_id or "",
+        retrieval_query=exact_query,
+    )
+
+    assert pubmed.queries == [exact_query]
+    assert result.retrieval_query == exact_query
+    assert result.retrieval_mode == "search"
+    assert result.reason_codes == ["pubmed_empty_search"]
 
 
 def test_ctd_lookup_aggregates_inference_rows(tmp_path: Path) -> None:

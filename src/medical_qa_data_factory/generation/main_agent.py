@@ -126,6 +126,11 @@ class StructuredMainAgent:
                 "After an empty retrieval, broaden or shorten the query or change provider.",
                 "After three consecutive retrievals with no new material, stop rather than spin.",
                 "Use the fact_source_routes to choose the primary source and a different structured verifier for each fact type.",
+                (
+                    "When published questions are below the requested upper "
+                    "bound, design further questions from candidate facts not "
+                    "yet used by any hypothesis before stopping."
+                ),
                 "Do not verify until independent verification materials exist.",
                 "Do not realize a question without a frozen contract.",
                 "Do not review release without a question draft and verified contract.",
@@ -229,10 +234,26 @@ def validate_main_agent_decision(
     if action is MainAgentAction.STOP:
         if decision.target_subagent_role is not None:
             raise IllegalMainAgentAction("STOP cannot target a subagent")
-        if _must_design_replacement(snapshot):
+        pending_actions = allowed & {
+            MainAgentAction.UNDERSTAND_FACTS,
+            MainAgentAction.DESIGN_QUESTIONS,
+            MainAgentAction.VERIFY_ANSWER,
+            MainAgentAction.REALIZE_QUESTION,
+            MainAgentAction.REVIEW_RELEASE,
+        }
+        if pending_actions and not _published_target_reached(snapshot):
+            names = ", ".join(
+                sorted(item.value for item in pending_actions)
+            )
             raise IllegalMainAgentAction(
-                "STOP is premature: the only completed question-design "
-                "batch was rejected and a replacement design is still required"
+                "STOP is premature: unfinished pipeline actions remain "
+                f"({names})"
+            )
+        if _must_continue_question_design(snapshot):
+            raise IllegalMainAgentAction(
+                "STOP is premature: published questions remain below the "
+                "requested upper bound and admissible candidate facts are "
+                "still available"
             )
         return
     expected_role = _ROLE_BY_ACTION[action]
@@ -260,6 +281,7 @@ def _allowed_actions(
     ):
         common.add(MainAgentAction.UNDERSTAND_FACTS)
     terminal_hypotheses = {
+        HypothesisState.PUBLISHED,
         HypothesisState.REJECTED,
         HypothesisState.INDETERMINATE,
     }
@@ -267,7 +289,14 @@ def _allowed_actions(
         state in terminal_hypotheses
         for state in snapshot.hypotheses.values()
     )
-    if "candidate_claim" in types and may_redesign:
+    if (
+        "candidate_claim" in types
+        and may_redesign
+        and (
+            not snapshot.hypotheses
+            or _must_continue_question_design(snapshot)
+        )
+    ):
         common.add(MainAgentAction.DESIGN_QUESTIONS)
     resolved_hypothesis_ids = {
         str(artifact.payload.get("hypothesis_id"))
@@ -345,12 +374,28 @@ def _allowed_actions(
     return common
 
 
-def _must_design_replacement(
+def _published_target_reached(
+    snapshot: ObjectiveRuntimeSnapshot,
+) -> bool:
+    target_count = (
+        snapshot.goal.question_count_upper_bound
+        if snapshot.goal is not None
+        else 1
+    )
+    published_count = sum(
+        state is HypothesisState.PUBLISHED
+        for state in snapshot.hypotheses.values()
+    )
+    return published_count >= target_count
+
+
+def _must_continue_question_design(
     snapshot: ObjectiveRuntimeSnapshot,
 ) -> bool:
     if not snapshot.hypotheses:
         return False
     terminal_hypotheses = {
+        HypothesisState.PUBLISHED,
         HypothesisState.REJECTED,
         HypothesisState.INDETERMINATE,
     }
@@ -359,12 +404,31 @@ def _must_design_replacement(
         for state in snapshot.hypotheses.values()
     ):
         return False
-    design_attempts = [
-        decision
+    published_count = sum(
+        state is HypothesisState.PUBLISHED
+        for state in snapshot.hypotheses.values()
+    )
+    if _published_target_reached(snapshot):
+        return False
+    claim_ids = {
+        artifact.artifact_id
+        for artifact in snapshot.artifacts.values()
+        if artifact.artifact_type == "candidate_claim"
+    }
+    used_claim_ids = {
+        claim_id
+        for artifact in snapshot.artifacts.values()
+        if artifact.artifact_type == "question_hypothesis"
+        for claim_id in artifact.payload.get("candidate_claim_ids", [])
+    }
+    unused_claim_ids = claim_ids - used_claim_ids
+    design_attempts = sum(
+        decision.action == MainAgentAction.DESIGN_QUESTIONS.value
         for decision in snapshot.decisions.values()
-        if decision.action == MainAgentAction.DESIGN_QUESTIONS.value
-    ]
-    return len(design_attempts) < 2
+    )
+    if unused_claim_ids:
+        return design_attempts < 3
+    return published_count == 0 and design_attempts < 2
 
 
 def _contract_hypothesis_state(

@@ -2,7 +2,7 @@
 
 > 状态：当前实施依据  
 > 项目：`medical-qa-data-factory`  
-> 更新日期：2026-10-26
+> 更新日期：2026-10-28
 
 ## 1. 产品定义
 
@@ -59,55 +59,53 @@
 
 ### 3.1 主流程是证据驱动的造题循环
 
-系统不得先让模型自由写一道题，再事后猜答案和补元数据。它也不应只搜索一次、生成一次就结束。正式主流程是：
+系统不得先让模型自由写一道题，再事后猜答案和补元数据。它也不应执行一条对所有实体都相同的固定 Pipeline。正式主流程由两个嵌套循环组成：
 
 ```text
-SeedEntity
-  -> 初始化 GenerationEpisode
-  -> 搜索一批证据
-  -> EvidenceNormalization
-  -> 更新 EvidenceBundle 和 SearchFrontier
-  -> 判断当前证据能否构造并验证新任务
-       ├─ 能：生成 ValidatedTask，去重后发布题目
-       └─ 不能：记录具体 EvidenceGap
-  -> 判断下一步
-       ├─ 有可解决的 gap 且搜索未充分：继续搜索
-       ├─ 目标已完成：停止
-       ├─ 定义范围内搜索已穷尽：停止
-       ├─ 搜索已饱和：停止
-       ├─ 预算耗尽：停止
-       └─ provider 不可用：停止或等待
+外层：围绕 SeedEntity 探索“有什么值得问”
+  -> 观察 ExplorationState
+  -> ReAct 选择下一项异质动作
+  -> 执行图谱、结构化数据库、文献或实体解析动作
+  -> 规范化 observation 并更新 EvidenceBundle
+  -> 提出零个或多个 TaskCandidate
+
+内层：围绕 TaskCandidate 验证“这道题能不能成立”
+  -> TaskCompiler 构造待验证 TaskSpec 和公开 QuestionScope
+  -> TaskValidator 在声明世界中复算证据、竞争答案和基数
+       ├─ validated：生成 ValidatedTask
+       ├─ recoverable_gap：返回结构化 EvidenceGap 给外层 ReAct
+       └─ terminal_rejection：拒绝候选并探索其他方向
+  -> Writer 只把 ValidatedTask 写成自然题面
+  -> Blind Verifier 回译题面；失败则受控重写或拒绝
 ```
 
-循环内部的一轮仍遵循严格顺序：
+外层 ReAct 的一轮不固定工具顺序。它可以根据 observation 在 PrimeKG 邻居、图路径、CTD、PubMed 搜索、PubMed 文档读取、实体映射和换候选方向之间选择。某个实体可以先查图谱，另一个实体可以先补文献，不要求统一执行 `KG -> CTD -> PubMed`。
+
+每轮 Agent 必须输出结构化 `AgentDecision`：
 
 ```text
-EvidenceCollection
-  -> EvidenceNormalization
-  -> TaskCandidate
-  -> TaskCompiler
-  -> TaskValidator
-  -> ValidatedTask
-  -> QuestionRealizer
-  -> TextSemanticVerifier
+continue_search：选择 next_action，并说明 expected_information
+propose_candidate：提交结构化 TaskCandidate，而不是直接提交 gold question
+abandon_direction：说明不可补救原因并保留 rejection
+stop：给出结构化 stop reason 和仍未解决的 gap
 ```
 
-每轮可以积累候选题，但 MVP 在 episode 结束时统一使用最终 EvidenceBundle 验证并发布。这样不要求第一版实现实时撤回和完整依赖追踪。增量发布与自动失效处理属于后续能力。
+“LLM 认为信息够了”只表示可以把 `TaskCandidate` 送入正式验证，不表示答案正确或任务可以发布。“LLM 认为没有必要继续”也只是停止提案；编排器仍需检查预算、未终结 provider attempt、可执行的关键 EvidenceGap 和已承诺候选的最终验证状态。
 
-自由出题 Agent 可以参与 `TaskCandidate` 生成，用于发现更有研究意义的问题；但 Agent 只能提案，不能自行认证答案、唯一性、证据完整性、搜索充分性或任务可完成性。
+每轮可以积累候选题，但正式发布始终依赖冻结的 `ValidatedTask`。自由出题 Agent 可以发现有研究意义的任务意图，但 Agent 只能提案，不能自行认证答案、唯一性、证据完整性、搜索充分性或任务可完成性。
 
 ### 3.2 “证据不足”和“还没搜全”必须分开
 
-系统不能证明现实世界中绝对“没有证据”，只能对本次 `GenerationSpec` 规定的来源、查询步骤和预算作出操作性判断：
+系统不能证明现实世界中绝对“没有证据”，只能对本次 `GenerationSpec` 允许的来源、已执行动作、仍开放的 EvidenceGap 和预算作出操作性判断：
 
 - `search_incomplete`：仍有与 EvidenceGap 匹配的合法搜索方向尚未执行；
-- `required_searches_completed`：本次规格要求的搜索步骤已完成，仍无法满足需求；
-- `search_saturated`：连续若干轮没有新增有效 claim 或新任务；该能力在 P1 实现；
+- `all_candidates_terminal`：当前候选均已通过或不可补救地拒绝，且没有新的高价值方向；
+- `search_saturated`：若干个不同且合法的动作没有新增有效 claim、候选或 gap closure；
 - `budget_exhausted`：可能仍有搜索方向，但本次预算不足；
 - `provider_unavailable`：外部来源失败，不能解释为“没有证据”；
-- `question_targets_met`：已经达到配置的题目数量、类型和多样性目标。
+- `question_targets_met`：已经达到 `max_questions` 上限，所有拟发布题完成最终验证。
 
-因此，MVP 不要求证明所有可能搜索方向都已穷尽，只要求如实说明“规定搜索已经完成”还是“因为预算或故障没有完成”。预算耗尽、工具失败和搜索未完成不能写成“没有证据”。
+因此，MVP 不要求证明所有可能搜索方向都已穷尽，只要求如实说明候选为何终结、仍有哪些 gap、是否还有合法动作，以及是否因为预算或故障没有完成。预算耗尽、工具失败和搜索未完成不能写成“没有证据”。
 
 ### 3.3 有限证据生成，定义世界验收
 
@@ -313,9 +311,9 @@ normalizer_version: "..."
 
 围绕一个种子实体保存本次任务构造所见到的实体、claim 和证据。它用于候选发现，不自动等于任务的完整答案。
 
-### 5.6 `GenerationEpisodeState` 与 `EvidenceGap`
+### 5.6 `ExplorationState` / `GenerationEpisodeState`
 
-`GenerationEpisodeState` 是造题循环的状态。MVP 必需字段为实体、累计证据、累计 claim、候选任务、最终验证结果、预算和停止原因；下面的逐轮 frontier 字段属于 P1/P2 扩展：
+`ExplorationState` 是每一轮 ReAct 的权威 observation；`GenerationEpisodeState` 是它的可持久化任务级表示。Agent 不直接读取散乱文件，也不能自行维护未审计的隐藏状态。最小字段为：
 
 ```yaml
 episode_id: "..."
@@ -327,14 +325,86 @@ published_task_ids: []
 published_task_signatures: []
 rejected_candidate_ids: []
 open_evidence_gaps: []
+candidate_pool: []
 search_frontier: []
 exhausted_frontier: []
+attempted_action_digests: []
+provider_status: {}
 recent_round_yield:
   new_claims: 0
+  new_candidates: 0
+  resolved_gaps: 0
   new_validated_tasks: 0
 budget_state: {}
 stop_reason: null
 ```
+
+每轮提供给 Agent 的 state view 必须由 repository 确定性投影，包含 EvidenceStore、KnownClaims、CandidatePool、EvidenceGaps、已尝试动作摘要、provider 状态、预算和已发布任务；不得包含 gold-only 验证结论或模型隐藏思维链。
+
+### 5.7 `AgentDecision`
+
+每轮 ReAct 只允许返回以下结构化决策之一：
+
+```yaml
+decision: continue_search | propose_candidate | abandon_direction | stop
+state_digest: "..."
+next_action: null
+selected_skill_id: null
+skill_arguments: {}
+expected_information: []
+candidate_ids: []
+affected_gap_ids: []
+reason_codes: []
+stop_reason: null
+```
+
+- `continue_search` 必须提交一个原始兼容动作，或从当前 `available_skills` 中选择一个 Skill；两者只能二选一；
+- `propose_candidate` 只创建 `TaskCandidate`；
+- `abandon_direction` 必须保存可审计拒绝原因；
+- `stop` 必须声明主停止原因和未解决 gap，不能只输出自然语言“没有必要了”。
+
+模型无权生成 action ID、attempt 状态、预算消耗或 provider 结果；这些字段由执行器记录。
+
+#### 5.7.1 Skill 检索与执行边界
+
+Skill 是解决一类信息缺口的版本化工作流，不是 provider，也不是验证器。每个 Skill 至少声明 `skill_id`、版本、适用实体/缺口、前置 artifact、所需工具、输入 schema、产出 artifact、成本上界和 action type。Agent 每轮只看到由当前 `ExplorationState`、provider capability 和剩余预算确定性筛选出的摘要；选中后才使用完整输入 schema。
+
+```text
+ExplorationState
+  -> SkillRegistry.available_skills(runtime_context)
+  -> AgentDecision.selected_skill_id + skill_arguments
+  -> server prepares SkillInvocation
+  -> existing PolicyGate seals typed action
+  -> Executor/provider attempt
+  -> SkillOutcome + Observation
+```
+
+Skill 不能自行创建 `ValidatedTask`、修改答案、宣称 corpus 闭合或发布问题。候选提交后，服务器仍根据 `question_type` 强制运行独立 Validator；模型不能选择更宽松的验证 Skill，也不能跳过验证。
+
+为避免把生成轨迹误当作唯一正确策略，每次运行必须分别保存：当时可用的 Skill 集、实际选择、输入、provider attempt、终态、成本、新增 artifact 和 gap 变化。它们是动作评估元数据，不自动成为 Query Planner 的 gold action 标签。
+
+当前正式接入的证据 Skill 如下：
+
+| Skill | 解锁条件 | 实际动作 | 可审计产物 | 边界 |
+| --- | --- | --- | --- | --- |
+| `primekg-neighbor-exploration` | PrimeKG provider 可用 | 有界邻域查询 | `kg_evidence` | 不能宣称全集完备 |
+| `primekg-entity-expansion` | PrimeKG provider 可用 | 有界实体扩展 | `kg_evidence` | 不能绕过关系/方向门禁 |
+| `ctd-direct-evidence-lookup` | 固定 CTD sidecar 可用，种子为 ID 与 CTD 一致的 PrimeKG exposure | 按 chemical ID 查询，可选 disease/direct-evidence 过滤 | `ctd_evidence` | drug/chemical 必须先经冻结 crosswalk 映射；CTD 记录单独不足以发布问题 |
+| `pubmed-evidence-search` | 已有 `kg_evidence`、存在开放 evidence need、PubMed/RAG provider 可用 | 可复现 query 搜索、原文回读与支持性校验 | `literature_evidence` | 不能脱离 evidence need 自由搜索；零结果不记为成功 |
+
+CTD 与 PubMed 的推荐动作链为：
+
+```text
+实体 -> PrimeKG 发现候选关系
+     -> CTD 查询直接证据标签和 PMID 锚点（如适用）
+     -> PubMed 针对开放 evidence need 检索并回读摘要/文本
+     -> 独立 evidence fusion / candidate validator
+     -> 合格后才生成题面和 gold answer
+```
+
+PubMed 调用必须保存精确 query、结果数量、snapshot/trace、PMID 或证据 artifact ID、空结果与 provider 错误；API key 只允许从运行环境读取，不进入 action、trajectory 或发布数据。CTD 必须绑定 sidecar snapshot，使用 `source_record_locator + content_hash` 支持回读校验。
+
+### 5.8 `EvidenceGap` 与 `ValidationFeedback`
 
 `EvidenceGap` 不能只是“需要更多证据”，至少要说明：
 
@@ -348,9 +418,20 @@ compatible_provider_capabilities: []
 resolution_status: open | resolved | exhausted | blocked
 ```
 
-`EvidenceGap` 在 MVP 中用于指导针对性补搜，但不是所有探索性查询都必须绑定 gap。P1 再引入完整 `SearchFrontier` 管理：记录尚未执行的合法查询方向和已经完成的规定搜索。系统只需要判断 `GenerationSpec` 要求的步骤是否完成，不需要证明现实世界搜索空间已经穷尽。
+`TaskValidator` 必须返回结构化 `ValidationFeedback`：
 
-### 5.7 `TaskCandidate`
+```yaml
+status: validated | recoverable_gap | terminal_rejection
+candidate_id: "..."
+validated_task_id: null
+evidence_gaps: []
+reason_codes: []
+dependency_digest: "..."
+```
+
+`recoverable_gap` 返回外层 ReAct，允许 Agent 决定继续补搜还是放弃；`terminal_rejection` 不得通过继续生成题面绕过。并非所有探索动作都需要绑定 gap，但针对候选的验证性补搜必须引用 gap。系统不需要证明现实世界搜索空间穷尽，只需保存未解决 gap、可用动作和真实停止原因。
+
+### 5.9 `TaskCandidate`
 
 候选只表达一个待验证的任务意图：
 
@@ -364,7 +445,9 @@ resolution_status: open | resolved | exhausted | blocked
 
 Candidate Source 可以是确定性路径规则、模板、检索增强 Agent 或自由出题 Agent。候选中出现的答案只是待核验假设，不能直接写入 gold。
 
-### 5.8 `InformationRequirement`
+`QuestionScope` 不是 episode 开始时的固定查询模板。它在 Agent 提出 `TaskCandidate` 后由 `TaskCompiler` 根据公开语义构造，并在 `TaskValidator` 开始完整世界验证前冻结。Agent 不得在看到竞争答案后缩小隐藏 scope 来制造唯一答案。
+
+### 5.10 `InformationRequirement`
 
 每个 requirement 表示完成题目需要确认的一项信息：
 
@@ -383,7 +466,7 @@ weight: 1.0
 
 `claim_pattern` 用于自动判断一个新 observation 是否满足需求。它不能引用动作名，也不能要求特定 provider，除非来源本身属于问题语义。
 
-### 5.9 `AcceptableEvidenceSet`
+### 5.11 `AcceptableEvidenceSet`
 
 有些题只需一条 claim；有些题需要若干 claim 的组合；同一 requirement 也可能有多个等价证据来源。使用布尔表达式描述完成条件：
 
@@ -397,7 +480,7 @@ completion_rule:
 
 这表示可接受的证据组合，不表示执行顺序。不要把实际生成时用过的 evidence ID 全部设为必需项。
 
-### 5.10 `AnswerContract`
+### 5.12 `AnswerContract`
 
 ```yaml
 answer_type: entity | entity_set | scalar | categorical
@@ -410,7 +493,7 @@ scope_statement: "..."
 
 单答案问题必须证明唯一性成立于声明范围。集合题必须能说明集合的封闭范围，否则不得声称列举完整。
 
-### 5.11 `TaskSpec` 与 `ValidatedTask`
+### 5.13 `TaskSpec` 与 `ValidatedTask`
 
 `TaskSpec` 汇总：
 
@@ -425,7 +508,7 @@ scope_statement: "..."
 
 只有 `TaskValidator` 可以把 `TaskSpec` 提升为 `ValidatedTask`。Writer 只接收 `ValidatedTask`。
 
-### 5.12 发布视图必须分离
+### 5.14 发布视图必须分离
 
 同一任务至少导出两个访问权限不同的视图。
 
@@ -469,14 +552,14 @@ Planner 输入中不得出现 gold answer、required evidence、完成 rubric �
 
 ## 6. 候选任务如何生成
 
-每个种子实体应并行使用多种 Candidate Source，避免数据集只学到单一模板：
+每个种子实体都可以使用多种 Candidate Source，但不要求按固定顺序或每次全部执行。它们是 ReAct 可选择的能力，不是预写 Pipeline：
 
 1. **结构化关系源**：从 KG 或结构化数据库中的关系、路径和约束组合产生候选；
 2. **claim 组合源**：将语义兼容的多源 claim 组合成单跳、约束或多证据任务；
-3. **自由出题 Agent**：读取有限 EvidenceBundle，提出有研究价值的任务意图；
+3. **自由出题 Agent**：读取当前 `ExplorationState`，提出有研究价值的结构化任务意图；
 4. **反事实筛选源**：寻找看似可问、但因多解、冲突或证据不足应被拒绝的候选，用于提高过滤器能力。
 
-首批可发布题型继续以 [生成问题的题型与语言验收规范](generated-question-types-and-language-criteria.md) 为准。架构允许未来扩展题型，但任何新题型都必须先定义：答案契约、需求匹配规则、完整性边界和可执行验收用例。
+Agent 可以自由发现不同题目方向，但只能把可结构化表达的意图提交为 `TaskCandidate`。尚无答案契约、需求匹配规则、完整性边界和可执行验收用例的新题型，可以保留为研究候选，不能进入正式发布。首批可发布题型继续以 [生成问题的题型与语言验收规范](generated-question-types-and-language-criteria.md) 为准；这限制的是发布能力，不限制探索动作。
 
 生成多个问题时，“不同”必须指任务语义不同，不能只是同一 claim 的同义改写。可接受的差异包括：
 
@@ -490,22 +573,26 @@ Planner 输入中不得出现 gold answer、required evidence、完成 rubric �
 
 ### 7.1 MVP 循环
 
-第一版只要求以下闭环：
+第一版要求以下 observation-dependent 闭环：
 
-1. 按 `GenerationSpec` 对实体执行探索性证据搜索；
-2. 保存证据并归一化 claim；
-3. 根据当前 EvidenceBundle 生成候选问题；
-4. 对每个候选执行针对性验证；
-5. 证据不足但可以补充时，生成 EvidenceGap 并定向补搜；
-6. 达到题目目标、完成规定搜索、预算耗尽或 provider 失败时停止；
-7. 使用 episode 最终 EvidenceBundle 对拟发布任务统一验证；
-8. 保存通过项、拒绝项和真实停止原因。
+1. 用实体身份、provider capability 和预算初始化 `ExplorationState`；
+2. ReAct 根据当前 observation 选择一项合法的图谱、结构化数据库、文献或实体解析动作；
+3. 执行器记录真实 attempt，保存 observation 并归一化 claim；
+4. Agent 根据更新后的状态继续搜索、提出 `TaskCandidate`、放弃方向或建议停止；
+5. `TaskCompiler` 为候选构造公开 `QuestionScope` 和待验证 `TaskSpec`；
+6. `TaskValidator` 返回 validated、recoverable gap 或 terminal rejection；
+7. recoverable gap 返回 ReAct，驱动针对性补搜；terminal rejection 保留后继续探索其他方向；
+8. 达到 `max_questions`、所有候选终结、搜索饱和、预算耗尽或 provider 失败时停止；
+9. 只把 `ValidatedTask` 交给 Writer 和 Blind Verifier；
+10. 保存通过项、拒绝项、动作/attempt 和真实停止原因。
 
-探索性搜索用于发现“这个实体周围有什么值得问”；验证性搜索用于确认某道候选题的答案、基数、语义或冲突。只有验证性搜索必须绑定具体 EvidenceGap。
+探索性搜索用于发现“这个实体周围有什么值得问”；验证性搜索用于确认某道候选题的答案、基数、语义或冲突。只有验证性搜索必须绑定具体 EvidenceGap。系统不要求先收集固定数量的边或文献；每次新 observation 都可以触发候选提议或 gap 更新。
 
 ### 7.2 判断当前证据“够出题”
 
-当前证据足够，不是指“模型能写出一句问题”，而是至少存在一个候选同时满足：
+对于 Agent，“当前证据足够”只表示存在一个值得提交正式验证的候选，并且能提供 seed、问题意图、候选答案/答案变量、关系、限定和支持证据。它不等于候选已经合格。
+
+对于 Validator，候选可以提升为 `ValidatedTask`，必须同时满足：
 
 - 答案有可定位的证据；
 - 题面没有超出证据语义；
@@ -514,14 +601,15 @@ Planner 输入中不得出现 gold answer、required evidence、完成 rubric �
 - 不向下游规定固定动作路线；
 - 与当前 episode 的其他任务不是同一语义的表面改写。
 
-不满足时可以定向补搜，也可以直接放弃候选。第一版不要求为了挽救每个候选而持续搜索。
+不满足时，Validator 必须区分可补救 gap 与不可补救 rejection。前者返回 ReAct；后者直接放弃候选。第一版不要求为了挽救每个候选而持续搜索。
 
 ### 7.3 判断“没搜全”
 
-MVP 不判断开放世界是否已经“搜全”，只判断 `GenerationSpec` 中要求的搜索是否完成：
+MVP 不判断开放世界是否已经“搜全”，只判断当前候选和探索状态是否仍存在值得且允许执行的动作：
 
-- 规定查询尚未执行或分页未完成：`search_incomplete`；
-- 规定查询已正常完成但仍不足：`required_searches_completed`，候选可以拒绝；
+- 必要分页未完成、关键 gap 尚有合法动作：`search_incomplete`；
+- 当前候选全部终结且没有新的高价值方向：`all_candidates_terminal`；
+- 多个不同动作均未产生新 claim、候选或 gap closure：`search_saturated`；
 - 还有查询但预算不足：`budget_exhausted`；
 - 查询因服务故障未完成：`provider_unavailable`。
 
@@ -533,8 +621,9 @@ MVP 不判断开放世界是否已经“搜全”，只判断 `GenerationSpec` �
 
 | stop reason | 含义 | 是否等价于证据不足 |
 |---|---|---|
-| `question_targets_met` | 数量和基本类型目标已达到，拟发布任务已完成最终验证 | 否 |
-| `required_searches_completed` | `GenerationSpec` 规定的搜索已完成，没有更多合格题 | 可以，只表示规定范围内不足 |
+| `question_targets_met` | 已达到 `max_questions` 上限，拟发布任务已完成最终验证 | 否 |
+| `all_candidates_terminal` | 已知候选全部通过或不可补救拒绝，且没有新的高价值方向 | 可以，只表示本次探索状态终结 |
+| `search_saturated` | 不同合法动作连续没有产生有效状态增益 | 可以，只表示本次预算和能力范围内饱和 |
 | `budget_exhausted` | 时间、调用、token 或费用达到上限 | 否 |
 | `provider_unavailable` | 必需外部来源不可访问或持续失败 | 否 |
 | `policy_stopped` | 生成策略主动停止 | 否，需保存简短原因 |
@@ -543,10 +632,10 @@ MVP 不判断开放世界是否已经“搜全”，只判断 `GenerationSpec` �
 
 ### 7.5 后续增强，不作为 MVP 门槛
 
-- P1：EvidenceGap 驱动的搜索优先级、同一 claim 的多源等价匹配、搜索饱和判断；
-- P2：完整 SearchFrontier、逐轮 checkpoint、自动恢复、增量发布和依赖失效追踪。
+- P1：学习型动作排序、跨 episode 经验复用、同一 claim 的多源等价匹配和更精细的边际价值估计；
+- P2：分布式 worker、长期 checkpoint、增量发布和依赖失效追踪。
 
-MVP 采用“episode 结束统一验证”，因此不需要在搜索过程中实时撤回题目。
+MVP 已要求逐轮持久化 action/attempt、EvidenceGap 和停止理由，但可以在 episode 结束后统一生成最终 release，不要求搜索过程中实时公开候选题。
 
 ## 8. TaskValidator
 
@@ -713,7 +802,7 @@ dataset-release/
 - `planner_questions.jsonl` 可以提供给 Planner；
 - `evaluation_targets.jsonl` 只提供给 evaluator/labeler；
 - `evidence_catalog.jsonl` 用于证据匹配、审计和重放；
-- `generation_episodes.jsonl` 在 MVP 保存 episode 摘要、规定搜索完成情况、预算和停止原因；P2 再保存完整逐轮 frontier 和 checkpoint；
+- `generation_episodes.jsonl` 在 MVP 保存 episode 摘要、逐轮 action/attempt、EvidenceGap、预算和停止原因；P2 再扩展分布式 worker checkpoint 和长期恢复信息；
 - `rejected_candidates.jsonl` 用于分析生成器缺陷，不能混入训练集；
 - manifest 必须固定数据、代码、模型、prompt、provider 和 schema 版本。
 
@@ -731,22 +820,24 @@ dataset-release/
 ### MVP-2：候选生成与最终验证
 
 - 实现 `InformationRequirement`、`AcceptableEvidenceSet`、`AnswerContract` 和 `TaskSpec`；
-- 实现最小 `GenerationEpisodeState` 和 `EvidenceGap`；
+- 实现 `ExplorationState`、`AgentDecision`、`TaskCandidate`、`EvidenceGap` 和 `ValidationFeedback`；
 - 实现 requirement matcher、completion evaluator 和 Validator；
 - 加入多解、冲突、截断、范围不封闭和语义夸大测试。
 
 退出条件：不依赖自然语言题面即可判断一个任务是否有效、何时完成，以及是否值得进行一次定向补搜。
 
-### MVP-3：简单造题循环
+### MVP-3：ReAct 造题循环
 
-- 先实现结构化路径源和 claim 组合源；
-- 接入自由出题 Agent 作为候选源；
+- 实现由 observation 驱动的 ReAct 循环，而不是固定工具序列；
+- 将结构化路径、claim 组合和自由出题 Agent 暴露为可选择的候选发现能力；
+- 接入 PrimeKG、CTD、PubMed 和实体解析等异质动作；
+- Executor 只执行通过 policy gate 的动作，并记录不可变 provider attempt；
 - 所有来源统一经过 Compiler 和 Validator；
-- 同一实体生成语义不同的多个任务。
-- 支持探索搜索、一次或多次定向补搜、最终统一验证；
-- 保存 `question_targets_met`、`required_searches_completed`、`budget_exhausted` 或 `provider_unavailable`。
+- ValidationFeedback 将 recoverable EvidenceGap 返回 ReAct，terminal rejection 关闭候选；
+- 同一实体能够提出语义不同的多个任务；
+- 保存 `question_targets_met`、`all_candidates_terminal`、`search_saturated`、`budget_exhausted` 或 `provider_unavailable`。
 
-退出条件：Agent 幻觉、局部多解和不可验证问题不能进入 `ValidatedTask`。
+退出条件：至少一个真实运行出现两轮以上由 observation 改变的异质动作；Agent 幻觉、局部多解和不可验证问题不能进入 `ValidatedTask`。
 
 ### MVP-4：题面生成与数据集发布
 
@@ -769,9 +860,9 @@ dataset-release/
 
 ### P1：自动化搜索增强
 
-- EvidenceGap 驱动的搜索优先级；
+- 学习型 EvidenceGap 动作排序和边际价值估计；
 - 多源 claim 等价匹配；
-- 连续无产出的搜索饱和判断；
+- 跨 episode 的安全经验复用；
 - 更完整的题型覆盖和质量报告。
 
 ### P2：生产可靠性
@@ -799,5 +890,9 @@ dataset-release/
 | ARCH-12 | 预算耗尽、provider 失败和搜索未完成不得标记为证据不存在 |
 | ARCH-13 | 每个 episode 必须保存主停止原因和足以审计的查询结果 |
 | ARCH-14 | 正式发布前必须使用 episode 的最终 EvidenceBundle 统一验证拟发布任务 |
+| ARCH-15 | ReAct 可以选择下一动作和提出候选，但不能自行创建 `ValidatedTask` 或正式发布 |
+| ARCH-16 | 工具顺序、查询词、调用次数和候选答案不得被固定 Pipeline 预先规定 |
+| ARCH-17 | `QuestionScope` 在候选提出后、正式验证前冻结，不能在看到竞争答案后缩小 |
+| ARCH-18 | recoverable `EvidenceGap` 必须能返回 ReAct；terminal rejection 不得通过重写题面绕过 |
 
 可执行通过条件见 [项目验收标准](acceptance-criteria.md)。题型和语言细则见 [生成问题的题型与语言验收规范](generated-question-types-and-language-criteria.md)。

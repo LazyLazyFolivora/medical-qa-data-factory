@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}已发布问题 · Medical QA{% endblock %}
+{% block breadcrumb %}已发布问题{% endblock %}
+{% block content %}
+<header class="page-heading published-heading">
+  <div>
+    <p class="eyebrow">PUBLISHED QUESTIONS</p>
+    <h1>已发布问题</h1>
+    <p>这里只展示通过独立答案验证与发布复核的公开题目和答案。</p>
+  </div>
+  <a class="primary-button button-link" href="{{ url_for('generation') }}">继续生成</a>
+</header>
+
+<section class="task-summary question-summary" aria-label="发布问题概览">
+  <div><span>已发布题目</span><strong>{{ published_count }}</strong><small>QUESTIONS</small></div>
+  <div><span>发布运行</span><strong>{{ published_run_count }}</strong><small>RUNS</small></div>
+  <div><span>失败候选</span><strong>不展示</strong><small>GATED OUT</small></div>
+</section>
+
+<div class="filter-bar question-filter-bar">
+  <label>
+    <span class="sr-only">搜索已发布问题</span>
+    <input type="search" placeholder="搜索题目、答案、实体或任务…" autocomplete="off" data-filter-table="published-question-table">
+  </label>
+  <span class="filter-note">仅包含已允许发布的题面、答案与解释</span>
+</div>
+
+<div class="table-wrap">
+  <table class="data-table published-question-table" id="published-question-table">
+    <thead>
+      <tr>
+        <th>状态</th>
+        <th>题目</th>
+        <th>答案</th>
+        <th>解释</th>
+        <th>实体</th>
+        <th>验证来源</th>
+        <th>所属运行</th>
+        <th>发布时间</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in published_rows %}
+      <tr data-search="{{ row.question }} {{ row.answers|join(' ') }} {{ row.entity_name }} {{ row.run_id }} {{ row.question_id }}">
+        <td><span class="status status-machine_validated"><i></i>已发布</span></td>
+        <td class="published-question-cell">
+          <strong>{{ row.question }}</strong>
+          <small><code>{{ row.question_id }}</code></small>
+        </td>
+        <td><strong class="published-answer">{{ row.answers|join('；') }}</strong></td>
+        <td class="published-explanation">{{ row.explanation }}</td>
+        <td>
+          {% if row.entity_name %}
+          <strong>{{ row.entity_name }}</strong>
+          <small>{{ row.entity_type or 'entity' }}</small>
+          {% else %}
+          <span class="quiet">未记录</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if row.sources %}
+          {{ row.sources|join(' · ') }}
+          {% else %}
+          <span class="quiet">见审计包</span>
+          {% endif %}
+        </td>
+        <td>
+          <a class="record-link" href="{{ row.run_url }}">{{ row.run_id }}</a>
+        </td>
+        <td>
+          <time datetime="{{ row.published_at.isoformat() }}">{{ row.published_at.strftime('%m-%d %H:%M') }}</time>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="8" class="empty-state">
+          还没有通过发布门禁的题目。请到“生成”页面运行主 Agent 循环。
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

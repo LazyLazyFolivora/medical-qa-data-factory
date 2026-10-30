@@ -37,6 +37,7 @@ from .pubmed import PubMedClient, PubMedProviderStatus
 from .pubmed_evidence import (
     PubMedCorpusManifest,
     PubMedEvidenceSpan,
+    build_span_candidates,
     build_corpus_manifest,
 )
 
@@ -54,6 +55,8 @@ class EvidenceEnrichmentResult(ContractModel):
     evidence_records: list[EvidenceRecord] = Field(default_factory=list)
     normalized_claim: NormalizedClaim | None = None
     reason_codes: list[str] = Field(default_factory=list)
+    retrieval_query: str | None = None
+    retrieval_mode: str | None = None
 
     @model_validator(mode="after")
     def source_neutral_references_are_closed(self) -> "EvidenceEnrichmentResult":
@@ -101,6 +104,7 @@ class EvidenceEnrichmentService:
         *,
         seed_entity_id: str,
         answer_entity_id: str,
+        retrieval_query: str | None = None,
     ) -> EvidenceEnrichmentResult:
         upstream_source = str(edge.metadata.get("upstream_source") or "")
         if upstream_source.casefold() != "ctd":
@@ -140,12 +144,13 @@ class EvidenceEnrichmentService:
                 for pmid in record.pubmed_ids
             }
         )
-        query = (
+        query = retrieval_query or (
             f'"{seed.canonical_name}" AND '
             f'"{answer.canonical_name}"'
         )
-        pmids = direct_pmids
-        if not pmids:
+        searched_pmids: list[str] = []
+        search_required = retrieval_query is not None or not direct_pmids
+        if search_required:
             search_result = self.pubmed.search_result(
                 query, limit=self.max_abstracts
             )
@@ -154,6 +159,8 @@ class EvidenceEnrichmentService:
                     edge_id=edge.evidence_id,
                     status=EnrichmentStatus.INSUFFICIENT,
                     ctd_records=ctd_records,
+                    retrieval_query=query,
+                    retrieval_mode="search",
                     reason_codes=[
                         (
                             "pubmed_empty_search"
@@ -163,7 +170,15 @@ class EvidenceEnrichmentService:
                         )
                     ],
                 )
-            pmids = search_result.pmids
+            searched_pmids = search_result.pmids
+        pmids = sorted(set(direct_pmids) | set(searched_pmids))
+        retrieval_mode = (
+            "search_plus_ctd_pmids"
+            if searched_pmids and direct_pmids
+            else "search"
+            if searched_pmids
+            else "ctd_pmids"
+        )
         fetch_result = self.pubmed.fetch_result(
             pmids, limit=self.max_abstracts
         )
@@ -175,6 +190,8 @@ class EvidenceEnrichmentService:
                 edge_id=edge.evidence_id,
                 status=EnrichmentStatus.INSUFFICIENT,
                 ctd_records=ctd_records,
+                retrieval_query=query,
+                retrieval_mode=retrieval_mode,
                 reason_codes=[
                     (
                         "pubmed_empty_result"
@@ -190,6 +207,8 @@ class EvidenceEnrichmentService:
                 status=EnrichmentStatus.INSUFFICIENT,
                 ctd_records=ctd_records,
                 pubmed_records=pubmed_records,
+                retrieval_query=query,
+                retrieval_mode=retrieval_mode,
                 reason_codes=["pubmed_fetch_truncated"],
             )
         if fetch_result.unexpected_pmids:
@@ -198,6 +217,8 @@ class EvidenceEnrichmentService:
                 status=EnrichmentStatus.INSUFFICIENT,
                 ctd_records=ctd_records,
                 pubmed_records=pubmed_records,
+                retrieval_query=query,
+                retrieval_mode=retrieval_mode,
                 reason_codes=[
                     "pubmed_unexpected_records",
                     *fetch_result.unexpected_pmids,
@@ -209,6 +230,8 @@ class EvidenceEnrichmentService:
                 status=EnrichmentStatus.INSUFFICIENT,
                 ctd_records=ctd_records,
                 pubmed_records=pubmed_records,
+                retrieval_query=query,
+                retrieval_mode=retrieval_mode,
                 reason_codes=[
                     "pubmed_missing_records",
                     *fetch_result.missing_pmids,
@@ -228,6 +251,8 @@ class EvidenceEnrichmentService:
                 ctd_records=ctd_records,
                 pubmed_records=pubmed_records,
                 pubmed_corpus_manifest=corpus_manifest,
+                retrieval_query=query,
+                retrieval_mode=retrieval_mode,
                 reason_codes=["pubmed_no_abstract"],
             )
         request = StructuredGenerationRequest(
@@ -262,6 +287,9 @@ class EvidenceEnrichmentService:
                     }
                     for item in readable_pubmed
                 ],
+                "citation_candidates": build_span_candidates(
+                    readable_pubmed
+                ),
                 "allowed_intents": [
                     item.value for item in StudyContextIntent
                 ],
@@ -273,6 +301,10 @@ class EvidenceEnrichmentService:
                     "preserve population, study type, exposure and time qualifiers",
                     "do not upgrade association into causation or efficacy",
                     "cite an exact abstract character span and verbatim quote",
+                    (
+                        "copy citation pmid, text_field, start, end and quote "
+                        "from exactly one supplied citation_candidates entry"
+                    ),
                 ],
             },
             idempotency_key=(
@@ -309,6 +341,8 @@ class EvidenceEnrichmentService:
                 pubmed_corpus_manifest=corpus_manifest,
                 fusion=fusion,
                 evidence_records=fusion.evidence_records,
+                retrieval_query=query,
+                retrieval_mode=retrieval_mode,
                 reason_codes=fusion.reason_codes,
             )
 
@@ -443,4 +477,6 @@ class EvidenceEnrichmentService:
             fusion=fusion,
             evidence_records=source_neutral_records,
             normalized_claim=normalized_claim,
+            retrieval_query=query,
+            retrieval_mode=retrieval_mode,
         )

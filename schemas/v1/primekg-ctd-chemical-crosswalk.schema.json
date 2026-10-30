@@ -1,0 +1,51 @@
+{
+  "$defs": {
+    "PrimeKgCtdChemicalCrosswalkEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "ctd_chemical_id": {
+          "minLength": 1,
+          "title": "Ctd Chemical Id",
+          "type": "string"
+        },
+        "primekg_chemical_id": {
+          "minLength": 1,
+          "title": "Primekg Chemical Id",
+          "type": "string"
+        },
+        "source_edge_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Source Edge Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "primekg_chemical_id",
+        "ctd_chemical_id",
+        "source_edge_ids"
+      ],
+      "title": "PrimeKgCtdChemicalCrosswalkEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "entries": {
+      "items": {
+        "$ref": "#/$defs/PrimeKgCtdChemicalCrosswalkEntry"
+      },
+      "title": "Entries",
+      "type": "array"
+    },
+    "schema_version": {
+      "default": "primekg-ctd-chemical-crosswalk-v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "title": "PrimeKgCtdChemicalCrosswalk",
+  "type": "object"
+}

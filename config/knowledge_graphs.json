@@ -9,7 +9,7 @@
       "default_limit": 100,
       "max_limit": 1000,
       "max_hops": 2,
-      "query_timeout_ms": 10000
+      "query_timeout_ms": 30000
     }
   }
 }

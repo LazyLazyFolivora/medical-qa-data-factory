@@ -94,6 +94,45 @@ def test_hgnc_provider_returns_location_classification_and_cross_ids() -> None:
     assert calls[0].endswith("/fetch/symbol/ZRSR2")
 
 
+def test_hgnc_query_timing_does_not_change_material_identity() -> None:
+    docs = [
+        {
+            "hgnc_id": "HGNC:17273",
+            "symbol": "KIF15",
+            "name": "kinesin family member 15",
+            "status": "Approved",
+            "location": "3p21.31",
+            "locus_group": "protein-coding gene",
+            "locus_type": "gene with protein product",
+            "entrez_id": "56992",
+            "ensembl_gene_id": "ENSG00000163808",
+        }
+    ]
+
+    def retrieve(qtime: int):
+        payload = {
+            "responseHeader": {"QTime": qtime, "status": 0},
+            "response": {
+                "numFound": 1,
+                "numFoundExact": True,
+                "start": 0,
+                "docs": docs,
+            },
+        }
+        return HgncMaterialProvider(
+            transport=lambda url, headers=None: payload
+        ).retrieve(_request("hgnc"))
+
+    first = retrieve(1)
+    second = retrieve(0)
+
+    assert first.materials[0]["content_hash"] == second.materials[0]["content_hash"]
+    assert (
+        first.raw_content_by_material_id[first.material_ids[0]]
+        == second.raw_content_by_material_id[second.material_ids[0]]
+    )
+
+
 def test_ncbi_gene_provider_searches_symbol_then_fetches_summary() -> None:
     calls: list[str] = []
 

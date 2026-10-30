@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Literal
 
 from pydantic import Field, model_validator
@@ -75,6 +76,48 @@ class PubMedEvidenceSpan(ContractModel):
         if self.span_id != expected:
             raise ValueError("PubMed span ID does not match provenance")
         return self
+
+
+def build_span_candidates(
+    records: list[PubMedEvidenceRecord],
+) -> list[dict[str, object]]:
+    """Build exact sentence-like spans that a model can select verbatim.
+
+    Offsets are computed by code over the pinned abstract.  The model still
+    decides whether a span supports a claim, but it no longer needs to count
+    characters or reproduce source text from memory.
+    """
+    candidates: list[dict[str, object]] = []
+    for record in records:
+        text = record.abstract
+        boundaries = [0]
+        boundaries.extend(
+            match.end()
+            for match in re.finditer(r"(?<=[.!?])\s+", text)
+        )
+        boundaries.append(len(text))
+        for raw_start, raw_end in zip(boundaries, boundaries[1:]):
+            start = raw_start
+            end = raw_end
+            while start < end and text[start].isspace():
+                start += 1
+            while end > start and text[end - 1].isspace():
+                end -= 1
+            if start == end:
+                continue
+            candidates.append(
+                {
+                    "candidate_id": (
+                        f"pmid:{record.pmid}:abstract:{start}:{end}"
+                    ),
+                    "pmid": record.pmid,
+                    "text_field": "abstract",
+                    "start": start,
+                    "end": end,
+                    "quote": text[start:end],
+                }
+            )
+    return candidates
 
 
 def _corpus_manifest_id(
@@ -168,9 +211,24 @@ def verify_span_citation(
         )
     actual_quote = text[citation.start : citation.end]
     if actual_quote != citation.quote:
-        raise PubMedSpanError(
-            "pubmed_quote_mismatch", "citation quote does not match abstract"
-        )
+        # Models are often off by a few characters when counting offsets, in
+        # particular around Unicode punctuation.  The quote itself remains
+        # the evidence-bearing value, so it is safe to re-anchor only when it
+        # occurs verbatim and exactly once in the pinned abstract.  Repeated
+        # or modified text still fails closed.
+        corrected_start = text.find(citation.quote)
+        if corrected_start < 0 or text.find(
+            citation.quote, corrected_start + 1
+        ) >= 0:
+            raise PubMedSpanError(
+                "pubmed_quote_mismatch",
+                "citation quote does not match abstract",
+            )
+        start = corrected_start
+        end = corrected_start + len(citation.quote)
+    else:
+        start = citation.start
+        end = citation.end
     quote_hash = hashlib.sha256(citation.quote.encode("utf-8")).hexdigest()
     return PubMedEvidenceSpan(
         span_id=_span_id(
@@ -178,16 +236,16 @@ def verify_span_citation(
             snapshot_id=record.snapshot_id,
             record_content_hash=record.content_hash,
             text_field=citation.text_field,
-            start=citation.start,
-            end=citation.end,
+            start=start,
+            end=end,
             quote_hash=quote_hash,
         ),
         pmid=record.pmid,
         snapshot_id=record.snapshot_id,
         record_content_hash=record.content_hash,
         text_field=citation.text_field,
-        start=citation.start,
-        end=citation.end,
+        start=start,
+        end=end,
         quote=citation.quote,
         quote_hash=quote_hash,
     )

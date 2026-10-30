@@ -366,7 +366,7 @@ def test_rejected_hypothesis_allows_designing_a_replacement(tmp_path) -> None:
     )
     with pytest.raises(
         IllegalMainAgentAction,
-        match="replacement design is still required",
+        match="STOP is premature",
     ):
         validate_main_agent_decision(snapshot, stop)
 
@@ -500,6 +500,19 @@ def test_realization_selects_the_active_contract_with_historical_drafts(
     snapshot = _repo(tmp_path).load()
     snapshot = snapshot.model_copy(
         update={
+            "goal": GenerationGoal(
+                run_id="run-main",
+                target_entity="KIF15",
+                target_entity_id="56992",
+                target_entity_type="gene",
+                question_count_upper_bound=3,
+                difficulty_targets=["easy"],
+                style_targets=["concise"],
+                allowed_fact_types=["entity_identity", "classification"],
+                run_budget={"max_actions": 24},
+                run_manifest_id="manifest-run-main",
+                runtime_bundle_id="runtime-bundle-v1",
+            ),
             "hypotheses": {
                 "hypothesis.old": HypothesisState.PUBLISHED,
                 "hypothesis.new": HypothesisState.ANSWER_VERIFIED,
@@ -559,6 +572,20 @@ def test_realization_selects_the_active_contract_with_historical_drafts(
     )
 
     validate_main_agent_decision(snapshot, decision)
+    stop = MainAgentDecision(
+        decision_id="decision-stop-before-realization",
+        action="stop",
+        target_subagent_role=None,
+        state_digest=canonical_digest(snapshot.model_dump(mode="json")),
+        requested_budget={},
+        expected_information_gain=0.0,
+        stop_reason="Requested upper bound reached",
+    )
+    with pytest.raises(
+        IllegalMainAgentAction,
+        match="unfinished pipeline actions remain",
+    ):
+        validate_main_agent_decision(snapshot, stop)
 
 
 def test_release_review_selects_the_unreviewed_active_draft(tmp_path) -> None:
@@ -640,3 +667,85 @@ def test_release_review_selects_the_unreviewed_active_draft(tmp_path) -> None:
     )
 
     validate_main_agent_decision(snapshot, decision)
+
+
+def test_published_question_does_not_block_designing_unused_claims(
+    tmp_path,
+) -> None:
+    snapshot = _repo(tmp_path).load()
+    snapshot = snapshot.model_copy(
+        update={
+            "goal": GenerationGoal(
+                run_id="run-main",
+                target_entity="KIF15",
+                target_entity_id="56992",
+                target_entity_type="gene",
+                question_count_upper_bound=3,
+                difficulty_targets=["easy"],
+                style_targets=["concise"],
+                allowed_fact_types=[
+                    "entity_identity",
+                    "classification",
+                    "gene_location",
+                ],
+                run_budget={"max_actions": 24},
+                run_manifest_id="manifest-run-main",
+                runtime_bundle_id="runtime-bundle-v1",
+            ),
+            "hypotheses": {
+                "hypothesis.published": HypothesisState.PUBLISHED,
+            },
+            "artifacts": {
+                "claim.used": ArtifactEnvelope(
+                    artifact_id="claim.used",
+                    artifact_type="candidate_claim",
+                    payload={"claim_id": "claim.used"},
+                ),
+                "claim.unused": ArtifactEnvelope(
+                    artifact_id="claim.unused",
+                    artifact_type="candidate_claim",
+                    payload={"claim_id": "claim.unused"},
+                ),
+                "hypothesis.published": ArtifactEnvelope(
+                    artifact_id="hypothesis.published",
+                    artifact_type="question_hypothesis",
+                    payload={
+                        "hypothesis_id": "hypothesis.published",
+                        "candidate_claim_ids": ["claim.used"],
+                    },
+                ),
+            },
+            "decisions": {
+                "decision.first-design": MainAgentDecision(
+                    decision_id="decision.first-design",
+                    action="design_questions",
+                    target_subagent_role="objective_question_design",
+                    state_digest="a" * 64,
+                    requested_budget={},
+                    expected_information_gain=0.5,
+                )
+            },
+        }
+    )
+    design = MainAgentDecision(
+        decision_id="decision-more-design",
+        action="design_questions",
+        target_subagent_role="objective_question_design",
+        input_artifact_ids=["claim.unused"],
+        state_digest=canonical_digest(snapshot.model_dump(mode="json")),
+        requested_budget={},
+        expected_information_gain=0.7,
+    )
+    stop = MainAgentDecision(
+        decision_id="decision-premature-stop",
+        action="stop",
+        target_subagent_role=None,
+        state_digest=canonical_digest(snapshot.model_dump(mode="json")),
+        requested_budget={},
+        expected_information_gain=0.0,
+        stop_reason="no objective candidate remains",
+    )
+
+    validate_main_agent_decision(snapshot, design)
+    with pytest.raises(IllegalMainAgentAction, match="STOP is premature"):
+        validate_main_agent_decision(snapshot, stop)

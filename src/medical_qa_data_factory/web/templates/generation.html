@@ -1,210 +1,24 @@
 {% extends "base.html" %}
-{% block title %}新建生成任务 · Medical QA{% endblock %}
-{% block breadcrumb %}<a href="{{ url_for('runs') }}">任务视图</a> / 新建生成任务{% endblock %}
+{% block title %}生成题目 · Medical QA{% endblock %}
+{% block app_script %}{% endblock %}
+{% block page_head %}
+<link
+  rel="stylesheet"
+  href="{{ url_for('static', path='/generation-app/app.css') }}?v=vue-v2"
+>
+{% endblock %}
+{% block breadcrumb %}<a href="{{ url_for('runs') }}">任务</a> / 生成题目{% endblock %}
 {% block content %}
-<header class="generation-heading">
-  <div>
-    <h1>生成医学问题</h1>
-    <p>从一个已确认的医学实体出发，按要求探索证据并生成问题。</p>
+<div id="generation-app" data-vue-generation-app>
+  <div class="app-loading" role="status">
+    正在加载 Vue 生成工作台…
   </div>
-</header>
-
-{% if selected_entity %}
-<form class="generation-setup" method="post" aria-label="生成设置" data-generation-form>
-  <label class="setup-field seed-field">
-    <span>种子实体</span>
-    <div class="seed-picker">
-      <input type="search" placeholder="搜索 PrimeKG 全库实体名称或 ID…" autocomplete="off" aria-label="搜索 PrimeKG 种子实体" data-entity-search>
-      <select name="entity" data-entity-selector>
-        {% for entity in seed_entities %}
-        <option
-          value="{{ entity.canonical_id or entity.entity_ref_id }}"
-          data-canonical-id="{{ entity.canonical_id or entity.entity_ref_id }}"
-          data-entity-name="{{ entity.canonical_name or entity.raw_mention }}"
-          data-entity-type="{{ entity.entity_type or 'unknown' }}"
-          {{ 'selected' if entity.canonical_id == selected_entity.canonical_id and entity.entity_ref_id == selected_entity.entity_ref_id else '' }}
-        >
-          {{ entity.raw_mention }} · {{ entity.entity_type or 'unknown' }} · {{ entity.canonical_id or entity.entity_ref_id }}
-        </option>
-        {% endfor %}
-      </select>
-    </div>
-    <small data-entity-selection><i aria-hidden="true">✓</i> 已验证 · {{ selected_entity.canonical_id or selected_entity.entity_ref_id }}</small>
-    <small class="entity-search-status" data-entity-search-status role="status" aria-live="polite"></small>
-  </label>
-  <label class="setup-field compact-field">
-    <span>逻辑题数量</span>
-    <input type="number" name="question_count" min="1" max="20" value="{{ target_count }}" aria-label="逻辑题数量" data-question-count>
-  </label>
-  <label class="setup-field">
-    <span>难度</span>
-    <select name="difficulty" aria-label="难度" data-difficulty>
-      <option value="easy,medium">简单、适中</option>
-      <option value="easy">简单</option>
-      <option value="medium">适中</option>
-      <option value="hard">困难</option>
-    </select>
-  </label>
-  <label class="setup-field source-field">
-    <span>证据来源</span>
-    <select aria-label="证据来源" disabled><option>PrimeKG</option></select>
-  </label>
-  <label class="setup-field">
-    <span>生成引擎</span>
-    <select aria-label="生成引擎" data-model-mode>
-      <option value="structured" {{ 'selected' if default_model_mode == 'structured' else '' }} {{ '' if model_status.ready else 'disabled' }}>Agent（LLM）</option>
-      <option value="rule-based" {{ 'selected' if default_model_mode == 'rule-based' else '' }}>规则基线</option>
-    </select>
-    <small class="model-status {{ 'ready' if model_status.ready else 'unavailable' }}" title="{{ model_status.detail }}">{{ model_status.detail }}</small>
-  </label>
-  <label class="setup-field">
-    <span>提问风格</span>
-    <select aria-label="提问风格" data-question-style>
-      {% for skill in question_styles %}
-      <option value="{{ skill.skill_id }}">{{ skill.display_name }}</option>
-      {% endfor %}
-      <option value="mixed">混合三种</option>
-    </select>
-    <small>每题生成 3 个候选</small>
-  </label>
-  <label class="setup-field compact-field">
-    <span>语言</span>
-    <select name="language" aria-label="语言" data-language><option value="zh-CN">中文</option></select>
-  </label>
-  <button class="start-generation" type="submit" data-start-generation>开始生成</button>
-  <p class="generation-notice" data-generation-notice role="status" aria-live="polite" hidden></p>
-</form>
-
-<div class="generation-layout">
-  <section class="generated-questions" aria-labelledby="generated-title">
-    <header class="pane-heading">
-      <div>
-        <h2 id="generated-title">生成的问题</h2>
-        <p>{{ selected_entity.raw_mention }} · {{ question_rows|length }} 个候选</p>
-      </div>
-      {% if selected_record %}
-      <a href="{{ url_for('entity_detail', entity_ref_id=selected_record.entity.entity_ref_id) }}">查看实体详情</a>
-      {% endif %}
-    </header>
-
-    <ol class="generated-list">
-      {% for row in question_rows %}
-      <li class="generated-item">
-        <span class="question-number">{{ loop.index }}</span>
-        <div class="generated-copy">
-          <h3>{{ row.question.canonical_question }}</h3>
-          <p class="answer-line"><span>答案</span>{{ row.question.gold_answer.short_answer }}</p>
-          {% if row.question.gold_answer.explanation %}
-          <p class="evidence-summary">{{ row.question.gold_answer.explanation }}</p>
-          {% endif %}
-          <div class="question-meta">
-            <span>{{ row.difficulty_label }}</span>
-            <span>{{ row.source_label }}</span>
-            <span>{{ row.style_label }}</span>
-            {% if row.style_score_label %}<span>{{ row.style_score_label }}</span>{% endif %}
-            <span class="validation-state">{{ row.validation_label }}</span>
-          </div>
-        </div>
-        <a class="evidence-link" href="{{ url_for('review', question_id=row.question.question_id) }}">查看证据</a>
-      </li>
-      {% else %}
-      <li class="generation-empty">
-        <strong>这个实体还没有生成问题</strong>
-        <p>在上方确认生成参数，然后点击“开始生成”。完成后问题会出现在这里。</p>
-      </li>
-      {% endfor %}
-      {% if selected_task and selected_task.status.value == 'running' and completed_count < target_count %}
-      <li class="generated-item generating-item">
-        <span class="question-number"><i class="loading-ring" aria-hidden="true"></i></span>
-        <div class="generated-copy"><h3>正在生成第 {{ completed_count + 1 }} 题…</h3><p>探索证据、筛选候选答案并运行独立验证。</p></div>
-      </li>
-      {% endif %}
-    </ol>
-  </section>
-
-  <aside class="generation-activity" aria-labelledby="activity-title">
-    <header class="activity-heading">
-      <div>
-        <p class="eyebrow">EXECUTION TRACE</p>
-        <h2 id="activity-title">本次生成做了什么</h2>
-      </div>
-      {% if selected_task %}<a href="{{ url_for('task_detail', task_id=selected_task.task_id) }}">{{ selected_task.task_id }}</a>{% endif %}
-    </header>
-    <div class="progress-readout"><strong data-live-count>{{ completed_count }} / {{ target_count }}</strong><span data-live-status>{{ selected_task.status.value if selected_task else '尚未运行' }}</span></div>
-    <div class="progress-track" aria-label="生成进度 {{ progress_percent }}%" data-live-track><i style="width: {{ progress_percent }}%" data-live-progress-bar></i></div>
-
-    <section class="live-generation" data-live-generation hidden aria-label="实时生成步骤">
-      <div class="live-current-step">
-        <span>当前步骤</span>
-        <strong data-live-current-label>正在启动生成任务…</strong>
-        <em data-live-current-meta></em>
-      </div>
-      <div class="trace-summary live-summary">
-        <span><strong data-live-operation-count>0</strong> 个步骤</span>
-        <span><strong data-live-planner-count>0</strong> 轮 Agent 决策</span>
-        <span><strong data-live-question-count>0</strong> 个候选</span>
-      </div>
-      <ol class="execution-trace live-operation-trace" data-live-operations aria-live="polite"></ol>
-      <div class="live-agent-section" data-live-agent-section hidden>
-        <h3>Agent 决策记录</h3>
-        <ol class="execution-trace live-planner-trace" data-live-planner-steps></ol>
-      </div>
-    </section>
-
-    {% if generation_activity %}
-    <div class="trace-summary">
-      <span><strong>{{ generation_activity.operations|length }}</strong> 个步骤</span>
-      <span><strong>{{ generation_activity.total_tool_calls }}</strong> 次工具调用</span>
-      <span><strong>{{ generation_activity.total_elapsed_label }}</strong> 记录耗时</span>
-    </div>
-    <ol class="execution-trace">
-      {% for operation in generation_activity.operations %}
-      <li class="trace-step {{ operation.status }}">
-        <span class="trace-marker">{{ '✓' if operation.status == 'completed' else operation.sequence }}</span>
-        <div class="trace-copy">
-          <div class="trace-title">
-            <strong>{{ operation.label }}</strong>
-            <span>{{ operation.status_label }}</span>
-          </div>
-          <p>{{ operation.description }}</p>
-          <div class="trace-metrics">
-            {% if operation.tool_call_count %}<span>{{ operation.tool_call_count }} 次查询</span>{% endif %}
-            {% if operation.records_returned %}<span>{{ operation.records_returned }} 条返回</span>{% endif %}
-            {% if operation.output_count %}<span>{{ operation.output_count }} 个产物</span>{% endif %}
-            <span>{{ operation.elapsed_label }}</span>
-          </div>
-          <code>{{ operation.node }}</code>
-        </div>
-      </li>
-      {% endfor %}
-    </ol>
-    <div class="trace-footer">
-      <span class="trace-status {{ generation_activity.status }}">{{ generation_activity.status_label }}</span>
-      <code title="{{ generation_activity.episode_id }}">{{ generation_activity.episode_id }}</code>
-    </div>
-    {% else %}
-    <div class="trace-empty">
-      <strong>还没有执行轨迹</strong>
-      <p>点击“开始生成”后，这里会按顺序记录每一步操作。</p>
-    </div>
-    {% endif %}
-
-    {% if selected_task %}
-    <div class="activity-links">
-      <a href="{{ url_for('task_detail', task_id=selected_task.task_id) }}">运行详情 <span>›</span></a>
-      <a href="{{ url_for('groups') }}">待审核问题 <span>›</span></a>
-    </div>
-    {% endif %}
-  </aside>
 </div>
-{% else %}
-<section class="no-generation-data">
-  <h2>还没有可用于生成的种子实体</h2>
-  {% if entity_search_error %}
-  <p>PrimeKG 实体读取失败：{{ entity_search_error }}</p>
-  {% else %}
-  <p>PrimeKG 暂未返回可用实体，请检查数据库配置后重试。</p>
-  {% endif %}
-</section>
-{% endif %}
+<noscript>
+  <p>生成工作台需要启用 JavaScript。</p>
+</noscript>
+<script
+  type="module"
+  src="{{ url_for('static', path='/generation-app/app.js') }}?v=vue-v2"
+></script>
 {% endblock %}

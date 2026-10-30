@@ -20,7 +20,7 @@ from medical_qa_data_factory.generation.actions import (
 from medical_qa_data_factory.generation.executor import Executor, ToolCallError
 
 
-KNOWN = {"drug:aspirin", "disease:headache"}
+KNOWN = {"drug:aspirin", "disease:headache", "exposure:D001241"}
 
 
 def _proposal(**action_overrides: Any) -> ModelActionProposal:
@@ -418,6 +418,81 @@ def test_the_literature_limit_is_enforced() -> None:
     assert rejection.code is PolicyRejectionCode.LIMIT_TOO_LARGE
 
 
+# ---- CTD actions ---------------------------------------------------------
+
+
+def _ctd_proposal(**overrides: Any) -> ModelActionProposal:
+    action: dict[str, Any] = {
+        "action_type": "query_ctd",
+        "chemical_entity_id": "exposure:D001241",
+        "max_results": 10,
+    }
+    action.update(overrides)
+    return ModelActionProposal(
+        action=action,
+        expected_information="direct CTD disease evidence for aspirin",
+        evidence_gap="the CTD relation set is unknown",
+    )
+
+
+def test_a_ctd_lookup_is_sealed_for_a_known_chemical() -> None:
+    sealed, rejection = _gate(
+        available_tool_names=("ctd_lookup",),
+        allowed_action_types=("query_ctd",),
+    ).evaluate(
+        _ctd_proposal(),
+        run_id="run1",
+        episode_id="ep1",
+        turn=1,
+        known_entity_ids=KNOWN,
+    )
+
+    assert rejection is None
+    assert sealed is not None
+    assert sealed.tool_name == "ctd_lookup"
+    assert sealed.request == {
+        "operation": "query_ctd",
+        "chemical_entity_id": "exposure:D001241",
+        "disease_name": None,
+        "direct_evidence": [],
+        "max_results": 10,
+    }
+
+
+def test_a_ctd_lookup_for_an_unknown_chemical_is_refused() -> None:
+    sealed, rejection = _gate(
+        available_tool_names=("ctd_lookup",),
+        allowed_action_types=("query_ctd",),
+    ).evaluate(
+        _ctd_proposal(chemical_entity_id="drug:unknown"),
+        run_id="run1",
+        episode_id="ep1",
+        turn=1,
+        known_entity_ids=KNOWN,
+    )
+
+    assert sealed is None
+    assert rejection is not None
+    assert rejection.code is PolicyRejectionCode.UNKNOWN_ENTITY
+
+
+def test_a_ctd_lookup_rejects_a_known_non_exposure_entity() -> None:
+    sealed, rejection = _gate(
+        available_tool_names=("ctd_lookup",),
+        allowed_action_types=("query_ctd",),
+    ).evaluate(
+        _ctd_proposal(chemical_entity_id="disease:headache"),
+        run_id="run1",
+        episode_id="ep1",
+        turn=1,
+        known_entity_ids=KNOWN,
+    )
+
+    assert sealed is None
+    assert rejection is not None
+    assert rejection.code is PolicyRejectionCode.TARGET_TYPE_NOT_ALLOWED
+
+
 # ---- the executor --------------------------------------------------------
 
 
@@ -440,6 +515,33 @@ class _KG:
 class _BrokenKG:
     def neighbors(self, request: dict[str, Any]):
         raise ToolCallError("kg_unavailable", "the provider is down", retryable=True)
+
+
+class _CtdRecord:
+    source_record_locator = "ctd-record:D001241:MESH:D006261"
+    content_hash = "ctd-content-hash"
+
+
+class _CtdArtifact:
+    evidence_id = "ctd-evidence-versioned-1"
+    record = _CtdRecord()
+
+    def planner_summary(self):
+        return {
+            "artifact_id": self.evidence_id,
+            "disease_name": "Headache",
+            "direct_evidence": ["marker/mechanism"],
+        }
+
+
+class _CTD:
+    def __init__(self, records: list[Any] | None = None):
+        self.records = records if records is not None else [_CtdArtifact()]
+        self.calls: list[dict[str, Any]] = []
+
+    def lookup(self, request: dict[str, Any]):
+        self.calls.append(request)
+        return self.records, "ctd-trace-1", "ctd-snapshot-1"
 
 
 def _sealed_action(gate: PolicyGate) -> Any:
@@ -472,7 +574,7 @@ def test_the_executor_records_an_observation() -> None:
     observation = outcome.observation
     assert observation.decision_id == sealed.decision_id
     assert observation.action_type == "query_neighbors"
-    assert observation.status == "success"
+    assert observation.status == "empty"
     assert observation.row_count == 1
 
 
@@ -506,3 +608,54 @@ def test_the_executor_records_the_policy_budget_consumption() -> None:
     assert updated.remaining_tool_calls == 1
     assert "hash-1" in updated.executed_action_hashes
     assert updated.has_evidence is True
+
+
+def test_the_executor_runs_ctd_and_records_stable_artifacts() -> None:
+    gate = _gate(
+        available_tool_names=("ctd_lookup",),
+        allowed_action_types=("query_ctd",),
+    )
+    sealed, rejection = gate.evaluate(
+        _ctd_proposal(disease_name="Headache", max_results=5),
+        run_id="run1",
+        episode_id="ep1",
+        turn=1,
+        known_entity_ids=KNOWN,
+    )
+    assert rejection is None
+    assert sealed is not None
+    ctd = _CTD()
+
+    outcome = Executor(ctd=ctd).execute(
+        sealed, episode_id="ep1", run_id="run1"
+    )
+
+    assert ctd.calls[0]["disease_name"] == "Headache"
+    assert outcome.new_evidence_ids == ["ctd-evidence-versioned-1"]
+    assert outcome.observation.status == "success"
+    assert outcome.observation.provider_trace_id == "ctd-trace-1"
+    assert outcome.observation.provider_snapshot_id == "ctd-snapshot-1"
+    assert outcome.observation.artifact_summaries[0]["disease_name"] == (
+        "Headache"
+    )
+
+
+def test_an_empty_ctd_lookup_is_recorded_as_empty() -> None:
+    sealed, _ = _gate(
+        available_tool_names=("ctd_lookup",),
+        allowed_action_types=("query_ctd",),
+    ).evaluate(
+        _ctd_proposal(),
+        run_id="run1",
+        episode_id="ep1",
+        turn=1,
+        known_entity_ids=KNOWN,
+    )
+    assert sealed is not None
+
+    outcome = Executor(ctd=_CTD(records=[])).execute(
+        sealed, episode_id="ep1", run_id="run1"
+    )
+
+    assert outcome.new_evidence_ids == []
+    assert outcome.observation.status == "empty"

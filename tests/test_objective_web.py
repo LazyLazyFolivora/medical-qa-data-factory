@@ -1,12 +1,20 @@
 """Web API for the evidence-first objective agent."""
 from __future__ import annotations
 
+import json
+import os
+from datetime import datetime, timedelta, timezone
+
 from starlette.testclient import TestClient
 
 from medical_qa_data_factory.generation.main_agent import (
     MainAgentDecisionProposal,
 )
-from medical_qa_data_factory.web.app import create_app
+from medical_qa_data_factory.web.app import (
+    OBJECTIVE_STALL_AFTER_SECONDS,
+    _objective_progress_timing,
+    create_app,
+)
 from test_objective_agent_loop import (
     FakeMaterialProvider,
     _model as objective_subagent_model,
@@ -19,6 +27,72 @@ def _app(tmp_path):
         structured_model=object(),
         objective_providers={},
     )
+
+
+def test_objective_progress_reports_a_stale_nonterminal_run(
+    tmp_path,
+) -> None:
+    run_root = tmp_path / "objective_runs" / "stale-run"
+    commit_dir = run_root / "objective_runtime" / "commits"
+    commit_dir.mkdir(parents=True)
+    latest = commit_dir / "00000001.json"
+    latest.write_text("{}", encoding="utf-8")
+    now = datetime(2026, 10, 29, 12, 0, tzinfo=timezone.utc)
+    old_timestamp = (
+        now - timedelta(seconds=OBJECTIVE_STALL_AFTER_SECONDS + 1)
+    ).timestamp()
+    os.utime(latest, (old_timestamp, old_timestamp))
+
+    last_commit, age, stalled = _objective_progress_timing(
+        run_root,
+        terminal=False,
+        now=now,
+    )
+
+    assert last_commit == now - timedelta(
+        seconds=OBJECTIVE_STALL_AFTER_SECONDS + 1
+    )
+    assert age == OBJECTIVE_STALL_AFTER_SECONDS + 1
+    assert stalled is True
+    assert _objective_progress_timing(
+        run_root,
+        terminal=True,
+        now=now,
+    )[2] is False
+
+
+def test_published_questions_page_lists_only_public_release_rows(
+    tmp_path,
+) -> None:
+    public_root = (
+        tmp_path
+        / "objective_releases"
+        / "web-published-1"
+        / "public"
+    )
+    public_root.mkdir(parents=True)
+    (public_root / "questions.jsonl").write_text(
+        json.dumps(
+            {
+                "question_id": "draft.contract.published-1",
+                "question": "What is the approved symbol of KIF15?",
+                "answer": ["KIF15"],
+                "explanation": "KIF15 is the approved symbol.",
+                "schema_version": "objective-public-question-v1",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    client = TestClient(_app(tmp_path))
+
+    response = client.get("/published")
+
+    assert response.status_code == 200
+    assert "已发布问题" in response.text
+    assert "What is the approved symbol of KIF15?" in response.text
+    assert "KIF15 is the approved symbol." in response.text
+    assert "web-published-1" in response.text
 
 
 def test_objective_generation_endpoint_returns_run_summary(

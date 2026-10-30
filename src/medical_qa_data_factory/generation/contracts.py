@@ -32,7 +32,9 @@ class StopReason(str, Enum):
     EVIDENCE_EXHAUSTED = "evidence_exhausted"
     NO_EVIDENCE = "no_evidence"
     NO_VALID_CLAIMS = "no_valid_claims"
+    NO_CANDIDATE_PROPOSED = "no_candidate_proposed"
     ALL_CANDIDATES_HARD_REJECTED = "all_candidates_hard_rejected"
+    ALL_CANDIDATES_TERMINAL = "all_candidates_terminal"
     BUDGET_EXHAUSTED = "budget_exhausted"
     INVALID_UPSTREAM_IDENTITY = "invalid_upstream_identity"
     PROVIDER_ERROR = "provider_error"
@@ -60,10 +62,12 @@ class StopReason(str, Enum):
             cls.EVIDENCE_EXHAUSTED: 8,
             cls.NO_VALID_ACTION: 9,
             cls.NO_VALID_CLAIMS: 10,
-            cls.ALL_CANDIDATES_HARD_REJECTED: 11,
-            cls.DUPLICATE_ACTION: 12,
-            cls.NO_EVIDENCE: 13,
-            cls.HUMAN_INPUT_REQUIRED: 14,
+            cls.NO_CANDIDATE_PROPOSED: 11,
+            cls.ALL_CANDIDATES_HARD_REJECTED: 12,
+            cls.ALL_CANDIDATES_TERMINAL: 13,
+            cls.DUPLICATE_ACTION: 14,
+            cls.NO_EVIDENCE: 15,
+            cls.HUMAN_INPUT_REQUIRED: 16,
         }
         return order.get(reason, 99)
 
@@ -371,6 +375,9 @@ class ToolObservation(ContractModel):
     truncated: bool = False
     retryable: bool = False
     message: str = ""
+    provider_trace_id: str | None = None
+    provider_snapshot_id: str | None = None
+    artifact_summaries: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ExplorationActionType(str, Enum):
@@ -379,6 +386,7 @@ class ExplorationActionType(str, Enum):
     QUERY_NEIGHBORS = "query_neighbors"
     EXPAND_ENTITY = "expand_entity"
     QUERY_PATHS = "query_paths"
+    QUERY_CTD = "query_ctd"
     RETRIEVE_LITERATURE = "retrieve_literature"
     FINISH = "finish"
 
@@ -420,6 +428,18 @@ class PathAction(ContractModel):
     max_paths: int = Field(default=10, ge=1, le=50)
 
 
+class CtdAction(ContractModel):
+    """Bounded lookup in the pinned CTD chemical-disease snapshot."""
+
+    action_type: Literal[ExplorationActionType.QUERY_CTD] = (
+        ExplorationActionType.QUERY_CTD
+    )
+    chemical_entity_id: str = Field(min_length=1)
+    disease_name: str | None = Field(default=None, min_length=1)
+    direct_evidence: list[str] = Field(default_factory=list)
+    max_results: int = Field(default=20, ge=1, le=50)
+
+
 class LiteratureAction(ContractModel):
     action_type: Literal[ExplorationActionType.RETRIEVE_LITERATURE] = (
         ExplorationActionType.RETRIEVE_LITERATURE
@@ -438,7 +458,14 @@ class FinishAction(ContractModel):
 
 
 ExplorationAction = Annotated[
-    Union[NeighborAction, ExpandAction, PathAction, LiteratureAction, FinishAction],
+    Union[
+        NeighborAction,
+        ExpandAction,
+        PathAction,
+        CtdAction,
+        LiteratureAction,
+        FinishAction,
+    ],
     Field(discriminator="action_type"),
 ]
 

@@ -12,6 +12,7 @@ from medical_qa_data_factory.evidence_enrichment.pubmed import (
 from medical_qa_data_factory.evidence_enrichment.pubmed_evidence import (
     PubMedSpanCitation,
     PubMedSpanError,
+    build_span_candidates,
     build_corpus_manifest,
     evidence_from_verified_span,
     read_back_span,
@@ -136,6 +137,46 @@ def test_verified_span_round_trips_against_the_pinned_record() -> None:
     assert evidence.document_text == quote
     assert evidence.source_locator.endswith(f":{start}:{start + len(quote)}")
     assert evidence.source_metadata["parent_content_hash"] == record.content_hash
+
+
+def test_verified_span_repairs_a_wrong_offset_for_one_unique_verbatim_quote() -> None:
+    record = PubMedClient(
+        transport=lambda _url, _data: _xml(),
+        snapshot_id="pubmed:test",
+    ).fetch_result(["123"]).records[0]
+    quote = "lower prostate cancer risk"
+    expected_start = record.abstract.index(quote)
+    citation = PubMedSpanCitation(
+        pmid="123",
+        text_field="abstract",
+        start=0,
+        end=len(quote),
+        quote=quote,
+    )
+
+    span = verify_span_citation(citation, records=[record])
+
+    assert span.start == expected_start
+    assert span.end == expected_start + len(quote)
+    assert read_back_span(span, record=record) == quote
+
+
+def test_span_candidates_are_exactly_anchored_in_the_pinned_abstract() -> None:
+    record = PubMedClient(
+        transport=lambda _url, _data: _xml(),
+        snapshot_id="pubmed:test",
+    ).fetch_result(["123"]).records[0]
+
+    candidates = build_span_candidates([record])
+
+    assert candidates
+    for candidate in candidates:
+        start = int(candidate["start"])
+        end = int(candidate["end"])
+        assert candidate["quote"] == record.abstract[start:end]
+        assert candidate["candidate_id"] == (
+            f"pmid:123:abstract:{start}:{end}"
+        )
 
 
 @pytest.mark.parametrize(

@@ -66,7 +66,10 @@ class LedgeredModel:
                 f"generate_structured:{request.role}"
                 + (":repair" if repaired else "")
             ),
-            request_digest=f"{request.idempotency_key}:{int(repaired)}",
+            request_digest=(
+                f"{request.idempotency_key}:{int(repaired)}:"
+                f"{len(self.attempt_records)}"
+            ),
             units=self.units_per_attempt,
             run_id=self.run_id,
             episode_id=self.episode_id,

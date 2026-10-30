@@ -1,0 +1,82 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "candidate_count": {
+      "minimum": 0,
+      "title": "Candidate Count",
+      "type": "integer"
+    },
+    "chemical_id": {
+      "minLength": 1,
+      "title": "Chemical Id",
+      "type": "string"
+    },
+    "competitor_count": {
+      "minimum": 0,
+      "title": "Competitor Count",
+      "type": "integer"
+    },
+    "environment_id": {
+      "minLength": 1,
+      "title": "Environment Id",
+      "type": "string"
+    },
+    "episode_id": {
+      "minLength": 1,
+      "title": "Episode Id",
+      "type": "string"
+    },
+    "evidence_gaps": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence Gaps",
+      "type": "array"
+    },
+    "provenance": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Provenance",
+      "type": "object"
+    },
+    "published_count": {
+      "minimum": 0,
+      "title": "Published Count",
+      "type": "integer"
+    },
+    "search_complete": {
+      "title": "Search Complete",
+      "type": "boolean"
+    },
+    "seed_entity_id": {
+      "minLength": 1,
+      "title": "Seed Entity Id",
+      "type": "string"
+    },
+    "snapshot_id": {
+      "minLength": 1,
+      "title": "Snapshot Id",
+      "type": "string"
+    },
+    "stop_reason": {
+      "minLength": 1,
+      "title": "Stop Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "episode_id",
+    "seed_entity_id",
+    "chemical_id",
+    "snapshot_id",
+    "environment_id",
+    "candidate_count",
+    "competitor_count",
+    "published_count",
+    "search_complete",
+    "stop_reason"
+  ],
+  "title": "CtdGenerationEpisode",
+  "type": "object"
+}

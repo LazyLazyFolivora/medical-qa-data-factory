@@ -76,7 +76,7 @@ $env:PYTHONPATH='E:\Cursor\assumption\projects\medical-qa-data-factory\src'
   --entity-id 672 `
   --entity-type gene `
   --question-count 1 `
-  --max-actions 12 `
+  --max-actions 100 `
   --provider primekg `
   --provider pubmed
 ```

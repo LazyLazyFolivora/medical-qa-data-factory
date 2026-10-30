@@ -29,6 +29,7 @@ from ..evidence_enrichment.pubmed import (
 )
 from ..evidence_enrichment.pubmed_evidence import (
     PubMedCorpusManifest,
+    build_span_candidates,
     build_corpus_manifest,
 )
 from ..llm.contracts import StructuredGenerationRequest
@@ -325,10 +326,17 @@ class PrimeKgCtdPubMedService:
                     record.model_dump(mode="json")
                     for record in fetched.records
                 ],
+                "citation_candidates": build_span_candidates(
+                    fetched.records
+                ),
                 "rules": [
                     "assess every supplied PMID exactly once",
                     "use supports, contradicts, context_only or uncertain",
                     "quote a verbatim abstract span with exact offsets",
+                    (
+                        "copy citation pmid, text_field, start, end and quote "
+                        "from exactly one supplied citation_candidates entry"
+                    ),
                     (
                         "map every non-empty qualifier to a verbatim fragment "
                         "inside the cited quote"
