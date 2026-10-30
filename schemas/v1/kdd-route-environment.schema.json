@@ -1,0 +1,88 @@
+{
+  "$defs": {
+    "VersionRef": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "version"
+      ],
+      "title": "VersionRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Frozen environment identity, independent of a generation episode.",
+  "properties": {
+    "schema_version": {
+      "const": "kdd-route-environment-v1",
+      "default": "kdd-route-environment-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "environment_ref": {
+      "minLength": 1,
+      "title": "Environment Ref",
+      "type": "string"
+    },
+    "environment_version": {
+      "minLength": 1,
+      "title": "Environment Version",
+      "type": "string"
+    },
+    "provenance": {
+      "enum": [
+        "real_task",
+        "synthetic_fixture"
+      ],
+      "title": "Provenance",
+      "type": "string"
+    },
+    "backend": {
+      "minLength": 1,
+      "title": "Backend",
+      "type": "string"
+    },
+    "adapter_version": {
+      "minLength": 1,
+      "title": "Adapter Version",
+      "type": "string"
+    },
+    "supported_kinds": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Supported Kinds",
+      "type": "array"
+    },
+    "source_versions": {
+      "items": {
+        "$ref": "#/$defs/VersionRef"
+      },
+      "title": "Source Versions",
+      "type": "array"
+    }
+  },
+  "required": [
+    "environment_ref",
+    "environment_version",
+    "provenance",
+    "backend",
+    "adapter_version",
+    "supported_kinds"
+  ],
+  "title": "EnvironmentManifest",
+  "type": "object"
+}

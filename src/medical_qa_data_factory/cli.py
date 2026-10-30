@@ -135,6 +135,8 @@ def build_parser() -> argparse.ArgumentParser:
     evaluation_react.add_argument("--manifest", required=True)
     evaluation_react.add_argument("--provider", default="primekg")
     evaluation_react.add_argument("--report", default=None)
+    from .evaluation.kdd_routes_cli import add_commands as add_route_commands
+    add_route_commands(evaluation_commands)
 
     literature = commands.add_parser(
         "literature", help="Diagnose the configured literature providers"
@@ -559,6 +561,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "validate":
         return _run_validate_command(args)
     if args.command == "eval":
+        if args.evaluation_command == "routes":
+            from .evaluation.kdd_routes_cli import command as route_command
+            return route_command(args)
         from .evaluation.cli import evaluation_command, react_evaluation_command
 
         if args.evaluation_command == "react":

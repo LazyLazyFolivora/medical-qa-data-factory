@@ -1,0 +1,244 @@
+{
+  "artifact_role": "synthetic_contract_example_not_real_material",
+  "public_task": {
+    "schema_version": "kdd-route-task-v1",
+    "qid": "business",
+    "question": "Which fixed observations are sufficient?",
+    "direction": "business",
+    "as_of": null,
+    "environment_ref": "public-fixture",
+    "environment_version": "fixture-v1",
+    "provenance": "synthetic_fixture",
+    "budget": {
+      "tool_calls": 1
+    },
+    "max_steps": 2,
+    "partition": "development",
+    "split_group": "business"
+  },
+  "environment_manifest": {
+    "schema_version": "kdd-route-environment-v1",
+    "environment_ref": "public-fixture",
+    "environment_version": "fixture-v1",
+    "provenance": "synthetic_fixture",
+    "backend": "synthetic_branching_receipts",
+    "adapter_version": "1",
+    "supported_kinds": [
+      "document_search",
+      "analysis_run"
+    ],
+    "source_versions": []
+  },
+  "start_returns": {
+    "schema_version": "query-planner.external.v2",
+    "question": "Which fixed observations are sufficient?",
+    "direction": "business",
+    "checks": [
+      {
+        "id": "outcome",
+        "status": "unknown",
+        "importance": 1
+      }
+    ],
+    "evidence": [],
+    "artifacts": [],
+    "capabilities": [
+      {
+        "id": "fixture-method",
+        "version": "1",
+        "kind": "analysis_run",
+        "directions": [
+          "business"
+        ],
+        "input_requirements": []
+      }
+    ],
+    "history": [],
+    "candidates": [
+      {
+        "id": "a-low-yield",
+        "kind": "document_search",
+        "arguments": {
+          "provider": "fabric",
+          "query": "public fixture question"
+        },
+        "covers": [
+          "outcome"
+        ],
+        "estimated_cost": {
+          "tool_calls": 1
+        },
+        "expected_information": [
+          {
+            "check_id": "outcome",
+            "probability": 0.1,
+            "impact": 1
+          }
+        ]
+      },
+      {
+        "id": "z-applicable",
+        "kind": "analysis_run",
+        "capability_id": "fixture-method",
+        "arguments": {
+          "capability_id": "fixture-method",
+          "capability_version": "1",
+          "input_refs": [],
+          "scope": {
+            "direction": "business"
+          },
+          "parameters": {}
+        },
+        "covers": [
+          "outcome"
+        ],
+        "estimated_cost": {
+          "tool_calls": 1
+        },
+        "applicability": {
+          "status": "eligible",
+          "scope_match": 1
+        },
+        "expected_information": [
+          {
+            "check_id": "outcome",
+            "probability": 0.9,
+            "impact": 1
+          }
+        ]
+      }
+    ],
+    "budget": {
+      "limits": {
+        "tool_calls": 1
+      },
+      "remaining": {
+        "tool_calls": 1
+      }
+    },
+    "max_steps": 2
+  },
+  "selected_action": {
+    "id": "z-applicable",
+    "kind": "analysis_run",
+    "capability_id": "fixture-method",
+    "arguments": {
+      "capability_id": "fixture-method",
+      "capability_version": "1",
+      "input_refs": [],
+      "scope": {
+        "direction": "business"
+      },
+      "parameters": {}
+    },
+    "covers": [
+      "outcome"
+    ],
+    "estimated_cost": {
+      "tool_calls": 1
+    },
+    "applicability": {
+      "status": "eligible",
+      "scope_match": 1
+    },
+    "expected_information": [
+      {
+        "check_id": "outcome",
+        "probability": 0.9,
+        "impact": 1
+      }
+    ]
+  },
+  "execute_returns": {
+    "receipt": {
+      "action_id": "z-applicable",
+      "kind": "analysis_run",
+      "arguments": {
+        "capability_id": "fixture-method",
+        "capability_version": "1",
+        "input_refs": [],
+        "scope": {
+          "direction": "business"
+        },
+        "parameters": {}
+      },
+      "status": "completed",
+      "new_evidence_ids": [
+        "fixture-outcome"
+      ],
+      "actual_cost": {
+        "tool_calls": 1
+      },
+      "observed_information": {
+        "outcome": 1
+      }
+    },
+    "observation": {
+      "schema_version": "query-planner.external.v2",
+      "question": "Which fixed observations are sufficient?",
+      "direction": "business",
+      "checks": [
+        {
+          "id": "outcome",
+          "status": "passed",
+          "importance": 1,
+          "evidence_ids": [
+            "fixture-outcome"
+          ]
+        }
+      ],
+      "evidence": [
+        {
+          "id": "fixture-outcome"
+        }
+      ],
+      "artifacts": [],
+      "capabilities": [
+        {
+          "id": "fixture-method",
+          "version": "1",
+          "kind": "analysis_run",
+          "directions": [
+            "business"
+          ],
+          "input_requirements": []
+        }
+      ],
+      "history": [
+        {
+          "action_id": "z-applicable",
+          "kind": "analysis_run",
+          "arguments": {
+            "capability_id": "fixture-method",
+            "capability_version": "1",
+            "input_refs": [],
+            "scope": {
+              "direction": "business"
+            },
+            "parameters": {}
+          },
+          "status": "completed",
+          "new_evidence_ids": [
+            "fixture-outcome"
+          ],
+          "actual_cost": {
+            "tool_calls": 1
+          },
+          "observed_information": {
+            "outcome": 1
+          }
+        }
+      ],
+      "candidates": [],
+      "budget": {
+        "limits": {
+          "tool_calls": 1
+        },
+        "remaining": {
+          "tool_calls": 0
+        }
+      },
+      "max_steps": 2
+    }
+  }
+}
