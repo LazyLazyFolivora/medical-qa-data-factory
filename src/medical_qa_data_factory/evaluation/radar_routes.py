@@ -13,7 +13,7 @@ from collections import Counter
 
 from .kdd_routes import RouteEvaluationTarget, digest
 
-EVALUATOR_VERSION = "radar-route-import-1.1"
+EVALUATOR_VERSION = "radar-route-import-1.2"
 DIRECTIONS = {"pipeline", "research", "business", "public_health"}
 PENDING = {"prepared", "sent", "unknown", "unconfirmed"}
 
@@ -54,11 +54,12 @@ def _query_receipt(query, action):
     return {"action_id": action["id"], "kind": action["kind"], "arguments": action["arguments"],
             "status": status, "new_evidence_ids": query.get("evidence_keys", []),
             "new_artifact_refs": query.get("artifact_refs", []), "check_updates": query.get("check_updates", []),
-            "actual_cost": query.get("cost"), "observed_information": query.get("observed_information", {})}
+            "actual_cost": query.get("cost"), "observed_information": query.get("observed_information", {}),
+            "pagination": copy.deepcopy(query.get("pagination"))}
 
 
 def _same_history(actual, recorded):
-    for key in ("action_id", "kind", "arguments", "status", "actual_cost"):
+    for key in ("action_id", "kind", "arguments", "status", "actual_cost", "pagination"):
         _require(recorded.get(key) == actual.get(key), "saved_policy_request_receipt_mismatch:" + key)
     _require(set(recorded.get("new_evidence_ids", [])) == set(actual["new_evidence_ids"]),
              "saved_policy_request_receipt_mismatch:new_evidence_ids")
@@ -262,6 +263,9 @@ def evaluate_radar_view(view, *, provenance, trace_validator, validator_version,
             "saved_requests": requests,
             "coverage_issues": copy.deepcopy(final.get("state_summary", {}).get("coverage_issues", [])),
             "unmet_reading": copy.deepcopy(final.get("state_summary", {}).get("unmet_reading", [])),
+            # This is a countable set of unfinished query chains, not unseen documents/pages.
+            "incomplete_search_chains": copy.deepcopy(final.get("state_summary", {}).get("incomplete_search_chains", [])),
+            "search_attempt_counts_by_phase": copy.deepcopy(final.get("state_summary", {}).get("search_attempt_counts_by_phase", {})),
             "action_attempt_counts": copy.deepcopy(final.get("state_summary", {}).get("action_attempt_counts", {})),
             "model_stages": {stage: _model_usage([call for call in calls if (call.get("stage") or "not_recorded") == stage])
                              for stage in sorted({call.get("stage") or "not_recorded" for call in calls})}}

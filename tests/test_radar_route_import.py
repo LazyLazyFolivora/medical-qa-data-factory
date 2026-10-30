@@ -198,3 +198,29 @@ def test_historical_replay_is_explicit_and_never_accepts_synthetic_sources():
     out = evaluate_radar_view(view, provenance="historical_replay", trace_validator=validator, validator_version="test-checker")
     assert out["provenance"] == "historical_replay"
     assert out["independent_outcome"]["observation_coverage"] is None
+
+
+@pytest.mark.parametrize("field,value", [("next_cursor", "different-cursor"), ("max_seq", 99), ("has_more", False), ("page_number", 2)])
+def test_saved_pagination_cannot_diverge_from_actual_query_receipt(field, value):
+    view = native_view(); after = add_saved_requests(view)
+    pagination = {"has_more": True, "next_cursor": "opaque-received-cursor", "max_seq": 42, "page_number": 1}
+    view["queries"][0]["pagination"] = copy.deepcopy(pagination)
+    after["history"][0]["pagination"] = copy.deepcopy(pagination)
+    assert evaluate(view)["integrity"]["status"] == "passed"
+    after["history"][0]["pagination"][field] = value
+    out = evaluate(view)
+    assert out["integrity"]["status"] == "failed"
+    assert out["integrity"]["reason"] == "saved_policy_request_receipt_mismatch:pagination"
+
+
+def test_import_preserves_incomplete_chain_without_inventing_unseen_count():
+    view = native_view(); add_saved_requests(view)
+    chain = {"previous_action_id": "search-1", "has_more": True, "page_number": 1, "max_seq": 42,
+             "qualification": "uncompleted_search_chain_not_unseen_page_or_record_count"}
+    view["query_policy"]["decisions"][-1]["state_summary"].update(
+        incomplete_search_chains=[chain], search_attempt_counts_by_phase={"initial": 1})
+    out = evaluate(view)
+    assert out["route_metrics"]["incomplete_search_chains"] == [chain]
+    assert out["route_metrics"]["search_attempt_counts_by_phase"] == {"initial": 1}
+    assert "unseen_document_count" not in out["route_metrics"]
+    assert out["independent_outcome"]["correct_observable_stop"] is None
