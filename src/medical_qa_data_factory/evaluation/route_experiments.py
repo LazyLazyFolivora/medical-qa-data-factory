@@ -52,10 +52,9 @@ class Experiment(ContractModel):
 
     @model_validator(mode="after")
     def bindings(self):
-        if self.experiment_kind == "synthetic_messages" and self.provenance != "synthetic_fixture":
-            raise ValueError("synthetic messages cannot be labelled real_task")
-        if self.experiment_kind == "historical_replay" and self.provenance != "historical_replay":
-            raise ValueError("historical replay requires real publicly available source material")
+        expected = {"synthetic_messages": "synthetic_fixture", "historical_replay": "historical_replay", "real_task": "real_task"}
+        if self.provenance != expected[self.experiment_kind]:
+            raise ValueError("experiment kind/provenance must match exactly; historical replay and synthetic messages cannot become real_task")
         for values in (self.required_fact_checks, self.judgement_endpoints, [a.label for a in self.arms]):
             if len(set(values)) != len(values) or any(not value for value in values):
                 raise ValueError("experiment identifiers must be unique and nonempty")
@@ -137,7 +136,9 @@ def _review_result(experiment, imported, review):
 
 def summarize_experiments(protocol, imported_reports, independent_reviews=()):
     """Read frozen imports and separate reviews; never execute models or tools."""
-    protocol = ExperimentProtocol.model_validate(protocol)
+    # Revalidate model instances too: Python callers may have reassigned nested
+    # fields after initial validation. Editable labels cannot waive provenance.
+    protocol = ExperimentProtocol.model_validate(protocol.model_dump() if isinstance(protocol, ExperimentProtocol) else protocol)
     reports = {r["analysis_id"]: r for r in imported_reports}
     reviews_list = [IndependentFactReview.model_validate(r) for r in independent_reviews]
     reviews = {r.analysis_id: r for r in reviews_list}
@@ -166,7 +167,9 @@ def summarize_experiments(protocol, imported_reports, independent_reviews=()):
                 native_status = imported.get("native_report", {}).get("status")
                 acceptance = None
                 if terminal and review["facts_passed"] is not None:
-                    historical_ready = experiment.experiment_kind != "historical_replay" or review["visibility_review_status"] == "passed"
+                    # The assessed trace's provenance is authoritative for this
+                    # gate; a protocol label can never remove historical review.
+                    historical_ready = imported["provenance"] != "historical_replay" or review["visibility_review_status"] == "passed"
                     endpoints_ready = set(e["id"] for e in review["judgement_endpoints"]) == set(experiment.judgement_endpoints) and all(e["status"] != "not_evaluable" for e in review["judgement_endpoints"])
                     if historical_ready and endpoints_ready:
                         acceptance = (imported["integrity"]["status"] == "passed" and native_status == "PASS" and review["facts_passed"])

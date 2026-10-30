@@ -112,3 +112,29 @@ def test_summary_cli_reads_imports_only_and_refuses_overwrite(tmp_path):
     assert command(args) == 0
     assert json.loads((tmp_path / "summary.json").read_text())["counts"]["imported_analyses"] == 2
     with pytest.raises(FileExistsError): command(args)
+
+
+@pytest.mark.parametrize("kind,provenance", [
+    ("real_task", "historical_replay"), ("real_task", "synthetic_fixture"),
+    ("synthetic_messages", "historical_replay"), ("synthetic_messages", "real_task"),
+    ("historical_replay", "synthetic_fixture"), ("historical_replay", "real_task"),
+])
+def test_every_mismatched_kind_and_provenance_is_rejected_before_acceptance(kind, provenance):
+    protocol, reports = inputs()
+    protocol["experiments"][0].update(experiment_kind=kind, provenance=provenance)
+    for report in reports: report["provenance"] = provenance
+    reviewed = review(reports[0])
+    assert reviewed.get("visibility_review_status", "unreviewed") == "unreviewed"
+    with pytest.raises(ValueError, match="kind/provenance"):
+        summarize_experiments(protocol, reports, [reviewed])
+
+
+def test_reassigned_protocol_model_cannot_bypass_historical_proof_requirement():
+    from medical_qa_data_factory.evaluation.route_experiments import ExperimentProtocol
+    protocol, reports = inputs()
+    protocol["experiments"][0].update(experiment_kind="historical_replay", provenance="historical_replay")
+    for report in reports: report["provenance"] = "historical_replay"
+    model = ExperimentProtocol.model_validate(protocol)
+    model.experiments[0].experiment_kind = "real_task"
+    with pytest.raises(ValueError, match="kind/provenance"):
+        summarize_experiments(model, reports, [review(reports[0])])
