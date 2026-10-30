@@ -129,3 +129,18 @@ def test_in_progress_trace_is_partial_without_an_invented_stop():
     assert out["assessment_scope"] == "partial_route_trace"
     assert out["route_metrics"]["stop_reason"] is None
     assert out["route_metrics"]["explicit_stop_decision"] is None
+
+
+def test_reviewed_target_does_not_grade_a_running_route_as_a_stop_failure():
+    view = native_view(); view["state"] = "running"
+    view["query_policy"]["status"] = "running"
+    view["query_policy"]["decisions"] = view["query_policy"]["decisions"][:1]
+    target = {"qid": view["id"], "environment_ref": "bioradar-analysis:" + view["id"], "environment_version": view["input_hash"],
+              "provenance": "synthetic_fixture", "review_status": "fixture_expected", "expected_outcome": "sufficient",
+              "requirements": [{"id": "independent-evidence", "acceptable_evidence_sets": [["e1"]]}]}
+    out = evaluate_radar_view(view, provenance="synthetic_fixture", trace_validator=lambda *_args, **_kwargs: {"preparation_tool_calls": 2},
+                              validator_version="test-checker", target=target)
+    assert out["assessment_scope"] == "partial_route_trace"
+    assert out["independent_outcome"]["observation_coverage"] == 1
+    assert out["independent_outcome"]["correct_observable_stop"] is None
+    assert out["independent_outcome"]["false_observable_completion"] is None

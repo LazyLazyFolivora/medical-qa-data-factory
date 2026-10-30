@@ -159,5 +159,5 @@ artifacts/artifact_results/execution）；实际 `queries / evidence / calls / b
 绝不传给原生 checker 或策略。目标环境绑定为 `bioradar-analysis:<analysis id>` 与实际
 `input_hash`。完整性失败会压住覆盖/结果评分，保留失败原因。
 
-新增导入与原有路由的 26 项定向测试通过；另已实际加载 Radar 的独立原生 checker 验证
+新增导入与原有路由的 27 项定向测试通过；另已实际加载 Radar 的独立原生 checker 验证
 原生 v2 形状兼容。测试资料仍是合成契约资料；真实轨迹的结果另存到本次整栈验收目录。

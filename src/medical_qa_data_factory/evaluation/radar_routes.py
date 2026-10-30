@@ -125,7 +125,7 @@ def _model_usage(calls):
             "total_tokens": None if unknown else known}
 
 
-def _target_result(target, *, analysis_id, environment, provenance, evidence, artifacts, decision):
+def _target_result(target, *, analysis_id, environment, provenance, evidence, artifacts, decision, terminal):
     result = {"review_status": "unreviewed", "evaluation_status": "unreviewed_no_gold_score",
               "observation_coverage": None, "correct_observable_stop": None,
               "false_observable_completion": None, "requirements": []}
@@ -145,6 +145,9 @@ def _target_result(target, *, analysis_id, environment, provenance, evidence, ar
         rows.append({"id": requirement.id, "weight": requirement.weight, "passed": passed})
     coverage = sum(r["weight"] for r in rows if r["passed"]) / sum(r["weight"] for r in rows) if rows else None
     result.update(evaluation_status="evaluated_independent_observation_targets", requirements=rows, observation_coverage=coverage)
+    # Partial evidence may be assessed, but a task that has not stopped has no stop score.
+    if not terminal or decision not in {"complete", "insufficient"}:
+        return result
     if target.expected_outcome == "sufficient":
         result["correct_observable_stop"] = decision == "complete" and coverage == 1
         result["false_observable_completion"] = decision == "complete" and coverage != 1
@@ -242,7 +245,7 @@ def evaluate_radar_view(view, *, provenance, trace_validator, validator_version,
             "pending_receipt_count": sum(q["status"] in PENDING for q in queries),
             "saved_requests": requests}
         report["independent_outcome"] = _target_result(target, analysis_id=view["id"], environment=report["environment"],
-            provenance=provenance, evidence=evidence, artifacts=artifacts, decision=stop_decision)
+            provenance=provenance, evidence=evidence, artifacts=artifacts, decision=stop_decision, terminal=terminal)
         if report["independent_outcome"]["review_status"] == "unreviewed":
             report["limitations"].append("independent_target_coverage_and_stop_correctness_unreviewed")
         report["integrity"].update(status="passed", native_assessment=native)
