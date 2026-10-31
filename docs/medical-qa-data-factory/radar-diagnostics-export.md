@@ -1,6 +1,6 @@
 # Persisted Radar diagnostics export
 
-`evaluation routes export-radar-diagnostics --views saved-view.json --scenario C --phase smoke --out diagnostics.jsonl` executes no model, retrieval or source import. It reads the exact saved view bytes and refuses to overwrite an output. The same diagnostic projection accompanies `import-radar`, including absent/invalid route traces.
+`python -m medical_qa_data_factory eval routes export-radar-diagnostics --views saved-view.json --scenario C --phase smoke --out diagnostics.jsonl` executes no model, retrieval or source import. It reads the exact saved view bytes and refuses to overwrite an output. The same diagnostic projection accompanies `import-radar`, including absent/invalid route traces.
 
 The export retains structured error codes, rule IDs, source/record/version IDs, search terms and received page/cursor metadata, repair triggers, BioCheck issue text and sentence indices, and recorded numeric rejection reasons. It does not infer a cause when the host did not save one. Only named diagnostic containers and fields are traversed: full source bodies, questions, private prompts, raw model outputs, and numeric observation values are excluded. Diagnostic issue text may contain the short offending fragment needed to understand the issue; this is not a full-source export or an anonymization guarantee. The caller remains responsible for access control and secret scanning before distributing a bundle.
 
