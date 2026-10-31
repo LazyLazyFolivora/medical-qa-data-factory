@@ -81,3 +81,29 @@ def test_untrusted_nested_payloads_cannot_smuggle_body_into_diagnostics():
     view["queries"][0]["payload"]={"terms":["SOURCE_SMUGGLED"]}
     view["result"]["report"]["text"]={"reason":"SOURCE_SMUGGLED"}
     assert "SOURCE_SMUGGLED" not in str(export_radar_diagnostics(view))
+
+
+def test_nested_usage_payload_is_never_exported_and_is_counted_unknown():
+    import pytest
+    for bad in [{"private_prompt":"DO_NOT_EXPORT"},["DO_NOT_EXPORT"],float("nan"),float("inf"),-2,True]:
+        view=saved_view();view["calls"][0]["receipt"]["usage"]={"total_tokens":bad}
+        out=export_radar_diagnostics(view)
+        assert "DO_NOT_EXPORT" not in str(out)
+        assert out["model_usage"]["unknown_usage_calls"]==1
+        assert out["model_usage"]["known_total_tokens"]==0
+        assert out["model_usage"]["total_tokens"] is None
+        assert out["model_stages"]["read_plan"]["total_tokens"] is None
+        assert "invalid_model_usage_field:c1:total_tokens" in out["usage_issues"]
+
+
+def test_conflicting_duplicate_does_not_claim_first_tokens_as_lower_bound():
+    view=saved_view();view["calls"][0]["receipt"]["usage"]["total_tokens"]=100
+    second=copy.deepcopy(view["calls"][0]);second["receipt"]["usage"]["total_tokens"]=1
+    view["calls"].append(second)
+    out=export_radar_diagnostics(view)
+    assert out["model_usage"]["calls"]==1
+    assert out["model_usage"]["known_total_tokens"]==0
+    assert out["model_usage"]["unknown_usage_calls"]==1
+    assert out["model_stages"]["read_plan"]["known_total_tokens"]==0
+    assert out["model_stages"]["read_plan"]["total_tokens"] is None
+    assert "conflicting_model_call_id:c1" in out["usage_issues"]

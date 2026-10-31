@@ -172,6 +172,7 @@ _DIAGNOSTIC_FIELDS = {
     "terms", "query", "page", "page_number", "next_cursor", "cursor", "has_more", "max_seq", "search_limit", "read_limit",
     "observation_index", "candidate_index", "metric_id", "metric_role", "extractor_version", "proposal_version",
     "attempt", "attempt_count", "repair_count", "truncated", "finish_reason", "request_status", "http_status",
+    "request_bytes", "response_bytes", "reserved_tokens", "reserve_tokens", "token_ratio_version",
 }
 _DIAGNOSTIC_CONTAINERS = {
     "record_ref", "pagination", "plan", "arguments", "cost", "usage", "error", "errors", "diagnostics", "issues", "findings",
@@ -215,7 +216,8 @@ def export_radar_diagnostics(view, *, scenario=None, phase=None):
     if isinstance(native, dict):
         rows.extend(_diagnostic_rows(native, "/result/report"))
     raw_calls = view.get("calls")
-    ledger, unique, problems = [], {}, []
+    ledger, unique, problems, variants = [], {}, [], {}
+    token_fields = ("prompt_tokens", "completion_tokens", "total_tokens", "input_tokens", "output_tokens")
     if isinstance(raw_calls, list):
         for index, call in enumerate(raw_calls):
             if not isinstance(call, dict):
@@ -226,31 +228,63 @@ def export_radar_diagnostics(view, *, scenario=None, phase=None):
             if not isinstance(identity, str) or not identity:
                 problems.append("missing_model_call_id:" + str(index))
                 continue
-            if identity in unique:
+            receipt = call.get("receipt") if isinstance(call.get("receipt"), dict) else {}
+            raw_usage = receipt.get("usage")
+            invalid = False
+            if raw_usage is None:
+                raw_usage = {}
+            if not isinstance(raw_usage, dict):
+                raw_usage = {}
+                invalid = True
+                problems.append("invalid_model_usage_shape:" + identity)
+            safe_usage = {}
+            for key in token_fields:
+                if key not in raw_usage or raw_usage[key] is None:
+                    continue
+                try:
+                    valid = _number(raw_usage[key])
+                except (OverflowError, TypeError, ValueError):
+                    valid = False
+                if valid:
+                    safe_usage[key] = raw_usage[key]
+                else:
+                    invalid = True
+                    problems.append("invalid_model_usage_field:" + identity + ":" + key)
+            # Never copy an unvalidated usage payload. Any malformed token field
+            # makes this call's cost unknown even when another field looks valid.
+            safe = {"call_id": identity,
+                    "stage": call.get("stage") if isinstance(call.get("stage"), str) else "not_recorded",
+                    "status": call.get("status") if isinstance(call.get("status"), str) else "unknown",
+                    "receipt": {"status": receipt.get("status") if isinstance(receipt.get("status"), str) else None,
+                                "usage": {} if invalid else safe_usage}}
+            variants.setdefault(identity, []).append(safe)
+        for identity, saved in variants.items():
+            first = saved[0]
+            if len(saved) > 1:
                 problems.append("duplicate_model_call_id:" + identity)
-                continue
-            unique[identity] = call
-            receipt = call.get("receipt") or {}
-            usage = receipt.get("usage") or {}
-            # Whitelist usage fields too; receipts can contain private payloads.
-            ledger.append({"call_id": identity, "stage": call.get("stage"), "status": call.get("status"),
-                           "receipt_status": receipt.get("status"),
-                           "usage": {key: copy.deepcopy(usage[key]) for key in
-                                     ("prompt_tokens", "completion_tokens", "total_tokens", "input_tokens", "output_tokens") if key in usage}})
-        try:
-            usage = _model_usage(list(unique.values()))
-            stages = {stage: _model_usage([call for call in unique.values() if (call.get("stage") or "not_recorded") == stage])
-                      for stage in sorted({call.get("stage") or "not_recorded" for call in unique.values()})}
-        except (ValueError, TypeError):
-            usage, stages = None, {}
-            problems.append("invalid_model_usage")
-        if problems and usage is not None:
+            if any(item != first for item in saved[1:]):
+                problems.append("conflicting_model_call_id:" + identity)
+                stages_seen = {item["stage"] for item in saved}
+                first = {"call_id": identity, "stage": next(iter(stages_seen)) if len(stages_seen) == 1 else "conflicting_stage",
+                         "status": "unknown", "receipt": {"status": "unknown", "usage": {}}}
+            unique[identity] = first
+            ledger.append({"call_id": identity, "stage": first["stage"], "status": first["status"],
+                           "receipt_status": first["receipt"]["status"], "usage": copy.deepcopy(first["receipt"]["usage"])})
+        usage = _model_usage(list(unique.values()))
+        stages = {stage: _model_usage([call for call in unique.values() if call["stage"] == stage])
+                  for stage in sorted({call["stage"] for call in unique.values()})}
+        if problems:
             usage["total_tokens"] = None
     else:
         usage, stages = None, {}
         problems.append("actual_model_calls_not_exported")
+    try:
+        view_hash = digest(view)
+    except (ValueError, TypeError, OverflowError):
+        view_hash = None
+        problems.append("source_view_not_canonical_json")
     return {"schema_version": "radar-diagnostics-export-v1", "analysis_id": view.get("id"),
-            "source_view_sha256": digest(view), "scenario": scenario, "phase": phase,
+            "source_view_sha256": view_hash, "scenario": scenario, "phase": phase,
             "analysis_state": view.get("state"), "created_at": view.get("created_at"),
             "analysis_error_code": view.get("error_code"),
             "native_report_status": native.get("status") if isinstance(native, dict) else None,
