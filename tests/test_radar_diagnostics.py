@@ -490,3 +490,47 @@ def test_continuation_keeps_missing_fields_and_excludes_endpoint_body_and_arbitr
     absent = export_radar_diagnostics(saved_view())
     assert absent["report_continuation"] is None
     assert absent["diagnostic_presence"]["report_continuation"] == "absent"
+
+
+def reading_diagnostics_view():
+    import json
+    from pathlib import Path
+    fixture = json.loads((Path(__file__).parent / "fixtures/radar_native_reading_diagnostics.json").read_text())
+    view = saved_view()
+    view["progress"] = {"diagnostics": {key: fixture[key] for key in ("reading_validation_errors", "reading_repairs")}}
+    return view
+
+
+def test_native_reading_diagnostics_keep_exact_code_path_hash_and_call_links():
+    view = reading_diagnostics_view()
+    before = copy.deepcopy(view)
+    out = export_radar_diagnostics(view)
+    rows = {row["path"]: row["values"] for row in out["diagnostic_rows"]}
+    root = "/progress/diagnostics"
+    assert rows[root + "/reading_validation_errors/0"] == {key: value for key, value in view["progress"]["diagnostics"]["reading_validation_errors"][0].items() if key != "field_errors"}
+    assert rows[root + "/reading_validation_errors/0/field_errors/0"] == {"path": "/coverage/checks/0/claim_ids/0", "error_code": "unknown_claim"}
+    assert rows[root + "/reading_repairs/0"] == view["progress"]["diagnostics"]["reading_repairs"][0]
+    assert view == before
+    for key in ("model_calls", "model_usage", "model_stages", "usage_issues"):
+        assert out[key] == export_radar_diagnostics(saved_view())[key]
+
+
+def test_reading_diagnostics_cannot_export_body_payload_or_nested_metadata():
+    import json
+    view = reading_diagnostics_view()
+    validation = view["progress"]["diagnostics"]["reading_validation_errors"][0]
+    repair = view["progress"]["diagnostics"]["reading_repairs"][0]
+    for row in (validation, repair):
+        row.update(text="PRIVATE_BODY", source={"error_code": "PRIVATE_SOURCE"}, payload={"reason": "PRIVATE_PAYLOAD"}, quote="PRIVATE_REJECTED_QUOTE")
+    repair["reason"] = "PRIVATE REJECTED FRAGMENT"
+    repair["allowed_claim_ids"] = [{"claim": "PRIVATE_CLAIM_BODY"}]
+    validation["original_output_sha256"] = {"text": "PRIVATE_RAW_OUTPUT"}
+    validation["field_errors"][0]["path"] = {"quote": "PRIVATE_PATH_BODY"}
+    validation["field_errors"][0]["text"] = "PRIVATE_FIELD_BODY"
+    out = export_radar_diagnostics(view)
+    rendered = json.dumps(out)
+    assert "PRIVATE" not in rendered
+    rows = {row["path"]: row["values"] for row in out["diagnostic_rows"]}
+    assert "reason" not in rows["/progress/diagnostics/reading_repairs/0"]
+    assert "allowed_claim_ids" not in rows["/progress/diagnostics/reading_repairs/0"]
+    assert rows["/progress/diagnostics/reading_validation_errors/0/field_errors/0"] == {"error_code": "unknown_claim"}

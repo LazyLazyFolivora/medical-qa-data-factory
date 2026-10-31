@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import math
+import re
 from collections import Counter
 
 from .kdd_routes import RouteEvaluationTarget, digest
@@ -397,6 +398,55 @@ def _report_continuation_metadata(value, missing):
     return out
 
 
+def _reading_diagnostic_rows(progress):
+    """Only the native source-free reading diagnostic lists, never repair payloads."""
+    diagnostics = progress.get("diagnostics")
+    if not isinstance(diagnostics, dict):
+        return []
+    code = re.compile(r"[a-z][a-z0-9_.:-]{0,159}")
+    identity = re.compile(r"[A-Za-z0-9_.:/~-]{1,1024}")
+    hashes = {"original_request_sha256", "original_output_sha256", "reason_sha256", "error_code_sha256", "repair_error_code_sha256"}
+    codes = {"reason", "error_code", "repair_error_code", "status"}
+    identifiers = {"original_call_key", "repair_call_key", "repair_call_id", "path"}
+    lists = {"field_paths", "allowed_reference_ids", "allowed_claim_ids"}
+    numbers = {"original_request_bytes", "repair_request_bytes", "original_input_token_estimate", "repair_input_token_estimate", "max_input_ratio"}
+
+    def project(item):
+        values = {}
+        if not isinstance(item, dict):
+            return values
+        for key, value in item.items():
+            if value is None and key in hashes | codes | identifiers | numbers:
+                values[key] = None
+            elif key in hashes and isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value):
+                values[key] = value
+            elif key in codes | identifiers and isinstance(value, str) and (code if key in codes else identity).fullmatch(value):
+                values[key] = value
+            elif key in lists and isinstance(value, list) and all(isinstance(v, str) and identity.fullmatch(v) for v in value):
+                values[key] = list(value)
+            elif key in numbers and type(value) in (int, float) and math.isfinite(value) and value >= 0:
+                values[key] = value
+        return values
+
+    rows = []
+    for name in ("reading_validation_errors", "reading_repairs"):
+        items = diagnostics.get(name)
+        if not isinstance(items, list):
+            continue
+        for index, item in enumerate(items):
+            path = "/progress/diagnostics/" + name + "/" + str(index)
+            values = project(item)
+            if values:
+                rows.append({"path": path, "values": values})
+            if name == "reading_validation_errors" and isinstance(item, dict) and isinstance(item.get("field_errors"), list):
+                for number, error in enumerate(item["field_errors"]):
+                    # Errors carry a native code/path, never the rejected fragment.
+                    selected = {key: value for key, value in project(error).items() if key in {"path", "error_code"}}
+                    if selected:
+                        rows.append({"path": path + "/field_errors/" + str(number), "values": selected})
+    return rows
+
+
 def export_radar_diagnostics(view, *, scenario=None, phase=None):
     """Read-only, source-body-free diagnostics even for blocked/absent routes.
 
@@ -415,6 +465,7 @@ def export_radar_diagnostics(view, *, scenario=None, phase=None):
     axes = _assessment_metadata(result.get("assessment_axes"), missing_fields)
     human_review = _human_review_metadata(view.get("human_review_context"), missing_fields)
     progress = view.get("progress") if isinstance(view.get("progress"), dict) else {}
+    rows.extend(_reading_diagnostic_rows(progress))
     continuation = _report_continuation_metadata(progress.get("report_continuation"), missing_fields)
     diagnostic_presence.update(assessment_axes="present" if axes is not None else "absent",
                                human_review_context="present" if human_review is not None else "absent",

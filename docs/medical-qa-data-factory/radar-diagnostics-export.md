@@ -83,3 +83,14 @@ final `_resume_report` dictionary and `_call` profile dictionary with synthetic
 scalar inputs; it does not run either method or touch a database/service/model.
 Native `_view` copies this exact subtree into its public progress. Missing
 continuation metadata remains absent rather than an implied authorization.
+
+Native `progress.diagnostics.reading_validation_errors[]` and `reading_repairs[]`
+receive a bounded metadata projection: actual error/reason/status codes, field
+paths, original/repair call keys and ID, request/output hashes, declared reference
+IDs and request-size metadata. Only native `field_errors[].path/error_code` is
+read below a validation row. Repair payloads, rejected values, source bodies,
+quotes and arbitrary nested objects are excluded. No repair or validation event
+creates a model call or changes the existing generation ledger. This is a
+diagnostic post-processing revision, not a changed experiment registration.
+The synthetic fixture was emitted by the actual Radar 11fc367f source-free
+diagnostics producer; its revision and source hash are recorded with the fixture.

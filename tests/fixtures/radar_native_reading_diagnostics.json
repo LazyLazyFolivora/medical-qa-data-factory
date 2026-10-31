@@ -1,0 +1,42 @@
+{
+  "producer_revision": "11fc367fe90aa1e675f5b15b69f449d1d34db68c",
+  "producer_source_sha256": "8da998882702a3bf560f5b2f07ea17cc15561889892f58ad8c9a89ef75ea79f4",
+  "reading_validation_errors": [
+    {
+      "original_call_key": "policy-read:synthetic",
+      "original_request_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "original_output_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "error_code": "analysis_output_invalid",
+      "field_errors": [
+        {
+          "path": "/coverage/checks/0/claim_ids/0",
+          "error_code": "unknown_claim"
+        }
+      ]
+    }
+  ],
+  "reading_repairs": [
+    {
+      "reason": "analysis_output_invalid",
+      "error_code": "analysis_output_invalid",
+      "original_call_key": "policy-read:synthetic",
+      "repair_call_key": "policy-read:synthetic:structure-repair",
+      "repair_call_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "status": "validated",
+      "field_paths": [
+        "/coverage/checks/0/claim_ids/0"
+      ],
+      "allowed_reference_ids": [
+        "E1:S1"
+      ],
+      "allowed_claim_ids": [
+        "c1"
+      ],
+      "original_request_bytes": 40,
+      "repair_request_bytes": 50,
+      "original_input_token_estimate": 10,
+      "repair_input_token_estimate": 12,
+      "max_input_ratio": 1.25
+    }
+  ]
+}
