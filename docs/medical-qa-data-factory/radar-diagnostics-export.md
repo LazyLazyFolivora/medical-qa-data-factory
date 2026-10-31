@@ -32,6 +32,27 @@ without any token, stage or issue changes.
 BioCheck `core.verify(mode="paragraph")` and `core.audit_support` at revision
 `b88da7bc3b4614e4537d340a9deade10c1c3980c`, using only local synthetic callback
 outputs. It is a shape/regression fixture, not an experiment or scientific score.
-Source reliability / information credibility and fixed-version human-review
-bindings will only be projected after the native field names are confirmed;
-no ratings or approval records are inferred by this exporter.
+The confirmed native metadata paths are `AnalysisView.result.assessment_axes`
+and top-level `AnalysisView.human_review_context`. The exporter projects these
+as distinct sections, without recomputing any grade, binding or review status.
+Missing native objects remain null with presence `absent`; missing required
+metadata is named in `missing_diagnostic_fields`, never filled with F/6 or an
+approval. Multiple source / information assessments retain their array order
+and cardinality. Native unassessed null actor/time values remain null.
+
+Only declared assessment scalars and exact ProviderRef fields are retained.
+Claim text, free-text assessment/confirmation basis, arbitrary payload/source
+objects and human review text/conditions are excluded. Native heat is open JSON;
+only its existing `score`/`qualification` metadata is projected, rather than
+copying arbitrary nested content. Human-review output keeps the actual native
+reviewer/time/revision, target type/IDs/hashes, basis references, scope, decision
+and binding status. `accepted_within_scope` is not converted to alert approval.
+A changed or different target retains that native binding status. No separate
+entries/kwargs path exists to reconstruct a review in the factory.
+
+`tests/fixtures/radar_native_assessment_review.json` is produced by the actual
+WIP Radar `AssessmentAxes.model_dump` and `delivery.human_review_context` with
+synthetic in-memory records. This validates projection shape, not the pending
+native route/schema integration. That final wiring must be checked after its
+native contract is frozen. Future `verify_claim` batch/quote-validation and
+report-continuation fields are not guessed before their actual contract lands.

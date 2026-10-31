@@ -230,3 +230,128 @@ def test_actual_native_biocheck_projection_fixture_keeps_errors_without_raw_text
     rendered = json.dumps(out)
     for forbidden in ["SOURCE_SHORT_QUOTE", "PRIVATE_CLAIM_BODY", "NOT_IN_SELECTED_SOURCE"]:
         assert forbidden not in rendered
+
+
+def assessment_review_view():
+    import json
+    from pathlib import Path
+    fixture = json.loads((Path(__file__).parent / "fixtures/radar_native_assessment_review.json").read_text())
+    view = saved_view()
+    view["result"]["assessment_axes"] = fixture["assessment_axes"]
+    view["human_review_context"] = fixture["human_review_context"]
+    return view
+
+
+def test_native_assessment_arrays_remain_separate_and_keep_unassessed_nulls():
+    view = assessment_review_view()
+    out = export_radar_diagnostics(view)
+    axes = out["assessment_axes"]
+    assert [r["grade"] for r in axes["source_reliability"]] == ["B", "F"]
+    assert [r["grade"] for r in axes["information_credibility"]] == ["2", "6"]
+    assert axes["source_reliability"][1]["assessed_by"] is None
+    assert axes["information_credibility"][1]["assessed_at"] is None
+    assert axes["information_credibility"][1]["assessment_status"] == "not_assessed"
+    assert axes["information_credibility"][0]["claim_text_sha256"] == "b" * 64
+    assert axes["source_reliability"][0]["assessment_basis_refs"][0]["adopted_version"] == "native-v1"
+    assert axes["evidence_level"] == "unverified"
+    assert axes["heat"] == {"score": 2, "qualification": "attention only"}
+    assert out["diagnostic_presence"]["assessment_axes"] == "present"
+    assert view == assessment_review_view()
+
+
+def test_human_context_retains_fixed_object_native_binding_without_signing_alert():
+    out = export_radar_diagnostics(assessment_review_view())
+    context = out["human_review_context"]
+    assert context["status"] == "recorded"
+    review = context["reviews"][0]
+    assert review["entry_id"] == "entry-review"
+    assert review["review_revision"] == 2
+    assert review["reviewer_actor"] == "synthetic-reviewer"
+    assert review["binding_status"] == "exact_target"
+    assert review["decision"] == "accepted_within_scope"
+    assert review["target"]["analysis_id"] == "synthetic-analysis"
+    assert review["basis_record_refs"][0]["content_hash"] == "a" * 64
+    assert review["analysis_input_hash"] == "c" * 64
+    assert "alert_status" not in review
+    view = assessment_review_view()
+    view["human_review_context"]["status"] = "not_reviewed"
+    view["human_review_context"]["reviews"][0]["binding_status"] = "target_changed"
+    changed = export_radar_diagnostics(view)["human_review_context"]
+    assert changed["status"] == "not_reviewed"
+    assert changed["reviews"][0]["binding_status"] == "target_changed"
+
+
+def test_assessment_and_review_projection_drops_bodies_and_arbitrary_nested_metadata():
+    import json
+    view = assessment_review_view()
+    view["result"]["assessment_axes"]["source_reliability"][0]["record_ref"]["source"] = {
+        "reason": "PRIVATE_REF_PAYLOAD"}
+    view["human_review_context"]["reviews"][0]["target"]["payload"] = {
+        "analysis_id": "PRIVATE_TARGET_PAYLOAD"}
+    view["human_review_context"]["reviews"][0]["raw_source"] = {"reason": "PRIVATE_REVIEW_PAYLOAD"}
+    out = export_radar_diagnostics(view)
+    for forbidden in ["PRIVATE_ASSESSMENT_BODY", "PRIVATE_CLAIM_TEXT", "PRIVATE_HEAT_BODY",
+                      "PRIVATE_HUMAN_NOTE", "PRIVATE_HUMAN_CONDITIONS", "PRIVATE_REF_PAYLOAD",
+                      "PRIVATE_TARGET_PAYLOAD", "PRIVATE_REVIEW_PAYLOAD"]:
+        assert forbidden not in json.dumps(out)
+    assert out["model_usage"]["calls"] == 1
+    assert out["model_usage"]["total_tokens"] == 17
+
+
+def test_absent_axes_review_and_missing_grade_are_not_defaulted_or_reconstructed():
+    view = saved_view()
+    out = export_radar_diagnostics(view)
+    assert out["assessment_axes"] is None and out["human_review_context"] is None
+    assert out["diagnostic_presence"]["assessment_axes"] == "absent"
+    assert out["diagnostic_presence"]["human_review_context"] == "absent"
+    view = assessment_review_view()
+    del view["result"]["assessment_axes"]["source_reliability"][0]["grade"]
+    del view["human_review_context"]["reviews"][0]["reviewer_actor"]
+    out = export_radar_diagnostics(view)
+    assert "grade" not in out["assessment_axes"]["source_reliability"][0]
+    assert "reviewer_actor" not in out["human_review_context"]["reviews"][0]
+    assert {"path": "/result/assessment_axes/source_reliability/0", "fields": ["grade"]} in out["missing_diagnostic_fields"]
+    assert {"path": "/human_review_context/reviews/0", "fields": ["reviewer_actor"]} in out["missing_diagnostic_fields"]
+
+
+def test_malformed_native_metadata_is_missing_and_never_exported_as_payload():
+    import json
+    view = assessment_review_view()
+    view["result"]["assessment_axes"]["source_reliability"][0]["grade"] = {"private": "PRIVATE_INVALID_GRADE"}
+    view["result"]["assessment_axes"]["heat"] = ["PRIVATE_INVALID_HEAT"]
+    view["human_review_context"]["reviews"][0]["target"]["type"] = {"private": "PRIVATE_INVALID_TARGET"}
+    out = export_radar_diagnostics(view)
+    assert "grade" not in out["assessment_axes"]["source_reliability"][0]
+    assert "heat" not in out["assessment_axes"]
+    assert "type" not in out["human_review_context"]["reviews"][0]["target"]
+    for body in ["PRIVATE_INVALID_GRADE", "PRIVATE_INVALID_HEAT", "PRIVATE_INVALID_TARGET"]:
+        assert body not in json.dumps(out)
+    paths = {item["path"] for item in out["missing_diagnostic_fields"]}
+    assert "/result/assessment_axes" in paths
+    assert "/human_review_context/reviews/0/target" in paths
+
+
+def test_other_native_review_targets_and_confirmation_refs_are_not_rebound():
+    for target in [{"type": "candidate", "run_id": "run-1", "result_hash": "d" * 64, "candidate_key": "candidate-1"},
+                   {"type": "claim", "analysis_id": "synthetic-analysis", "claim_id": "claim-1", "claim_sha256": "e" * 64}]:
+        view = assessment_review_view()
+        review = view["human_review_context"]["reviews"][0]
+        review["target"] = target
+        review["binding_status"] = "different_target"
+        info = view["result"]["assessment_axes"]["information_credibility"][0]
+        info["independent_confirmation_refs"] = copy.deepcopy(info["assessment_basis_refs"])
+        out = export_radar_diagnostics(view)
+        assert out["human_review_context"]["reviews"][0]["target"] == target
+        assert out["human_review_context"]["reviews"][0]["binding_status"] == "different_target"
+        assert out["assessment_axes"]["information_credibility"][0]["independent_confirmation_refs"] == info["independent_confirmation_refs"]
+
+
+def test_metadata_at_unapproved_locations_is_not_used_as_native_assessment_or_review():
+    view = saved_view()
+    fixture = assessment_review_view()
+    view["assessment_axes"] = fixture["result"]["assessment_axes"]
+    view["progress"]["human_review_context"] = fixture["human_review_context"]
+    view["result"]["payload"] = {"assessment_axes": fixture["result"]["assessment_axes"]}
+    out = export_radar_diagnostics(view)
+    assert out["assessment_axes"] is None
+    assert out["human_review_context"] is None

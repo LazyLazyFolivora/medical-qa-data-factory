@@ -257,6 +257,106 @@ def _report_diagnostic_presence(report):
     return presence, missing
 
 
+
+# Fixed native metadata contracts only. No traversal of arbitrary payload/source.
+_PROVIDER_REF_FIELDS = {"provider", "object_type", "object_id", "adopted_version",
+                        "version_source", "content_hash", "authorization_ref"}
+_AXIS_FIELDS = {"grade", "assessment_status", "reason_code", "assessed_by", "assessed_at",
+                "taxonomy_name", "taxonomy_version", "publisher_scope", "claim_id", "claim_text_sha256",
+                "native_review_entry_id", "review_revision", "previous_assessment_ref"}
+
+
+def _metadata_fields(value, fields):
+    return {key: child for key, child in value.items() if key in fields
+            and (child is None or isinstance(child, (str, bool)) or
+                 isinstance(child, (int, float)) and math.isfinite(child))}
+
+
+def _missing_metadata(projected, path, required, missing):
+    absent = [key for key in required if key not in projected]
+    if absent:
+        missing.append({"path": path, "fields": absent})
+
+
+def _metadata_refs(value):
+    if isinstance(value, list):
+        return [_metadata_fields(ref, _PROVIDER_REF_FIELDS) if isinstance(ref, dict) else None for ref in value]
+    return None
+
+
+def _assessment_metadata(value, missing):
+    if not isinstance(value, dict):
+        return None
+    root = "/result/assessment_axes"
+    out = _metadata_fields(value, {"evidence_level"})
+    if "heat" in value:
+        # Native heat is open JSON; only the existing score/qualification metadata
+        # is publishable, never an untrusted nested source or a new combined grade.
+        heat = value["heat"]
+        if heat is None:
+            out["heat"] = None
+        elif isinstance(heat, dict):
+            out["heat"] = _metadata_fields(heat, {"score", "qualification"})
+    for name in ("source_reliability", "information_credibility"):
+        items = value.get(name)
+        if not isinstance(items, list):
+            continue
+        out[name] = []
+        for index, item in enumerate(items):
+            path = root + "/" + name + "/" + str(index)
+            if not isinstance(item, dict):
+                out[name].append(None)
+                missing.append({"path": path, "fields": ["native_assessment_object"]})
+                continue
+            row = _metadata_fields(item, _AXIS_FIELDS)
+            if isinstance(item.get("record_ref"), dict):
+                row["record_ref"] = _metadata_fields(item["record_ref"], _PROVIDER_REF_FIELDS)
+            for key in ("assessment_basis_refs", "independent_confirmation_refs"):
+                if key in item:
+                    row[key] = _metadata_refs(item[key])
+            _missing_metadata(row, path, ("grade", "assessment_status", "record_ref"), missing)
+            out[name].append(row)
+    _missing_metadata(out, root, ("source_reliability", "information_credibility", "evidence_level", "heat"), missing)
+    return out
+
+
+def _human_review_metadata(value, missing):
+    if not isinstance(value, dict):
+        return None
+    root = "/human_review_context"
+    out = _metadata_fields(value, {"status", "analysis_id", "investigation_only_judgment_count"})
+    if isinstance(value.get("reviews"), list):
+        out["reviews"] = []
+        target_fields = {
+            "candidate": {"type", "run_id", "result_hash", "candidate_key"},
+            "report": {"type", "analysis_id", "text_sha256"},
+            "claim": {"type", "analysis_id", "claim_id", "claim_sha256"},
+        }
+        for index, item in enumerate(value["reviews"]):
+            path = root + "/reviews/" + str(index)
+            if not isinstance(item, dict):
+                out["reviews"].append(None)
+                missing.append({"path": path, "fields": ["native_review_object"]})
+                continue
+            row = _metadata_fields(item, {"entry_id", "review_revision", "reviewer_actor", "reviewed_at",
+                "binding_status", "decision", "scope", "analysis_input_hash"})
+            target = item.get("target")
+            if isinstance(target, dict):
+                kind = target.get("type")
+                fields = target_fields.get(kind, {"type"}) if isinstance(kind, str) else {"type"}
+                row["target"] = _metadata_fields(target, fields)
+                _missing_metadata(row["target"], path + "/target", tuple(sorted(fields)), missing)
+            if "basis_record_refs" in item:
+                row["basis_record_refs"] = _metadata_refs(item["basis_record_refs"])
+            if isinstance(item.get("basis_entry_ids"), list):
+                row["basis_entry_ids"] = [identity for identity in item["basis_entry_ids"] if isinstance(identity, str)]
+            _missing_metadata(row, path, ("entry_id", "review_revision", "reviewer_actor", "reviewed_at",
+                "binding_status", "decision", "scope", "target", "basis_record_refs"), missing)
+            out["reviews"].append(row)
+    _missing_metadata(out, root, ("status", "analysis_id", "reviews"), missing)
+    return out
+
+
 def export_radar_diagnostics(view, *, scenario=None, phase=None):
     """Read-only, source-body-free diagnostics even for blocked/absent routes.
 
@@ -271,6 +371,11 @@ def export_radar_diagnostics(view, *, scenario=None, phase=None):
     if isinstance(native, dict):
         rows.extend(_diagnostic_rows(native, "/result/report"))
     diagnostic_presence, missing_fields = _report_diagnostic_presence(native)
+    result = view.get("result") if isinstance(view.get("result"), dict) else {}
+    axes = _assessment_metadata(result.get("assessment_axes"), missing_fields)
+    human_review = _human_review_metadata(view.get("human_review_context"), missing_fields)
+    diagnostic_presence.update(assessment_axes="present" if axes is not None else "absent",
+                               human_review_context="present" if human_review is not None else "absent")
     raw_calls = view.get("calls")
     ledger, unique, problems, variants, ambiguous_stages = [], {}, [], {}, {}
     token_fields = ("prompt_tokens", "completion_tokens", "total_tokens", "input_tokens", "output_tokens")
@@ -355,6 +460,7 @@ def export_radar_diagnostics(view, *, scenario=None, phase=None):
             "native_report_status": native.get("status") if isinstance(native, dict) else None,
             "business_acceptance": "not_assessed", "diagnostic_rows": rows,
             "diagnostic_presence": diagnostic_presence, "missing_diagnostic_fields": missing_fields,
+            "assessment_axes": axes, "human_review_context": human_review,
             "model_calls": ledger, "model_usage": usage, "model_stages": stages, "usage_issues": problems,
             "excluded": ["source_bodies", "questions", "private_prompts", "raw_model_outputs", "numeric_observation_values"],
             "scope": "persisted_analysis_generation_calls_only; embedding/rerank/index are separately accounted",
