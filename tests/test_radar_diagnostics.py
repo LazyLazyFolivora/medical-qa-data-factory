@@ -631,3 +631,86 @@ def test_native_public_mech_retry_policy_is_exact_metadata_without_fabricated_fa
     assert not {"reason", "original_request_sha256", "max_total_retries"} & set(selected)
     del view["progress"]["diagnostics"]["mech_format_retry"]
     assert not any(row["path"] == path for row in export_radar_diagnostics(view)["diagnostic_rows"])
+
+
+def test_structured_claim_locator_and_repair_kind_project_without_repair_text():
+    import json
+
+    # The existing producer fixture supplies the native units/claims/short_quotes
+    # shape; these locator and repair fields are Pan's declared next contract.
+    view = cited_claim_view("valid")
+    review = view["result"]["report"]["verification"]
+    quote = review["units"][0]["claims"][0]["short_quotes"][0]
+    locator = {"output_path": "/mechanism_summary", "offset_basis": "selected_value_json",
+               "value_start": 2, "value_end": 19}
+    quote.update(locator)
+    changed = {"claim_id": "claim-unreported", "repair_kind": "unreported_as_absent"}
+    review["changed_claims"] = [changed]
+    forbidden = ("body", "prompt", "raw", "raw_reviews", "private_response", "repair_span", "scope_revision", "before", "after")
+    for row in (quote, changed):
+        for field in forbidden:
+            row[field] = {"reason": "PRIVATE_" + field.upper()}
+        row["repair_span"] = "PRIVATE_ORIGINAL_VERDICT_FRAGMENT"
+    before = copy.deepcopy(view)
+    out = export_radar_diagnostics(view)
+    root = "/result/report/verification"
+    quote_path = root + "/units/0/claims/0/short_quotes/0"
+    changed_path = root + "/changed_claims/0"
+    rows = {row["path"]: row["values"] for row in out["diagnostic_rows"]}
+    assert ({key: rows.get(quote_path, {}).get(key) for key in locator},
+            rows.get(changed_path)) == (locator, {"claim_id": "claim-unreported", "repair_kind": "unreported_as_absent"})
+    assert "PRIVATE" not in json.dumps(out)
+    assert not any(field in row["values"] for field in forbidden for row in out["diagnostic_rows"])
+    assert view == before
+
+    # Objects under scalar metadata names must not become traversal containers.
+    for field in locator:
+        quote[field] = {"reason": "PRIVATE_LOCATOR_OBJECT"}
+    changed["repair_kind"] = {"reason": "PRIVATE_REPAIR_OBJECT"}
+    malformed = export_radar_diagnostics(view)
+    rows = {row["path"]: row["values"] for row in malformed["diagnostic_rows"]}
+    assert not set(locator).intersection(rows[quote_path])
+    assert "repair_kind" not in rows[changed_path]
+    assert "PRIVATE" not in json.dumps(malformed)
+
+
+def test_required_gap_discovery_metadata_projects_without_policy_or_record_bodies():
+    import json
+
+    view = saved_view()
+    version = "bounded-required-gap-discovery-v1"
+    basis = {"version": version, "kind": "required_gap_repeat_search",
+             "query_index": 7, "check_ids": ["required-gap"]}
+    candidate = {"id": "catalog:fixed", "kind": "document_search",
+                 "discovery_basis": copy.deepcopy(basis),
+                 "arguments": {"source_id": "external_archive", "terms": []}}
+    request = {"discovery_version": version, "candidates": [candidate],
+               "question": "PRIVATE_POLICY_QUESTION", "prompt": "PRIVATE_POLICY_PROMPT"}
+    view["query_policy"] = {"discovery_version": version, "decisions": [
+        {"policy_request": request, "action": copy.deepcopy(candidate)}]}
+    returned = {"source_id": "external_archive", "source_record_id": "record1", "version_id": "fixed-v1"}
+    view["queries"][0]["returned_versions"] = [{**returned, "body": "PRIVATE_RETURNED_BODY",
+                                                "raw": {"reason": "PRIVATE_RETURNED_RAW"}}]
+    for node in (request, candidate, candidate["discovery_basis"], view["query_policy"]["decisions"][0]["action"]):
+        node.update(body="PRIVATE_BODY", private_response={"reason": "PRIVATE_RESPONSE"})
+    before = copy.deepcopy(view)
+    out = export_radar_diagnostics(view)
+    rows = {row["path"]: row["values"] for row in out["diagnostic_rows"]}
+    root = "/query_policy/decisions/0"
+    assert all(rows.get(path) for path in (
+        "/query_policy", root + "/policy_request", root + "/policy_request/candidates/0/discovery_basis",
+        root + "/action/discovery_basis", "/queries/0/returned_versions/0"))
+    assert rows["/query_policy"]["discovery_version"] == version
+    assert rows[root + "/policy_request"]["discovery_version"] == version
+    assert rows[root + "/policy_request/candidates/0/discovery_basis"] == basis
+    assert rows[root + "/action/discovery_basis"] == basis
+    assert rows["/queries/0/returned_versions/0"] == returned
+    assert "PRIVATE" not in json.dumps(out)
+    assert view == before
+
+    # The old native contract has no new diagnostics; do not manufacture them.
+    legacy = export_radar_diagnostics(saved_view())
+    assert not any("discovery_basis" in row["path"] or "returned_versions" in row["path"]
+                   or "discovery_version" in row["values"] for row in legacy["diagnostic_rows"])
+    for key in ("model_calls", "model_usage", "model_stages", "usage_issues"):
+        assert out[key] == legacy[key]

@@ -170,6 +170,8 @@ _DIAGNOSTIC_FIELDS = {
     "issue", "issue_id", "issue_type", "issue_index", "labels", "sentence_index", "sentence_id", "sentence_ordinal", "sentence_numbers", "paragraph_index",
     "unit_id", "claim_id", "claim_index", "verdict", "citation_status", "evidence_id", "segment_id", "version", "start", "end", "errors",
     "verification_method", "method_provider_version", "draft_sha256", "fingerprint", "effective_verdict",
+    "output_path", "offset_basis", "value_start", "value_end", "repair_kind",
+    "discovery_version", "check_ids",
     "reused_claims", "repair_claims", "claim_ids", "action", "request_hash", "max_output_tokens", "reference",
     "error_codes", "reason_code", "changed_binding_fields", "report_continuation_id", "continues_call_id",
     "source_id", "source_instance", "source_record_id", "record_id", "version_id", "snapshot_id", "text_sha256",
@@ -186,7 +188,8 @@ _DIAGNOSTIC_CONTAINERS = {
     "coverage_issues", "unmet_reading", "incomplete_search_chains", "checks", "check", "audit", "support_audit",
     "verification", "verify", "units", "claims", "reviews", "evidence", "support",
     "verification_errors", "verification_execution", "source_gaps", "scope_gaps", "read_requests",
-    "claim_checks", "reuse_decisions", "coverage_receipt", "short_quotes",
+    "claim_checks", "reuse_decisions", "coverage_receipt", "short_quotes", "changed_claims",
+    "policy_request", "candidates", "action", "discovery_basis", "returned_versions",
     "sentence_checks", "failed_sentences", "receipt", "history", "repair_attempts", "validation",
 }
 
