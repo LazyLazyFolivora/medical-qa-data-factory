@@ -188,7 +188,7 @@ _DIAGNOSTIC_CONTAINERS = {
     "coverage_issues", "unmet_reading", "incomplete_search_chains", "checks", "check", "audit", "support_audit",
     "verification", "verify", "units", "claims", "reviews", "evidence", "support",
     "verification_errors", "verification_execution", "source_gaps", "scope_gaps", "read_requests",
-    "claim_checks", "reuse_decisions", "coverage_receipt", "short_quotes", "changed_claims",
+    "claim_checks", "reuse_decisions", "coverage_receipt", "short_quotes", "changed_claims", "revision",
     "policy_request", "candidates", "action", "discovery_basis", "returned_versions",
     "sentence_checks", "failed_sentences", "receipt", "history", "repair_attempts", "validation",
 }

@@ -645,7 +645,7 @@ def test_structured_claim_locator_and_repair_kind_project_without_repair_text():
                "value_start": 2, "value_end": 19}
     quote.update(locator)
     changed = {"claim_id": "claim-unreported", "repair_kind": "unreported_as_absent"}
-    review["changed_claims"] = [changed]
+    view["result"]["report"]["revision"] = {"changed_claims": [changed]}
     forbidden = ("body", "prompt", "raw", "raw_reviews", "private_response", "repair_span", "scope_revision", "before", "after")
     for row in (quote, changed):
         for field in forbidden:
@@ -655,7 +655,7 @@ def test_structured_claim_locator_and_repair_kind_project_without_repair_text():
     out = export_radar_diagnostics(view)
     root = "/result/report/verification"
     quote_path = root + "/units/0/claims/0/short_quotes/0"
-    changed_path = root + "/changed_claims/0"
+    changed_path = "/result/report/revision/changed_claims/0"
     rows = {row["path"]: row["values"] for row in out["diagnostic_rows"]}
     assert ({key: rows.get(quote_path, {}).get(key) for key in locator},
             rows.get(changed_path)) == (locator, {"claim_id": "claim-unreported", "repair_kind": "unreported_as_absent"})
