@@ -1,6 +1,6 @@
 {
   "fixture_origin": "Actual WIP Pan core.verify(mode=paragraph), native claim producer. Four local synthetic callback variants only; zero network/model/DB. Only selected native subtrees retained unchanged.",
-  "producer_sha256": "e4ade6f6e4eafc0df5656581714c9a3edafadff9b9fcf19afa50c6eda44e7741",
+  "producer_sha256": "b111412e17f2e5aa283de537111932ff3d544dda5b3f8e675bb0498532f322fb",
   "reviews": {
     "valid": {
       "status": "PASS",
@@ -63,7 +63,7 @@
       ],
       "verification_errors": [],
       "verification_method": "cited_claims",
-      "method_provider_version": "c6ed2a03224fee8bbd8507f1762d7aa0737ca90442bd706c4caa298accd0e153",
+      "method_provider_version": "6581264eec4811996cb6149d746c9e5305c2699b1b889b9c3e4ff0e046e83b91",
       "draft_sha256": "60ad66d115e1dde5acd6eca50beaf89a65436afbd3aba4d42d1f52180af25fd7",
       "reused_claims": [],
       "reuse_decisions": [
@@ -75,8 +75,10 @@
             "statement": "839cb21f8cd78c513dbe8d425aa5b1319f8920ea0afcf5d7966c26993bcd3c63",
             "context": "bb1b2dccffdce65bd62c6a6a93ac5b31f02c2ae2402659ab1c85ac018aa4ef99",
             "references": "ae9842c57ac221e5489bb640368f67b527d6863fd9824f6d26142b99b95021e6",
-            "method": "c6ed2a03224fee8bbd8507f1762d7aa0737ca90442bd706c4caa298accd0e153"
-          }
+            "method": "6581264eec4811996cb6149d746c9e5305c2699b1b889b9c3e4ff0e046e83b91"
+          },
+          "reason_code": "no_prior_check",
+          "changed_binding_fields": []
         }
       ],
       "verification_execution": [
@@ -98,7 +100,7 @@
         }
       ],
       "coverage_receipt": {
-        "request_hash": "afed988998537e923b4c80b415ac757d9d264e3820761962a46369c14f02a90c",
+        "request_hash": "b25c42fd1e87f7cab886bbdfcb744babd9c49cf50daf04366f79b37f547d87c8",
         "finish_reason": "stop",
         "output": {
           "checked_unit_ids": [
@@ -113,13 +115,13 @@
       "claim_checks": [
         {
           "claim_id": "C839cb21f8cd78c513dbe-1",
-          "fingerprint": "0c0f544541c8b82a13286b12bde911a3810fc9ace24d45905abd1cef57e28266",
+          "fingerprint": "0ddec933427b508c19add6f4004b9a24169cba7502ee53de8c473e5bea4ccc6e",
           "binding": {
             "task": "b41fcdbc4f0cf61f721c1d6138b5568b4cdfe0d9476df2f8ed2acb9794448a5b",
             "statement": "839cb21f8cd78c513dbe8d425aa5b1319f8920ea0afcf5d7966c26993bcd3c63",
             "context": "bb1b2dccffdce65bd62c6a6a93ac5b31f02c2ae2402659ab1c85ac018aa4ef99",
             "references": "ae9842c57ac221e5489bb640368f67b527d6863fd9824f6d26142b99b95021e6",
-            "method": "c6ed2a03224fee8bbd8507f1762d7aa0737ca90442bd706c4caa298accd0e153"
+            "method": "6581264eec4811996cb6149d746c9e5305c2699b1b889b9c3e4ff0e046e83b91"
           },
           "finish_reason": "stop",
           "answer": {
@@ -139,6 +141,7 @@
             "reason": "Synthetic local verdict."
           },
           "errors": [],
+          "error_codes": [],
           "effective_verdict": "supported"
         }
       ],
@@ -205,7 +208,7 @@
       ],
       "verification_errors": [],
       "verification_method": "cited_claims",
-      "method_provider_version": "c6ed2a03224fee8bbd8507f1762d7aa0737ca90442bd706c4caa298accd0e153",
+      "method_provider_version": "6581264eec4811996cb6149d746c9e5305c2699b1b889b9c3e4ff0e046e83b91",
       "draft_sha256": "60ad66d115e1dde5acd6eca50beaf89a65436afbd3aba4d42d1f52180af25fd7",
       "reused_claims": [
         "C839cb21f8cd78c513dbe-1"
@@ -219,13 +222,15 @@
             "statement": "839cb21f8cd78c513dbe8d425aa5b1319f8920ea0afcf5d7966c26993bcd3c63",
             "context": "bb1b2dccffdce65bd62c6a6a93ac5b31f02c2ae2402659ab1c85ac018aa4ef99",
             "references": "ae9842c57ac221e5489bb640368f67b527d6863fd9824f6d26142b99b95021e6",
-            "method": "c6ed2a03224fee8bbd8507f1762d7aa0737ca90442bd706c4caa298accd0e153"
-          }
+            "method": "6581264eec4811996cb6149d746c9e5305c2699b1b889b9c3e4ff0e046e83b91"
+          },
+          "reason_code": "unchanged",
+          "changed_binding_fields": []
         }
       ],
       "verification_execution": [],
       "coverage_receipt": {
-        "request_hash": "afed988998537e923b4c80b415ac757d9d264e3820761962a46369c14f02a90c",
+        "request_hash": "b25c42fd1e87f7cab886bbdfcb744babd9c49cf50daf04366f79b37f547d87c8",
         "finish_reason": "stop",
         "output": {
           "checked_unit_ids": [
@@ -240,13 +245,13 @@
       "claim_checks": [
         {
           "claim_id": "C839cb21f8cd78c513dbe-1",
-          "fingerprint": "0c0f544541c8b82a13286b12bde911a3810fc9ace24d45905abd1cef57e28266",
+          "fingerprint": "0ddec933427b508c19add6f4004b9a24169cba7502ee53de8c473e5bea4ccc6e",
           "binding": {
             "task": "b41fcdbc4f0cf61f721c1d6138b5568b4cdfe0d9476df2f8ed2acb9794448a5b",
             "statement": "839cb21f8cd78c513dbe8d425aa5b1319f8920ea0afcf5d7966c26993bcd3c63",
             "context": "bb1b2dccffdce65bd62c6a6a93ac5b31f02c2ae2402659ab1c85ac018aa4ef99",
             "references": "ae9842c57ac221e5489bb640368f67b527d6863fd9824f6d26142b99b95021e6",
-            "method": "c6ed2a03224fee8bbd8507f1762d7aa0737ca90442bd706c4caa298accd0e153"
+            "method": "6581264eec4811996cb6149d746c9e5305c2699b1b889b9c3e4ff0e046e83b91"
           },
           "finish_reason": "stop",
           "answer": {
@@ -266,6 +271,7 @@
             "reason": "Synthetic local verdict."
           },
           "errors": [],
+          "error_codes": [],
           "effective_verdict": "supported"
         }
       ],
@@ -328,11 +334,14 @@
           "claim_id": "C839cb21f8cd78c513dbe-1",
           "errors": [
             "短引不是被引原段中唯一的连续原文"
+          ],
+          "error_codes": [
+            "quote_not_found"
           ]
         }
       ],
       "verification_method": "cited_claims",
-      "method_provider_version": "c6ed2a03224fee8bbd8507f1762d7aa0737ca90442bd706c4caa298accd0e153",
+      "method_provider_version": "6581264eec4811996cb6149d746c9e5305c2699b1b889b9c3e4ff0e046e83b91",
       "draft_sha256": "60ad66d115e1dde5acd6eca50beaf89a65436afbd3aba4d42d1f52180af25fd7",
       "reused_claims": [],
       "reuse_decisions": [
@@ -344,8 +353,10 @@
             "statement": "839cb21f8cd78c513dbe8d425aa5b1319f8920ea0afcf5d7966c26993bcd3c63",
             "context": "bb1b2dccffdce65bd62c6a6a93ac5b31f02c2ae2402659ab1c85ac018aa4ef99",
             "references": "ae9842c57ac221e5489bb640368f67b527d6863fd9824f6d26142b99b95021e6",
-            "method": "c6ed2a03224fee8bbd8507f1762d7aa0737ca90442bd706c4caa298accd0e153"
-          }
+            "method": "6581264eec4811996cb6149d746c9e5305c2699b1b889b9c3e4ff0e046e83b91"
+          },
+          "reason_code": "no_prior_check",
+          "changed_binding_fields": []
         }
       ],
       "verification_execution": [
@@ -360,7 +371,7 @@
         }
       ],
       "coverage_receipt": {
-        "request_hash": "17046de5f511f48cc4410b5fe2b33812dc8814f58c63310b45ff1484c5ff9e9f",
+        "request_hash": "83a16f82dbf8ab118d8f7f49dacf33726e4c2a5dde14818480cb4d4bc77f95a3",
         "finish_reason": null,
         "output": {
           "checked_unit_ids": [
@@ -375,13 +386,13 @@
       "claim_checks": [
         {
           "claim_id": "C839cb21f8cd78c513dbe-1",
-          "fingerprint": "0c0f544541c8b82a13286b12bde911a3810fc9ace24d45905abd1cef57e28266",
+          "fingerprint": "0ddec933427b508c19add6f4004b9a24169cba7502ee53de8c473e5bea4ccc6e",
           "binding": {
             "task": "b41fcdbc4f0cf61f721c1d6138b5568b4cdfe0d9476df2f8ed2acb9794448a5b",
             "statement": "839cb21f8cd78c513dbe8d425aa5b1319f8920ea0afcf5d7966c26993bcd3c63",
             "context": "bb1b2dccffdce65bd62c6a6a93ac5b31f02c2ae2402659ab1c85ac018aa4ef99",
             "references": "ae9842c57ac221e5489bb640368f67b527d6863fd9824f6d26142b99b95021e6",
-            "method": "c6ed2a03224fee8bbd8507f1762d7aa0737ca90442bd706c4caa298accd0e153"
+            "method": "6581264eec4811996cb6149d746c9e5305c2699b1b889b9c3e4ff0e046e83b91"
           },
           "finish_reason": "stop",
           "answer": {
@@ -402,6 +413,9 @@
           },
           "errors": [
             "短引不是被引原段中唯一的连续原文"
+          ],
+          "error_codes": [
+            "quote_not_found"
           ],
           "effective_verdict": "insufficient"
         }
@@ -495,7 +509,7 @@
       ],
       "verification_errors": [],
       "verification_method": "cited_claims",
-      "method_provider_version": "c6ed2a03224fee8bbd8507f1762d7aa0737ca90442bd706c4caa298accd0e153",
+      "method_provider_version": "6581264eec4811996cb6149d746c9e5305c2699b1b889b9c3e4ff0e046e83b91",
       "draft_sha256": "60ad66d115e1dde5acd6eca50beaf89a65436afbd3aba4d42d1f52180af25fd7",
       "reused_claims": [],
       "reuse_decisions": [
@@ -507,8 +521,10 @@
             "statement": "839cb21f8cd78c513dbe8d425aa5b1319f8920ea0afcf5d7966c26993bcd3c63",
             "context": "bb1b2dccffdce65bd62c6a6a93ac5b31f02c2ae2402659ab1c85ac018aa4ef99",
             "references": "ae9842c57ac221e5489bb640368f67b527d6863fd9824f6d26142b99b95021e6",
-            "method": "c6ed2a03224fee8bbd8507f1762d7aa0737ca90442bd706c4caa298accd0e153"
-          }
+            "method": "6581264eec4811996cb6149d746c9e5305c2699b1b889b9c3e4ff0e046e83b91"
+          },
+          "reason_code": "no_prior_check",
+          "changed_binding_fields": []
         }
       ],
       "verification_execution": [
@@ -530,7 +546,7 @@
         }
       ],
       "coverage_receipt": {
-        "request_hash": "7f8b57d4a5f45d5dbdf4103fa4bc96afd739699f5ca265d543473ac523936340",
+        "request_hash": "300b2f4d06663f212872ca70d76967535166da344ec8b8f83fd7ddced5a1f1d7",
         "finish_reason": "stop",
         "output": {
           "checked_unit_ids": [
@@ -545,13 +561,13 @@
       "claim_checks": [
         {
           "claim_id": "C839cb21f8cd78c513dbe-1",
-          "fingerprint": "0c0f544541c8b82a13286b12bde911a3810fc9ace24d45905abd1cef57e28266",
+          "fingerprint": "0ddec933427b508c19add6f4004b9a24169cba7502ee53de8c473e5bea4ccc6e",
           "binding": {
             "task": "b41fcdbc4f0cf61f721c1d6138b5568b4cdfe0d9476df2f8ed2acb9794448a5b",
             "statement": "839cb21f8cd78c513dbe8d425aa5b1319f8920ea0afcf5d7966c26993bcd3c63",
             "context": "bb1b2dccffdce65bd62c6a6a93ac5b31f02c2ae2402659ab1c85ac018aa4ef99",
             "references": "ae9842c57ac221e5489bb640368f67b527d6863fd9824f6d26142b99b95021e6",
-            "method": "c6ed2a03224fee8bbd8507f1762d7aa0737ca90442bd706c4caa298accd0e153"
+            "method": "6581264eec4811996cb6149d746c9e5305c2699b1b889b9c3e4ff0e046e83b91"
           },
           "finish_reason": "stop",
           "answer": {
@@ -573,6 +589,7 @@
             "reason": "Synthetic local verdict."
           },
           "errors": [],
+          "error_codes": [],
           "effective_verdict": "contradicted"
         }
       ],

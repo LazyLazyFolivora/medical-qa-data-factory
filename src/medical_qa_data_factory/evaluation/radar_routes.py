@@ -170,6 +170,7 @@ _DIAGNOSTIC_FIELDS = {
     "unit_id", "claim_id", "claim_index", "verdict", "citation_status", "evidence_id", "segment_id", "version", "start", "end", "errors",
     "verification_method", "method_provider_version", "draft_sha256", "fingerprint", "effective_verdict",
     "reused_claims", "repair_claims", "claim_ids", "action", "request_hash", "max_output_tokens", "reference",
+    "error_codes", "reason_code", "changed_binding_fields",
     "source_id", "source_instance", "source_record_id", "record_id", "version_id", "snapshot_id", "text_sha256",
     "normalized_text_hash", "evidence_key", "evidence_keys", "evidence_ids", "passage_id", "passage_ids", "check_id",
     "terms", "query", "page", "page_number", "next_cursor", "cursor", "has_more", "max_seq", "search_limit", "read_limit",

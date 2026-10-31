@@ -382,6 +382,10 @@ def test_actual_cited_claim_method_checks_errors_and_stage_metadata_are_exported
         assert checked["fingerprint"] == native["claim_checks"][0]["fingerprint"]
         assert checked["effective_verdict"] == native["claim_checks"][0]["effective_verdict"]
         assert checked["errors"] == native["claim_checks"][0]["errors"]
+        assert checked["error_codes"] == native["claim_checks"][0]["error_codes"]
+        if name == "invalid_quote":
+            error = rows[root + "/verification_errors/0"]
+            assert error["error_codes"] == ["quote_not_found"]
         assert rows[root + "/coverage_receipt"]["request_hash"] == native["coverage_receipt"]["request_hash"]
         assert out["native_report_status"] == native["status"]
         if native["verification_execution"]:
@@ -401,6 +405,8 @@ def test_reused_and_repair_claim_ids_stay_native_without_new_usage_or_inferred_r
         assert rows[root]["reused_claims"] == native["reused_claims"]
         assert rows[root]["repair_claims"] == native["repair_claims"]
         assert rows[root + "/reuse_decisions/0"]["action"] == expected_action
+        assert rows[root + "/reuse_decisions/0"]["reason_code"] == native["reuse_decisions"][0]["reason_code"]
+        assert rows[root + "/reuse_decisions/0"]["changed_binding_fields"] == native["reuse_decisions"][0]["changed_binding_fields"]
         assert "reason" not in rows[root + "/reuse_decisions/0"]  # native has not recorded one
         assert out["model_usage"]["calls"] == 1 and out["model_usage"]["total_tokens"] == 17
 
