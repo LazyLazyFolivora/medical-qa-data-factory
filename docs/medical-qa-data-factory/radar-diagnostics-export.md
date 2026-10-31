@@ -1,0 +1,9 @@
+# Persisted Radar diagnostics export
+
+`evaluation routes export-radar-diagnostics --views saved-view.json --scenario C --phase smoke --out diagnostics.jsonl` executes no model, retrieval or source import. It reads the exact saved view bytes and refuses to overwrite an output. The same diagnostic projection accompanies `import-radar`, including absent/invalid route traces.
+
+The export retains structured error codes, rule IDs, source/record/version IDs, search terms and received page/cursor metadata, repair triggers, BioCheck issue text and sentence indices, and recorded numeric rejection reasons. It does not infer a cause when the host did not save one. Only named diagnostic containers and fields are traversed: full source bodies, questions, private prompts, raw model outputs, and numeric observation values are excluded. Diagnostic issue text may contain the short offending fragment needed to understand the issue; this is not a full-source export or an anonymization guarantee. The caller remains responsible for access control and secret scanning before distributing a bundle.
+
+`scenario` and `phase` are optional labels from the frozen public execution manifest. They never come from private expected answers. Stage cost is reconciled from persisted call IDs and actual receipts. Duplicate IDs and missing usage are explicit, the complete token total stays null when uncertain, and only unique calls contribute to the known lower bound. This is the analysis generation ledger; independent embedding, rerank and indexing services need separate ledgers.
+
+Export success is not route integrity, BioCheck PASS, business validity or an independent scientific judgment. Native report state remains unchanged. Missing diagnostics stay missing rather than being reconstructed from the question, source text or private grading material.

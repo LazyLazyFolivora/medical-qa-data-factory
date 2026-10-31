@@ -34,6 +34,11 @@ def add_commands(evaluation_commands):
     imported.add_argument("--trace-validator", required=True, help="trusted native checker module exposing assert_query_policy")
     imported.add_argument("--targets", default=None, help="optional independently reviewed hidden targets; never solver input")
     imported.add_argument("--out", required=True)
+    diagnostics = modes.add_parser("export-radar-diagnostics", help="Export saved failure diagnostics and actual stage usage without source bodies or model prompts; execute nothing")
+    diagnostics.add_argument("--views", nargs="+", required=True)
+    diagnostics.add_argument("--scenario", choices=("A", "B", "C", "D"), default=None)
+    diagnostics.add_argument("--phase", default=None, help="frozen run-manifest stage label; never inferred from answers")
+    diagnostics.add_argument("--out", required=True)
     summary = modes.add_parser("summarize-experiments", help="Separate route integrity, native report status and independent fact review across frozen experiment arms")
     summary.add_argument("--protocol", required=True, help="frozen post-run experiment protocol; never solver input")
     summary.add_argument("--imports", nargs="+", required=True, help="import-radar output JSONL files")
@@ -70,6 +75,16 @@ def command(args):
     # Opening before execution guarantees an existing result cannot be overwritten.
     destination.parent.mkdir(parents=True, exist_ok=True)
     with destination.open("x") as stream:
+        if args.route_mode == "export-radar-diagnostics":
+            from .radar_routes import export_radar_diagnostics
+            for source in args.views:
+                data = Path(source).read_bytes()
+                result = export_radar_diagnostics(json.loads(data), scenario=args.scenario, phase=args.phase)
+                result["source_file_sha256"] = hashlib.sha256(data).hexdigest()
+                stream.write(json.dumps(result, ensure_ascii=False, sort_keys=True) + "\n")
+                stream.flush()
+                print(json.dumps({"analysis_id": result["analysis_id"], "state": result["analysis_state"], "model_usage": result["model_usage"]}))
+            return 0
         if args.route_mode == "summarize-experiments":
             from .route_experiments import summarize_experiments
             reports = [json.loads(line) for source in args.imports for line in Path(source).read_text().splitlines() if line.strip()]

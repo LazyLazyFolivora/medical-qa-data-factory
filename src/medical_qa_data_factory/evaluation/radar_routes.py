@@ -13,7 +13,7 @@ from collections import Counter
 
 from .kdd_routes import RouteEvaluationTarget, digest
 
-EVALUATOR_VERSION = "radar-route-import-1.2"
+EVALUATOR_VERSION = "radar-route-import-1.3"
 DIRECTIONS = {"pipeline", "research", "business", "public_health"}
 PENDING = {"prepared", "sent", "unknown", "unconfirmed"}
 
@@ -159,6 +159,108 @@ def _target_result(target, *, analysis_id, environment, provenance, evidence, ar
     return result
 
 
+
+# Diagnostics are a positive projection. Bodies, prompts, model outputs and
+# numeric observations are not traversed. Named rejection/issue text is retained
+# because excluding full source material must not erase the reason for failure.
+_DIAGNOSTIC_FIELDS = {
+    "id", "call_id", "call_key", "action_id", "query_index", "index", "step", "stage", "phase", "kind", "provider",
+    "status", "error_code", "code", "rule_id", "rule_ids", "field_path", "path", "reason", "trigger_reason", "repair_reason",
+    "issue", "issue_id", "issue_type", "sentence_index", "sentence_id", "sentence_ordinal", "paragraph_index",
+    "source_id", "source_instance", "source_record_id", "record_id", "version_id", "snapshot_id", "text_sha256",
+    "normalized_text_hash", "evidence_key", "evidence_keys", "evidence_ids", "passage_id", "passage_ids", "check_id",
+    "terms", "query", "page", "page_number", "next_cursor", "cursor", "has_more", "max_seq", "search_limit", "read_limit",
+    "observation_index", "candidate_index", "metric_id", "metric_role", "extractor_version", "proposal_version",
+    "attempt", "attempt_count", "repair_count", "truncated", "finish_reason", "request_status", "http_status",
+}
+_DIAGNOSTIC_CONTAINERS = {
+    "record_ref", "pagination", "plan", "arguments", "cost", "usage", "error", "errors", "diagnostics", "issues", "findings",
+    "gaps", "rejections", "rejected", "rejection_reasons", "numeric_rejections", "validation_errors", "validation_issues",
+    "repairs", "repair", "repair_diagnostics", "narrative_extractions", "data_preparation", "decisions", "state_summary",
+    "coverage_issues", "unmet_reading", "incomplete_search_chains", "checks", "check", "audit", "support_audit",
+    "verification", "sentence_checks", "failed_sentences", "receipt", "history", "repair_attempts", "validation",
+}
+
+
+def _diagnostic_rows(value, path, *, indexed=False):
+    if isinstance(value, list):
+        return [row for index, child in enumerate(value)
+                for row in _diagnostic_rows(child, path + "/" + str(index))]
+    if not isinstance(value, dict):
+        return []
+    # Only scalar values or flat scalar lists under explicitly diagnostic names.
+    values = {key: copy.deepcopy(child) for key, child in value.items()
+              if key in _DIAGNOSTIC_FIELDS
+              and (child is None or isinstance(child, (str, int, float, bool))
+                   or isinstance(child, list) and all(item is None or isinstance(item, (str, int, float, bool)) for item in child))}
+    rows = [{"path": path, "values": values}] if values else []
+    for key, child in value.items():
+        if key in _DIAGNOSTIC_CONTAINERS or indexed:
+            # narrative_extractions is a dict keyed by persisted call hash.
+            rows.extend(_diagnostic_rows(child, path + "/" + key, indexed=key == "narrative_extractions"))
+    return rows
+
+
+def export_radar_diagnostics(view, *, scenario=None, phase=None):
+    """Read-only, source-body-free diagnostics even for blocked/absent routes.
+
+    scenario/phase are caller-supplied run-manifest labels, never inferred from
+    private grading data. Absence is explicit; no cause or observation is filled.
+    """
+    _require(isinstance(view, dict), "analysis_view_required")
+    rows = []
+    for key in ("queries", "query_policy", "progress"):
+        rows.extend(_diagnostic_rows(view.get(key), "/" + key))
+    native = (view.get("result") or {}).get("report")
+    if isinstance(native, dict):
+        rows.extend(_diagnostic_rows(native, "/result/report"))
+    raw_calls = view.get("calls")
+    ledger, unique, problems = [], {}, []
+    if isinstance(raw_calls, list):
+        for index, call in enumerate(raw_calls):
+            if not isinstance(call, dict):
+                problems.append("invalid_model_call_row:" + str(index))
+                continue
+            rows.extend(_diagnostic_rows(call, "/calls/" + str(index)))
+            identity = call.get("call_id")
+            if not isinstance(identity, str) or not identity:
+                problems.append("missing_model_call_id:" + str(index))
+                continue
+            if identity in unique:
+                problems.append("duplicate_model_call_id:" + identity)
+                continue
+            unique[identity] = call
+            receipt = call.get("receipt") or {}
+            usage = receipt.get("usage") or {}
+            # Whitelist usage fields too; receipts can contain private payloads.
+            ledger.append({"call_id": identity, "stage": call.get("stage"), "status": call.get("status"),
+                           "receipt_status": receipt.get("status"),
+                           "usage": {key: copy.deepcopy(usage[key]) for key in
+                                     ("prompt_tokens", "completion_tokens", "total_tokens", "input_tokens", "output_tokens") if key in usage}})
+        try:
+            usage = _model_usage(list(unique.values()))
+            stages = {stage: _model_usage([call for call in unique.values() if (call.get("stage") or "not_recorded") == stage])
+                      for stage in sorted({call.get("stage") or "not_recorded" for call in unique.values()})}
+        except (ValueError, TypeError):
+            usage, stages = None, {}
+            problems.append("invalid_model_usage")
+        if problems and usage is not None:
+            usage["total_tokens"] = None
+    else:
+        usage, stages = None, {}
+        problems.append("actual_model_calls_not_exported")
+    return {"schema_version": "radar-diagnostics-export-v1", "analysis_id": view.get("id"),
+            "source_view_sha256": digest(view), "scenario": scenario, "phase": phase,
+            "analysis_state": view.get("state"), "created_at": view.get("created_at"),
+            "analysis_error_code": view.get("error_code"),
+            "native_report_status": native.get("status") if isinstance(native, dict) else None,
+            "business_acceptance": "not_assessed", "diagnostic_rows": rows,
+            "model_calls": ledger, "model_usage": usage, "model_stages": stages, "usage_issues": problems,
+            "excluded": ["source_bodies", "questions", "private_prompts", "raw_model_outputs", "numeric_observation_values"],
+            "scope": "persisted_analysis_generation_calls_only; embedding/rerank/index are separately accounted",
+            "missing_diagnostics": "absence stays absent; exporter does not reconstruct errors, search pages or causes"}
+
+
 def evaluate_radar_view(view, *, provenance, trace_validator, validator_version, target=None):
     """Evaluate a native saved AnalysisView without invoking any solver/tool.
 
@@ -174,6 +276,7 @@ def evaluate_radar_view(view, *, provenance, trace_validator, validator_version,
               "source_view_sha256": digest(view), "executed_new_actions": 0,
               "integrity": {"status": "not_evaluable", "validator_version": validator_version},
               "route_metrics": None, "independent_outcome": None,
+              "diagnostics": export_radar_diagnostics(view),
               "limitations": ["scientific_validity_not_assessed", "business_value_not_assessed",
                               "counterfactual_policy_benefit_requires_independent_runs"]}
     trace = view.get("query_policy")
