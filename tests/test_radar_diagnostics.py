@@ -534,3 +534,100 @@ def test_reading_diagnostics_cannot_export_body_payload_or_nested_metadata():
     assert "reason" not in rows["/progress/diagnostics/reading_repairs/0"]
     assert "allowed_claim_ids" not in rows["/progress/diagnostics/reading_repairs/0"]
     assert rows["/progress/diagnostics/reading_validation_errors/0/field_errors/0"] == {"error_code": "unknown_claim"}
+
+
+def response_received_view():
+    import json
+    from pathlib import Path
+    fixture = json.loads((Path(__file__).parent / "fixtures/radar_native_output_diagnostic.json").read_text())
+    view = saved_view()
+    view["result"] = None
+    view["calls"] = [
+        {"call_id": "physical-original", "call_key": "logical-stage", "stage": "mech_local_review", "status": "failed",
+         "receipt": {"status": "failed", "http_status": 200, "finish_reason": "stop", "error_code": "model_output_invalid",
+                     "output_diagnostic": fixture["output_diagnostic"], "usage": {"total_tokens": 17}}},
+        {"call_id": "physical-retry", "call_key": "logical-stage:format-retry", "stage": "mech_local_review", "status": "response_received",
+         "receipt": {"status": "completed", "usage": {"total_tokens": 31}},
+         "private_response": {"content_json": "PRIVATE_UNPARSED_RESPONSE"}, "private_raw": "PRIVATE_RAW"},
+    ]
+    return view
+
+
+def test_received_unparsed_and_failed_physical_calls_are_both_charged_without_success_inference():
+    view = response_received_view()
+    before = copy.deepcopy(view)
+    out = export_radar_diagnostics(view)
+    assert out["model_usage"] == {"calls": 2, "known_total_tokens": 48, "unknown_usage_calls": 0, "total_tokens": 48}
+    assert out["model_stages"]["mech_local_review"] == out["model_usage"]
+    assert [c["call_id"] for c in out["model_calls"]] == ["physical-original", "physical-retry"]
+    assert [c["status"] for c in out["model_calls"]] == ["failed", "response_received"]
+    assert out["native_report_status"] is None and out["business_acceptance"] == "not_assessed"
+    assert view == before
+    del view["calls"][1]["receipt"]["usage"]
+    out = export_radar_diagnostics(view)
+    assert out["model_usage"] == {"calls": 2, "known_total_tokens": 17, "unknown_usage_calls": 1, "total_tokens": None}
+
+
+def test_native_parser_diagnostic_metadata_survives_without_private_response_or_rejected_fragment():
+    import json
+    view = response_received_view()
+    diagnostic = view["calls"][0]["receipt"]["output_diagnostic"]
+    expected = copy.deepcopy(diagnostic)
+    diagnostic.update(message="PRIVATE_REJECTED_FRAGMENT", content="PRIVATE_CONTENT", payload={"reason": "PRIVATE_PAYLOAD"})
+    out = export_radar_diagnostics(view)
+    rows = {row["path"]: row["values"] for row in out["diagnostic_rows"]}
+    assert rows["/calls/0/receipt/output_diagnostic"] == expected
+    assert "PRIVATE" not in json.dumps(out)
+    diagnostic["content_sha256"] = {"text": "PRIVATE_HASH_BODY"}
+    diagnostic["category"] = "PRIVATE FREE TEXT"
+    diagnostic["line"] = -1
+    row = next(row["values"] for row in export_radar_diagnostics(view)["diagnostic_rows"] if row["path"].endswith("/output_diagnostic"))
+    assert not {"content_sha256", "category", "line"} & set(row)
+    assert "PRIVATE" not in json.dumps(row)
+
+
+def test_native_mech_retry_call_links_are_projected_without_reconstructing_policy_or_cost():
+    import json
+    from pathlib import Path
+    fixture = json.loads((Path(__file__).parent / "fixtures/radar_native_mech_retry.json").read_text())
+    view = response_received_view()
+    view["calls"][1].update(fixture["retry_call_links"])
+    before = export_radar_diagnostics(response_received_view())
+    out = export_radar_diagnostics(view)
+    rows = {row["path"]: row["values"] for row in out["diagnostic_rows"]}
+    for key, value in fixture["retry_call_links"].items():
+        assert rows["/calls/1"][key] == value
+    for key in ("model_calls", "model_usage", "model_stages", "usage_issues"):
+        assert before[key] == out[key]
+    assert not any("mech_format_retry" in row["path"] for row in out["diagnostic_rows"])
+    view["calls"][1]["retry_reason"] = {"reason": "PRIVATE_PAYLOAD"}
+    view["calls"][1]["original_request_sha256"] = "PRIVATE HASH BODY"
+    view["calls"][1]["retry_policy"] = "PRIVATE FREE TEXT"
+    assert "PRIVATE" not in json.dumps(export_radar_diagnostics(view))
+
+
+def test_native_public_mech_retry_policy_is_exact_metadata_without_fabricated_fallback():
+    import json
+    from pathlib import Path
+    fixture = json.loads((Path(__file__).parent / "fixtures/radar_native_mech_retry.json").read_text())
+    view = response_received_view()
+    view["calls"][1].update(fixture["retry_call_links"])
+    view["progress"] = {"diagnostics": {"mech_format_retry": copy.deepcopy(fixture["mech_format_retry"])}}
+    before = copy.deepcopy(view)
+    out = export_radar_diagnostics(view)
+    rows = {row["path"]: row["values"] for row in out["diagnostic_rows"]}
+    path = "/progress/diagnostics/mech_format_retry"
+    assert rows[path] == fixture["mech_format_retry"]
+    assert view == before
+    for key in ("model_calls", "model_usage", "model_stages", "usage_issues"):
+        assert out[key] == export_radar_diagnostics(response_received_view())[key]
+    policy = view["progress"]["diagnostics"]["mech_format_retry"]
+    policy.update(payload={"reason": "PRIVATE_BODY"}, source={"text": "PRIVATE_SOURCE"}, reason="PRIVATE FREE TEXT")
+    policy["original_request_sha256"] = {"text": "PRIVATE_HASH"}
+    policy["max_total_retries"] = -1
+    out = export_radar_diagnostics(view)
+    assert "PRIVATE" not in json.dumps(out)
+    selected = next(row["values"] for row in out["diagnostic_rows"] if row["path"] == path)
+    assert not {"reason", "original_request_sha256", "max_total_retries"} & set(selected)
+    del view["progress"]["diagnostics"]["mech_format_retry"]
+    assert not any(row["path"] == path for row in export_radar_diagnostics(view)["diagnostic_rows"])

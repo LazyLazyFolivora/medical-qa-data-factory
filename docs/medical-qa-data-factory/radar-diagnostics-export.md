@@ -94,3 +94,20 @@ creates a model call or changes the existing generation ledger. This is a
 diagnostic post-processing revision, not a changed experiment registration.
 The synthetic fixture was emitted by the actual Radar 11fc367f source-free
 diagnostics producer; its revision and source hash are recorded with the fixture.
+
+`response_received` means received-but-unparsed, not a scientific or structured
+output success. The existing physical `call_id` ledger already charges it when
+actual usage is present; absent usage remains unknown. Distinct physical calls
+in the same logical stage are both counted, including a failed original and
+a technical retry. `receipt.output_diagnostic` exposes only native parser layer,
+category, type labels, numeric offsets and content hash. Private response/raw
+content, parser exception messages and arbitrary payloads are excluded.
+
+The actual native technical-retry links (`retry_of_call_id`, `retry_policy`,
+`retry_reason`, `original_request_sha256`) remain under each call diagnostic.
+The single native `progress.diagnostics.mech_format_retry` record preserves its
+policy/status/reason/error, original call identity/request hashes, retry call key
+and retry limit. The exporter does not synthesize that policy from calls when it
+is absent, nor infer that the retry succeeded from a received transport. Native
+policy and call-link fixtures use the actual producer dictionaries and public
+diagnostics function with synthetic identities; no experiment model is invoked.

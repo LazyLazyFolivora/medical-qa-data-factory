@@ -398,6 +398,58 @@ def _report_continuation_metadata(value, missing):
     return out
 
 
+def _mech_retry_policy_rows(progress):
+    diagnostics = progress.get("diagnostics")
+    value = diagnostics.get("mech_format_retry") if isinstance(diagnostics, dict) else None
+    if not isinstance(value, dict):
+        return []
+    values = {}
+    hashes = {"original_request_signature", "original_request_sha256"}
+    labels = {"policy_version", "status", "reason", "error_code", "original_call_key", "original_call_id", "retry_call_key"}
+    for key, child in value.items():
+        if child is None and key in hashes | labels | {"max_total_retries"}:
+            values[key] = None
+        elif key in hashes and isinstance(child, str) and re.fullmatch(r"[0-9a-f]{64}", child):
+            values[key] = child
+        elif key in labels and isinstance(child, str) and re.fullmatch(r"[A-Za-z0-9_.:-]{1,160}", child):
+            values[key] = child
+        elif key == "max_total_retries" and type(child) is int and child >= 0:
+            values[key] = child
+    return [{"path": "/progress/diagnostics/mech_format_retry", "values": values}] if values else []
+
+
+def _mech_retry_call_metadata(call):
+    values = {}
+    for key in ("retry_of_call_id", "retry_policy", "retry_reason", "original_request_sha256"):
+        value = call.get(key)
+        pattern = r"[0-9a-f]{64}" if key == "original_request_sha256" else r"[A-Za-z0-9_.:-]{1,160}"
+        if key in call and value is None:
+            values[key] = None
+        elif isinstance(value, str) and re.fullmatch(pattern, value):
+            values[key] = value
+    return values
+
+
+def _output_diagnostic_rows(call, path):
+    """Expose native parser metadata only; raw transport content remains private."""
+    receipt = call.get("receipt")
+    value = receipt.get("output_diagnostic") if isinstance(receipt, dict) else None
+    if not isinstance(value, dict):
+        return []
+    values = {}
+    labels = {"layer", "category", "content_type", "root_type", "exception_type"}
+    for key, child in value.items():
+        if child is None and key in labels | {"position", "line", "column", "content_sha256"}:
+            values[key] = None
+        elif key in labels and isinstance(child, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,159}", child):
+            values[key] = child
+        elif key in {"position", "line", "column"} and type(child) is int and child >= 0:
+            values[key] = child
+        elif key == "content_sha256" and isinstance(child, str) and re.fullmatch(r"[0-9a-f]{64}", child):
+            values[key] = child
+    return [{"path": path + "/receipt/output_diagnostic", "values": values}] if values else []
+
+
 def _reading_diagnostic_rows(progress):
     """Only the native source-free reading diagnostic lists, never repair payloads."""
     diagnostics = progress.get("diagnostics")
@@ -466,6 +518,7 @@ def export_radar_diagnostics(view, *, scenario=None, phase=None):
     human_review = _human_review_metadata(view.get("human_review_context"), missing_fields)
     progress = view.get("progress") if isinstance(view.get("progress"), dict) else {}
     rows.extend(_reading_diagnostic_rows(progress))
+    rows.extend(_mech_retry_policy_rows(progress))
     continuation = _report_continuation_metadata(progress.get("report_continuation"), missing_fields)
     diagnostic_presence.update(assessment_axes="present" if axes is not None else "absent",
                                human_review_context="present" if human_review is not None else "absent",
@@ -478,7 +531,16 @@ def export_radar_diagnostics(view, *, scenario=None, phase=None):
             if not isinstance(call, dict):
                 problems.append("invalid_model_call_row:" + str(index))
                 continue
-            rows.extend(_diagnostic_rows(call, "/calls/" + str(index)))
+            call_rows = _diagnostic_rows(call, "/calls/" + str(index))
+            retry_links = _mech_retry_call_metadata(call)
+            if retry_links:
+                identity_row = next((row for row in call_rows if row["path"] == "/calls/" + str(index)), None)
+                if identity_row is not None:
+                    identity_row["values"].update(retry_links)
+                else:
+                    call_rows.append({"path": "/calls/" + str(index), "values": retry_links})
+            rows.extend(call_rows)
+            rows.extend(_output_diagnostic_rows(call, "/calls/" + str(index)))
             identity = call.get("call_id")
             if not isinstance(identity, str) or not identity:
                 problems.append("missing_model_call_id:" + str(index))
