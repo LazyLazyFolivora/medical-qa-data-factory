@@ -216,7 +216,7 @@ def export_radar_diagnostics(view, *, scenario=None, phase=None):
     if isinstance(native, dict):
         rows.extend(_diagnostic_rows(native, "/result/report"))
     raw_calls = view.get("calls")
-    ledger, unique, problems, variants = [], {}, [], {}
+    ledger, unique, problems, variants, ambiguous_stages = [], {}, [], {}, {}
     token_fields = ("prompt_tokens", "completion_tokens", "total_tokens", "input_tokens", "output_tokens")
     if isinstance(raw_calls, list):
         for index, call in enumerate(raw_calls):
@@ -265,6 +265,9 @@ def export_radar_diagnostics(view, *, scenario=None, phase=None):
             if any(item != first for item in saved[1:]):
                 problems.append("conflicting_model_call_id:" + identity)
                 stages_seen = {item["stage"] for item in saved}
+                if len(stages_seen) > 1:
+                    for stage in stages_seen:
+                        ambiguous_stages.setdefault(stage, []).append(identity)
                 first = {"call_id": identity, "stage": next(iter(stages_seen)) if len(stages_seen) == 1 else "conflicting_stage",
                          "status": "unknown", "receipt": {"status": "unknown", "usage": {}}}
             unique[identity] = first
@@ -273,6 +276,12 @@ def export_radar_diagnostics(view, *, scenario=None, phase=None):
         usage = _model_usage(list(unique.values()))
         stages = {stage: _model_usage([call for call in unique.values() if call["stage"] == stage])
                   for stage in sorted({call["stage"] for call in unique.values()})}
+        for stage, identities in ambiguous_stages.items():
+            entry = stages.setdefault(stage, _model_usage([]))
+            entry["total_tokens"] = None
+            entry["unknown_usage_calls"] += len(identities)
+            entry["ambiguous_call_ids"] = sorted(identities)
+            entry["qualification"] = "possible stage attribution; ambiguity counts overlap across stages; use global unique-call ledger for totals"
         if problems:
             usage["total_tokens"] = None
     else:

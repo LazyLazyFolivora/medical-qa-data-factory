@@ -107,3 +107,20 @@ def test_conflicting_duplicate_does_not_claim_first_tokens_as_lower_bound():
     assert out["model_stages"]["read_plan"]["known_total_tokens"]==0
     assert out["model_stages"]["read_plan"]["total_tokens"] is None
     assert "conflicting_model_call_id:c1" in out["usage_issues"]
+
+
+def test_cross_stage_conflict_marks_each_original_stage_incomplete():
+    view=saved_view()
+    view["calls"]=[{"call_id":"read-known","stage":"read","status":"received","receipt":{"usage":{"total_tokens":5}}},
+                   {"call_id":"write-known","stage":"write","status":"received","receipt":{"usage":{"total_tokens":7}}},
+                   {"call_id":"conflict","stage":"read","status":"received","receipt":{"usage":{"total_tokens":100}}},
+                   {"call_id":"conflict","stage":"write","status":"received","receipt":{"usage":{"total_tokens":1}}}]
+    out=export_radar_diagnostics(view)
+    assert out["model_usage"]["calls"]==3
+    assert out["model_usage"]["known_total_tokens"]==12
+    assert out["model_usage"]["unknown_usage_calls"]==1
+    for stage,lower in [("read",5),("write",7)]:
+        assert out["model_stages"][stage]["known_total_tokens"]==lower
+        assert out["model_stages"][stage]["total_tokens"] is None
+        assert out["model_stages"][stage]["unknown_usage_calls"]==1
+        assert out["model_stages"][stage]["ambiguous_call_ids"]==["conflict"]
