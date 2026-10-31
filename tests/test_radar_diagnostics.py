@@ -355,3 +355,72 @@ def test_metadata_at_unapproved_locations_is_not_used_as_native_assessment_or_re
     out = export_radar_diagnostics(view)
     assert out["assessment_axes"] is None
     assert out["human_review_context"] is None
+
+
+def cited_claim_view(name="valid"):
+    import json
+    from pathlib import Path
+    fixture = json.loads((Path(__file__).parent / "fixtures/biocheck_cited_claim_diagnostics.json").read_text())
+    review = fixture["reviews"][name]
+    view = saved_view()
+    view["result"]["report"] = {"status": review["status"], "verification": review}
+    return view
+
+
+def test_actual_cited_claim_method_checks_errors_and_stage_metadata_are_exported():
+    for name in ("valid", "reused", "invalid_quote", "repair"):
+        view = cited_claim_view(name)
+        native = view["result"]["report"]["verification"]
+        out = export_radar_diagnostics(view)
+        rows = {row["path"]: row["values"] for row in out["diagnostic_rows"]}
+        root = "/result/report/verification"
+        assert rows[root]["verification_method"] == "cited_claims"
+        assert rows[root]["method_provider_version"] == native["method_provider_version"]
+        assert rows[root]["draft_sha256"] == native["draft_sha256"]
+        checked = rows[root + "/claim_checks/0"]
+        assert checked["claim_id"] == native["claim_checks"][0]["claim_id"]
+        assert checked["fingerprint"] == native["claim_checks"][0]["fingerprint"]
+        assert checked["effective_verdict"] == native["claim_checks"][0]["effective_verdict"]
+        assert checked["errors"] == native["claim_checks"][0]["errors"]
+        assert rows[root + "/coverage_receipt"]["request_hash"] == native["coverage_receipt"]["request_hash"]
+        assert out["native_report_status"] == native["status"]
+        if native["verification_execution"]:
+            execution = rows[root + "/verification_execution/0"]
+            assert execution["stage"] == "verify_claim"
+            assert execution["claim_ids"] == native["verification_execution"][0]["claim_ids"]
+            assert execution["max_output_tokens"] == native["verification_execution"][0]["max_output_tokens"]
+
+
+def test_reused_and_repair_claim_ids_stay_native_without_new_usage_or_inferred_reasons():
+    for name, expected_action in (("reused", "reused"), ("repair", "check")):
+        view = cited_claim_view(name)
+        native = view["result"]["report"]["verification"]
+        out = export_radar_diagnostics(view)
+        rows = {row["path"]: row["values"] for row in out["diagnostic_rows"]}
+        root = "/result/report/verification"
+        assert rows[root]["reused_claims"] == native["reused_claims"]
+        assert rows[root]["repair_claims"] == native["repair_claims"]
+        assert rows[root + "/reuse_decisions/0"]["action"] == expected_action
+        assert "reason" not in rows[root + "/reuse_decisions/0"]  # native has not recorded one
+        assert out["model_usage"]["calls"] == 1 and out["model_usage"]["total_tokens"] == 17
+
+
+def test_claim_short_quote_locators_survive_but_answers_bindings_and_bodies_do_not():
+    import json
+    for name in ("valid", "invalid_quote"):
+        view = cited_claim_view(name)
+        review = view["result"]["report"]["verification"]
+        review["claim_checks"][0]["binding"] = {"context": "PRIVATE_BINDING_BODY", "claim": {"reason": "PRIVATE_BINDING_BODY"}}
+        review["claim_checks"][0]["answer"]["reason"] = "PRIVATE_RAW_ANSWER"
+        review["coverage_receipt"]["output"]["reason"] = "PRIVATE_COVERAGE_OUTPUT"
+        out = export_radar_diagnostics(view)
+        rendered = json.dumps(out)
+        for body in ("PRIVATE_SOURCE_BODY_ALPHA", "PRIVATE_INVALID_QUOTE", "PRIVATE_BINDING_BODY", "PRIVATE_RAW_ANSWER", "PRIVATE_COVERAGE_OUTPUT"):
+            assert body not in rendered
+        assert not any("/answer" in row["path"] or "/binding" in row["path"]
+                       or "/coverage_receipt/output" in row["path"] for row in out["diagnostic_rows"])
+        if name == "valid":
+            quoted = next(row["values"] for row in out["diagnostic_rows"] if "/short_quotes/0" in row["path"])
+            assert quoted["reference"] == "E1:S1" and quoted["version"] == "native-v1"
+            assert quoted["start"] == 0 and quoted["end"] > 0
+            assert "quote" not in quoted

@@ -1,0 +1,584 @@
+{
+  "fixture_origin": "Actual WIP Pan core.verify(mode=paragraph), native claim producer. Four local synthetic callback variants only; zero network/model/DB. Only selected native subtrees retained unchanged.",
+  "producer_sha256": "e4ade6f6e4eafc0df5656581714c9a3edafadff9b9fcf19afa50c6eda44e7741",
+  "reviews": {
+    "valid": {
+      "status": "PASS",
+      "units": [
+        {
+          "unit_id": "U1",
+          "text": "PRIVATE_SOURCE_BODY_ALPHA[E1:S1].",
+          "start": 0,
+          "end": 33,
+          "verdict": "supported",
+          "reason": "逐条主张及实际引用核验",
+          "claims": [
+            {
+              "kind": "fact",
+              "source_use": "current_fact",
+              "claim_id": "C839cb21f8cd78c513dbe-1",
+              "span": "PRIVATE_SOURCE_BODY_ALPHA[E1:S1].",
+              "span_start": 0,
+              "span_end": 33,
+              "verdict": "supported",
+              "reason": "Synthetic local verdict.",
+              "evidence": [
+                {
+                  "evidence_id": "E1",
+                  "version": "native-v1",
+                  "segment_id": "S1",
+                  "quote": "PRIVATE_SOURCE_BODY_ALPHA.",
+                  "start": 0,
+                  "end": 26
+                }
+              ],
+              "analysis_refs": [],
+              "short_quotes": [
+                {
+                  "reference": "E1:S1",
+                  "version": "native-v1",
+                  "start": 0,
+                  "end": 26,
+                  "quote": "PRIVATE_SOURCE_BODY_ALPHA."
+                }
+              ],
+              "read_requests": [],
+              "claim_index": 0,
+              "sentence_numbers": [
+                1
+              ]
+            }
+          ],
+          "issues": [],
+          "numeric_hints": [],
+          "numeric_resolutions": [],
+          "sentences": [
+            {
+              "number": 1,
+              "start": 0,
+              "end": 33
+            }
+          ]
+        }
+      ],
+      "verification_errors": [],
+      "verification_method": "cited_claims",
+      "method_provider_version": "c6ed2a03224fee8bbd8507f1762d7aa0737ca90442bd706c4caa298accd0e153",
+      "draft_sha256": "60ad66d115e1dde5acd6eca50beaf89a65436afbd3aba4d42d1f52180af25fd7",
+      "reused_claims": [],
+      "reuse_decisions": [
+        {
+          "claim_id": "C839cb21f8cd78c513dbe-1",
+          "action": "check",
+          "binding": {
+            "task": "b41fcdbc4f0cf61f721c1d6138b5568b4cdfe0d9476df2f8ed2acb9794448a5b",
+            "statement": "839cb21f8cd78c513dbe8d425aa5b1319f8920ea0afcf5d7966c26993bcd3c63",
+            "context": "bb1b2dccffdce65bd62c6a6a93ac5b31f02c2ae2402659ab1c85ac018aa4ef99",
+            "references": "ae9842c57ac221e5489bb640368f67b527d6863fd9824f6d26142b99b95021e6",
+            "method": "c6ed2a03224fee8bbd8507f1762d7aa0737ca90442bd706c4caa298accd0e153"
+          }
+        }
+      ],
+      "verification_execution": [
+        {
+          "stage": "verify_claim",
+          "claim_ids": [
+            "C839cb21f8cd78c513dbe-1"
+          ],
+          "attempt": 0,
+          "finish_reason": "stop",
+          "max_output_tokens": 12288
+        },
+        {
+          "stage": "verify_coverage",
+          "claim_ids": [],
+          "attempt": 0,
+          "finish_reason": "stop",
+          "max_output_tokens": 8192
+        }
+      ],
+      "coverage_receipt": {
+        "request_hash": "afed988998537e923b4c80b415ac757d9d264e3820761962a46369c14f02a90c",
+        "finish_reason": "stop",
+        "output": {
+          "checked_unit_ids": [
+            "U1"
+          ],
+          "coverage": {
+            "verdict": "complete",
+            "reason": "Synthetic coverage."
+          }
+        }
+      },
+      "claim_checks": [
+        {
+          "claim_id": "C839cb21f8cd78c513dbe-1",
+          "fingerprint": "0c0f544541c8b82a13286b12bde911a3810fc9ace24d45905abd1cef57e28266",
+          "binding": {
+            "task": "b41fcdbc4f0cf61f721c1d6138b5568b4cdfe0d9476df2f8ed2acb9794448a5b",
+            "statement": "839cb21f8cd78c513dbe8d425aa5b1319f8920ea0afcf5d7966c26993bcd3c63",
+            "context": "bb1b2dccffdce65bd62c6a6a93ac5b31f02c2ae2402659ab1c85ac018aa4ef99",
+            "references": "ae9842c57ac221e5489bb640368f67b527d6863fd9824f6d26142b99b95021e6",
+            "method": "c6ed2a03224fee8bbd8507f1762d7aa0737ca90442bd706c4caa298accd0e153"
+          },
+          "finish_reason": "stop",
+          "answer": {
+            "claim_id": "C839cb21f8cd78c513dbe-1",
+            "verdict": {
+              "status": "supported",
+              "kind": "fact",
+              "source_use": "current_fact",
+              "labels": []
+            },
+            "quotes": [
+              {
+                "reference": "E1:S1",
+                "quote": "PRIVATE_SOURCE_BODY_ALPHA."
+              }
+            ],
+            "reason": "Synthetic local verdict."
+          },
+          "errors": [],
+          "effective_verdict": "supported"
+        }
+      ],
+      "repair_claims": []
+    },
+    "reused": {
+      "status": "PASS",
+      "units": [
+        {
+          "unit_id": "U1",
+          "text": "PRIVATE_SOURCE_BODY_ALPHA[E1:S1].",
+          "start": 0,
+          "end": 33,
+          "verdict": "supported",
+          "reason": "逐条主张及实际引用核验",
+          "claims": [
+            {
+              "kind": "fact",
+              "source_use": "current_fact",
+              "claim_id": "C839cb21f8cd78c513dbe-1",
+              "span": "PRIVATE_SOURCE_BODY_ALPHA[E1:S1].",
+              "span_start": 0,
+              "span_end": 33,
+              "verdict": "supported",
+              "reason": "Synthetic local verdict.",
+              "evidence": [
+                {
+                  "evidence_id": "E1",
+                  "version": "native-v1",
+                  "segment_id": "S1",
+                  "quote": "PRIVATE_SOURCE_BODY_ALPHA.",
+                  "start": 0,
+                  "end": 26
+                }
+              ],
+              "analysis_refs": [],
+              "short_quotes": [
+                {
+                  "reference": "E1:S1",
+                  "version": "native-v1",
+                  "start": 0,
+                  "end": 26,
+                  "quote": "PRIVATE_SOURCE_BODY_ALPHA."
+                }
+              ],
+              "read_requests": [],
+              "claim_index": 0,
+              "sentence_numbers": [
+                1
+              ]
+            }
+          ],
+          "issues": [],
+          "numeric_hints": [],
+          "numeric_resolutions": [],
+          "sentences": [
+            {
+              "number": 1,
+              "start": 0,
+              "end": 33
+            }
+          ]
+        }
+      ],
+      "verification_errors": [],
+      "verification_method": "cited_claims",
+      "method_provider_version": "c6ed2a03224fee8bbd8507f1762d7aa0737ca90442bd706c4caa298accd0e153",
+      "draft_sha256": "60ad66d115e1dde5acd6eca50beaf89a65436afbd3aba4d42d1f52180af25fd7",
+      "reused_claims": [
+        "C839cb21f8cd78c513dbe-1"
+      ],
+      "reuse_decisions": [
+        {
+          "claim_id": "C839cb21f8cd78c513dbe-1",
+          "action": "reused",
+          "binding": {
+            "task": "b41fcdbc4f0cf61f721c1d6138b5568b4cdfe0d9476df2f8ed2acb9794448a5b",
+            "statement": "839cb21f8cd78c513dbe8d425aa5b1319f8920ea0afcf5d7966c26993bcd3c63",
+            "context": "bb1b2dccffdce65bd62c6a6a93ac5b31f02c2ae2402659ab1c85ac018aa4ef99",
+            "references": "ae9842c57ac221e5489bb640368f67b527d6863fd9824f6d26142b99b95021e6",
+            "method": "c6ed2a03224fee8bbd8507f1762d7aa0737ca90442bd706c4caa298accd0e153"
+          }
+        }
+      ],
+      "verification_execution": [],
+      "coverage_receipt": {
+        "request_hash": "afed988998537e923b4c80b415ac757d9d264e3820761962a46369c14f02a90c",
+        "finish_reason": "stop",
+        "output": {
+          "checked_unit_ids": [
+            "U1"
+          ],
+          "coverage": {
+            "verdict": "complete",
+            "reason": "Synthetic coverage."
+          }
+        }
+      },
+      "claim_checks": [
+        {
+          "claim_id": "C839cb21f8cd78c513dbe-1",
+          "fingerprint": "0c0f544541c8b82a13286b12bde911a3810fc9ace24d45905abd1cef57e28266",
+          "binding": {
+            "task": "b41fcdbc4f0cf61f721c1d6138b5568b4cdfe0d9476df2f8ed2acb9794448a5b",
+            "statement": "839cb21f8cd78c513dbe8d425aa5b1319f8920ea0afcf5d7966c26993bcd3c63",
+            "context": "bb1b2dccffdce65bd62c6a6a93ac5b31f02c2ae2402659ab1c85ac018aa4ef99",
+            "references": "ae9842c57ac221e5489bb640368f67b527d6863fd9824f6d26142b99b95021e6",
+            "method": "c6ed2a03224fee8bbd8507f1762d7aa0737ca90442bd706c4caa298accd0e153"
+          },
+          "finish_reason": "stop",
+          "answer": {
+            "claim_id": "C839cb21f8cd78c513dbe-1",
+            "verdict": {
+              "status": "supported",
+              "kind": "fact",
+              "source_use": "current_fact",
+              "labels": []
+            },
+            "quotes": [
+              {
+                "reference": "E1:S1",
+                "quote": "PRIVATE_SOURCE_BODY_ALPHA."
+              }
+            ],
+            "reason": "Synthetic local verdict."
+          },
+          "errors": [],
+          "effective_verdict": "supported"
+        }
+      ],
+      "repair_claims": []
+    },
+    "invalid_quote": {
+      "status": "REVIEW",
+      "units": [
+        {
+          "unit_id": "U1",
+          "text": "PRIVATE_SOURCE_BODY_ALPHA[E1:S1].",
+          "start": 0,
+          "end": 33,
+          "verdict": "insufficient",
+          "reason": "逐条主张及实际引用核验",
+          "claims": [
+            {
+              "claim_id": "C839cb21f8cd78c513dbe-1",
+              "span": "PRIVATE_SOURCE_BODY_ALPHA[E1:S1].",
+              "span_start": 0,
+              "span_end": 33,
+              "kind": "fact",
+              "source_use": "current_fact",
+              "verdict": "insufficient",
+              "reason": "短引不是被引原段中唯一的连续原文",
+              "evidence": [],
+              "short_quotes": [],
+              "read_requests": [
+                {
+                  "evidence_id": "E1",
+                  "record_id": null,
+                  "version": "native-v1",
+                  "needed_for": "PRIVATE_SOURCE_BODY_ALPHA[E1:S1].",
+                  "reason": "短引不是被引原段中唯一的连续原文",
+                  "action": "locate_support",
+                  "target_status": "record_identity_missing"
+                }
+              ],
+              "claim_index": 0,
+              "sentence_numbers": [
+                1
+              ]
+            }
+          ],
+          "issues": [],
+          "numeric_hints": [],
+          "numeric_resolutions": [],
+          "sentences": [
+            {
+              "number": 1,
+              "start": 0,
+              "end": 33
+            }
+          ]
+        }
+      ],
+      "verification_errors": [
+        {
+          "unit_id": "U1",
+          "claim_id": "C839cb21f8cd78c513dbe-1",
+          "errors": [
+            "短引不是被引原段中唯一的连续原文"
+          ]
+        }
+      ],
+      "verification_method": "cited_claims",
+      "method_provider_version": "c6ed2a03224fee8bbd8507f1762d7aa0737ca90442bd706c4caa298accd0e153",
+      "draft_sha256": "60ad66d115e1dde5acd6eca50beaf89a65436afbd3aba4d42d1f52180af25fd7",
+      "reused_claims": [],
+      "reuse_decisions": [
+        {
+          "claim_id": "C839cb21f8cd78c513dbe-1",
+          "action": "check",
+          "binding": {
+            "task": "b41fcdbc4f0cf61f721c1d6138b5568b4cdfe0d9476df2f8ed2acb9794448a5b",
+            "statement": "839cb21f8cd78c513dbe8d425aa5b1319f8920ea0afcf5d7966c26993bcd3c63",
+            "context": "bb1b2dccffdce65bd62c6a6a93ac5b31f02c2ae2402659ab1c85ac018aa4ef99",
+            "references": "ae9842c57ac221e5489bb640368f67b527d6863fd9824f6d26142b99b95021e6",
+            "method": "c6ed2a03224fee8bbd8507f1762d7aa0737ca90442bd706c4caa298accd0e153"
+          }
+        }
+      ],
+      "verification_execution": [
+        {
+          "stage": "verify_claim",
+          "claim_ids": [
+            "C839cb21f8cd78c513dbe-1"
+          ],
+          "attempt": 0,
+          "finish_reason": "stop",
+          "max_output_tokens": 12288
+        }
+      ],
+      "coverage_receipt": {
+        "request_hash": "17046de5f511f48cc4410b5fe2b33812dc8814f58c63310b45ff1484c5ff9e9f",
+        "finish_reason": null,
+        "output": {
+          "checked_unit_ids": [
+            "U1"
+          ],
+          "coverage": {
+            "verdict": "uncertain",
+            "reason": "存在未完成的主张核验，保留待核"
+          }
+        }
+      },
+      "claim_checks": [
+        {
+          "claim_id": "C839cb21f8cd78c513dbe-1",
+          "fingerprint": "0c0f544541c8b82a13286b12bde911a3810fc9ace24d45905abd1cef57e28266",
+          "binding": {
+            "task": "b41fcdbc4f0cf61f721c1d6138b5568b4cdfe0d9476df2f8ed2acb9794448a5b",
+            "statement": "839cb21f8cd78c513dbe8d425aa5b1319f8920ea0afcf5d7966c26993bcd3c63",
+            "context": "bb1b2dccffdce65bd62c6a6a93ac5b31f02c2ae2402659ab1c85ac018aa4ef99",
+            "references": "ae9842c57ac221e5489bb640368f67b527d6863fd9824f6d26142b99b95021e6",
+            "method": "c6ed2a03224fee8bbd8507f1762d7aa0737ca90442bd706c4caa298accd0e153"
+          },
+          "finish_reason": "stop",
+          "answer": {
+            "claim_id": "C839cb21f8cd78c513dbe-1",
+            "verdict": {
+              "status": "supported",
+              "kind": "fact",
+              "source_use": "current_fact",
+              "labels": []
+            },
+            "quotes": [
+              {
+                "reference": "E1:S1",
+                "quote": "PRIVATE_INVALID_QUOTE"
+              }
+            ],
+            "reason": "Synthetic local verdict."
+          },
+          "errors": [
+            "短引不是被引原段中唯一的连续原文"
+          ],
+          "effective_verdict": "insufficient"
+        }
+      ],
+      "repair_claims": []
+    },
+    "repair": {
+      "status": "FAIL",
+      "units": [
+        {
+          "unit_id": "U1",
+          "text": "PRIVATE_SOURCE_BODY_ALPHA[E1:S1].",
+          "start": 0,
+          "end": 33,
+          "verdict": "contradicted",
+          "reason": "逐条主张及实际引用核验",
+          "claims": [
+            {
+              "kind": "fact",
+              "source_use": "current_fact",
+              "claim_id": "C839cb21f8cd78c513dbe-1",
+              "span": "PRIVATE_SOURCE_BODY_ALPHA[E1:S1].",
+              "span_start": 0,
+              "span_end": 33,
+              "verdict": "contradicted",
+              "reason": "Synthetic local verdict.",
+              "evidence": [
+                {
+                  "evidence_id": "E1",
+                  "version": "native-v1",
+                  "segment_id": "S1",
+                  "quote": "PRIVATE_SOURCE_BODY_ALPHA.",
+                  "start": 0,
+                  "end": 26
+                }
+              ],
+              "analysis_refs": [],
+              "short_quotes": [
+                {
+                  "reference": "E1:S1",
+                  "version": "native-v1",
+                  "start": 0,
+                  "end": 26,
+                  "quote": "PRIVATE_SOURCE_BODY_ALPHA."
+                }
+              ],
+              "read_requests": [],
+              "claim_index": 0,
+              "sentence_numbers": [
+                1
+              ]
+            }
+          ],
+          "issues": [
+            {
+              "span": "PRIVATE_SOURCE_BODY_ALPHA[E1:S1].",
+              "span_start": 0,
+              "span_end": 33,
+              "claim_id": "C839cb21f8cd78c513dbe-1",
+              "labels": [
+                "STR"
+              ],
+              "reason": "Synthetic local verdict.",
+              "evidence": [
+                {
+                  "evidence_id": "E1",
+                  "version": "native-v1",
+                  "segment_id": "S1",
+                  "quote": "PRIVATE_SOURCE_BODY_ALPHA.",
+                  "start": 0,
+                  "end": 26
+                }
+              ],
+              "analysis_refs": [],
+              "issue_index": 0,
+              "sentence_numbers": [
+                1
+              ]
+            }
+          ],
+          "numeric_hints": [],
+          "numeric_resolutions": [],
+          "sentences": [
+            {
+              "number": 1,
+              "start": 0,
+              "end": 33
+            }
+          ]
+        }
+      ],
+      "verification_errors": [],
+      "verification_method": "cited_claims",
+      "method_provider_version": "c6ed2a03224fee8bbd8507f1762d7aa0737ca90442bd706c4caa298accd0e153",
+      "draft_sha256": "60ad66d115e1dde5acd6eca50beaf89a65436afbd3aba4d42d1f52180af25fd7",
+      "reused_claims": [],
+      "reuse_decisions": [
+        {
+          "claim_id": "C839cb21f8cd78c513dbe-1",
+          "action": "check",
+          "binding": {
+            "task": "b41fcdbc4f0cf61f721c1d6138b5568b4cdfe0d9476df2f8ed2acb9794448a5b",
+            "statement": "839cb21f8cd78c513dbe8d425aa5b1319f8920ea0afcf5d7966c26993bcd3c63",
+            "context": "bb1b2dccffdce65bd62c6a6a93ac5b31f02c2ae2402659ab1c85ac018aa4ef99",
+            "references": "ae9842c57ac221e5489bb640368f67b527d6863fd9824f6d26142b99b95021e6",
+            "method": "c6ed2a03224fee8bbd8507f1762d7aa0737ca90442bd706c4caa298accd0e153"
+          }
+        }
+      ],
+      "verification_execution": [
+        {
+          "stage": "verify_claim",
+          "claim_ids": [
+            "C839cb21f8cd78c513dbe-1"
+          ],
+          "attempt": 0,
+          "finish_reason": "stop",
+          "max_output_tokens": 12288
+        },
+        {
+          "stage": "verify_coverage",
+          "claim_ids": [],
+          "attempt": 0,
+          "finish_reason": "stop",
+          "max_output_tokens": 8192
+        }
+      ],
+      "coverage_receipt": {
+        "request_hash": "7f8b57d4a5f45d5dbdf4103fa4bc96afd739699f5ca265d543473ac523936340",
+        "finish_reason": "stop",
+        "output": {
+          "checked_unit_ids": [
+            "U1"
+          ],
+          "coverage": {
+            "verdict": "complete",
+            "reason": "Synthetic coverage."
+          }
+        }
+      },
+      "claim_checks": [
+        {
+          "claim_id": "C839cb21f8cd78c513dbe-1",
+          "fingerprint": "0c0f544541c8b82a13286b12bde911a3810fc9ace24d45905abd1cef57e28266",
+          "binding": {
+            "task": "b41fcdbc4f0cf61f721c1d6138b5568b4cdfe0d9476df2f8ed2acb9794448a5b",
+            "statement": "839cb21f8cd78c513dbe8d425aa5b1319f8920ea0afcf5d7966c26993bcd3c63",
+            "context": "bb1b2dccffdce65bd62c6a6a93ac5b31f02c2ae2402659ab1c85ac018aa4ef99",
+            "references": "ae9842c57ac221e5489bb640368f67b527d6863fd9824f6d26142b99b95021e6",
+            "method": "c6ed2a03224fee8bbd8507f1762d7aa0737ca90442bd706c4caa298accd0e153"
+          },
+          "finish_reason": "stop",
+          "answer": {
+            "claim_id": "C839cb21f8cd78c513dbe-1",
+            "verdict": {
+              "status": "contradicted",
+              "kind": "fact",
+              "source_use": "current_fact",
+              "labels": [
+                "STR"
+              ]
+            },
+            "quotes": [
+              {
+                "reference": "E1:S1",
+                "quote": "PRIVATE_SOURCE_BODY_ALPHA."
+              }
+            ],
+            "reason": "Synthetic local verdict."
+          },
+          "errors": [],
+          "effective_verdict": "contradicted"
+        }
+      ],
+      "repair_claims": [
+        "C839cb21f8cd78c513dbe-1"
+      ]
+    }
+  }
+}

@@ -168,6 +168,8 @@ _DIAGNOSTIC_FIELDS = {
     "status", "error_code", "code", "rule_id", "rule_ids", "field_path", "path", "reason", "trigger_reason", "repair_reason",
     "issue", "issue_id", "issue_type", "issue_index", "labels", "sentence_index", "sentence_id", "sentence_ordinal", "sentence_numbers", "paragraph_index",
     "unit_id", "claim_id", "claim_index", "verdict", "citation_status", "evidence_id", "segment_id", "version", "start", "end", "errors",
+    "verification_method", "method_provider_version", "draft_sha256", "fingerprint", "effective_verdict",
+    "reused_claims", "repair_claims", "claim_ids", "action", "request_hash", "max_output_tokens", "reference",
     "source_id", "source_instance", "source_record_id", "record_id", "version_id", "snapshot_id", "text_sha256",
     "normalized_text_hash", "evidence_key", "evidence_keys", "evidence_ids", "passage_id", "passage_ids", "check_id",
     "terms", "query", "page", "page_number", "next_cursor", "cursor", "has_more", "max_seq", "search_limit", "read_limit",
@@ -182,6 +184,7 @@ _DIAGNOSTIC_CONTAINERS = {
     "coverage_issues", "unmet_reading", "incomplete_search_chains", "checks", "check", "audit", "support_audit",
     "verification", "verify", "units", "claims", "reviews", "evidence", "support",
     "verification_errors", "verification_execution", "source_gaps", "scope_gaps", "read_requests",
+    "claim_checks", "reuse_decisions", "coverage_receipt", "short_quotes",
     "sentence_checks", "failed_sentences", "receipt", "history", "repair_attempts", "validation",
 }
 
@@ -225,6 +228,15 @@ def _report_diagnostic_presence(report):
         if not isinstance(review, dict):
             continue
         presence["verification"] = "present"
+        if review.get("verification_method") == "cited_claims":
+            root = "/result/report/" + key
+            required(review, root, ("method_provider_version", "draft_sha256", "claim_checks", "reused_claims", "repair_claims"))
+            checks = review.get("claim_checks")
+            if isinstance(checks, list):
+                for index, check in enumerate(checks):
+                    if isinstance(check, dict):
+                        required(check, root + "/claim_checks/" + str(index),
+                                 ("claim_id", "fingerprint", "effective_verdict"))
         units = review.get("units")
         if not isinstance(units, list):
             continue
