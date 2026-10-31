@@ -170,7 +170,7 @@ _DIAGNOSTIC_FIELDS = {
     "unit_id", "claim_id", "claim_index", "verdict", "citation_status", "evidence_id", "segment_id", "version", "start", "end", "errors",
     "verification_method", "method_provider_version", "draft_sha256", "fingerprint", "effective_verdict",
     "reused_claims", "repair_claims", "claim_ids", "action", "request_hash", "max_output_tokens", "reference",
-    "error_codes", "reason_code", "changed_binding_fields",
+    "error_codes", "reason_code", "changed_binding_fields", "report_continuation_id", "continues_call_id",
     "source_id", "source_instance", "source_record_id", "record_id", "version_id", "snapshot_id", "text_sha256",
     "normalized_text_hash", "evidence_key", "evidence_keys", "evidence_ids", "passage_id", "passage_ids", "check_id",
     "terms", "query", "page", "page_number", "next_cursor", "cursor", "has_more", "max_seq", "search_limit", "read_limit",
@@ -370,6 +370,33 @@ def _human_review_metadata(value, missing):
     return out
 
 
+
+def _report_continuation_metadata(value, missing):
+    if not isinstance(value, dict):
+        return None
+    fields = {"id", "request_hash", "status", "actor_id", "workspace_id", "authorized_at", "reason",
+              "base_input_hash", "base_result_hash", "from_call_id", "old_round", "target_round",
+              "original_started_at", "original_deadline", "extra_seconds", "new_deadline", "standby_seconds",
+              "automatic_wait_seconds_at_authorization", "original_max_input_bytes", "approved_max_input_bytes",
+              "stopped_request_bytes", "original_provider_version", "projection_version", "loaded_provider_version",
+              "finished_at", "error_code"}
+    out = _metadata_fields(value, fields)
+    for key, allowed in (("provider_pin", {"provider", "transport", "version"}),
+                         ("code_version", {"analysis", "prompt", "host_sha256"})):
+        if isinstance(value.get(key), dict):
+            out[key] = _metadata_fields(value[key], allowed)
+    if isinstance(value.get("preserved_operation_ids"), list):
+        out["preserved_operation_ids"] = [identity for identity in value["preserved_operation_ids"] if isinstance(identity, str)]
+    if isinstance(value.get("profiles"), list):
+        allowed = {"call_id", "stage", "request_bytes", "request_sha256", "original_max_input_bytes", "effective_max_input_bytes"}
+        out["profiles"] = [_metadata_fields(profile, allowed) if isinstance(profile, dict) else None
+                           for profile in value["profiles"]]
+    _missing_metadata(out, "/progress/report_continuation",
+        ("id", "status", "actor_id", "authorized_at", "base_input_hash", "from_call_id", "old_round", "target_round",
+         "original_max_input_bytes", "approved_max_input_bytes"), missing)
+    return out
+
+
 def export_radar_diagnostics(view, *, scenario=None, phase=None):
     """Read-only, source-body-free diagnostics even for blocked/absent routes.
 
@@ -387,8 +414,11 @@ def export_radar_diagnostics(view, *, scenario=None, phase=None):
     result = view.get("result") if isinstance(view.get("result"), dict) else {}
     axes = _assessment_metadata(result.get("assessment_axes"), missing_fields)
     human_review = _human_review_metadata(view.get("human_review_context"), missing_fields)
+    progress = view.get("progress") if isinstance(view.get("progress"), dict) else {}
+    continuation = _report_continuation_metadata(progress.get("report_continuation"), missing_fields)
     diagnostic_presence.update(assessment_axes="present" if axes is not None else "absent",
-                               human_review_context="present" if human_review is not None else "absent")
+                               human_review_context="present" if human_review is not None else "absent",
+                               report_continuation="present" if continuation is not None else "absent")
     raw_calls = view.get("calls")
     ledger, unique, problems, variants, ambiguous_stages = [], {}, [], {}, {}
     token_fields = ("prompt_tokens", "completion_tokens", "total_tokens", "input_tokens", "output_tokens")
@@ -473,7 +503,7 @@ def export_radar_diagnostics(view, *, scenario=None, phase=None):
             "native_report_status": native.get("status") if isinstance(native, dict) else None,
             "business_acceptance": "not_assessed", "diagnostic_rows": rows,
             "diagnostic_presence": diagnostic_presence, "missing_diagnostic_fields": missing_fields,
-            "assessment_axes": axes, "human_review_context": human_review,
+            "assessment_axes": axes, "human_review_context": human_review, "report_continuation": continuation,
             "model_calls": ledger, "model_usage": usage, "model_stages": stages, "usage_issues": problems,
             "excluded": ["source_bodies", "questions", "private_prompts", "raw_model_outputs", "numeric_observation_values"],
             "scope": "persisted_analysis_generation_calls_only; embedding/rerank/index are separately accounted",

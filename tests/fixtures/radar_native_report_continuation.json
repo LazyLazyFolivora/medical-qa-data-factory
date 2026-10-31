@@ -1,0 +1,55 @@
+{
+  "fixture_origin": "Exact final Radar1bb8c3b _resume_report continuation dictionary and _call profile dictionary evaluated with local synthetic scalar inputs. No _resume_report/DB/HTTP/model execution. Native _view publicly deep-copies this subtree unchanged.",
+  "native_commit": "1bb8c3b296b0773fa8d15769854484f6f114a8eb",
+  "native_source_sha256": "86296071629f09b91ad2072c6bff056c024748b516ec2a3633c59563a2f76326",
+  "report_continuation": {
+    "id": "c52265fc9db1c843b9ad6ceee9ecaca883d1b4fa72bdaa4d752e3407c82bc13f",
+    "request_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "status": "queued",
+    "actor_id": "synthetic-reviewer",
+    "workspace_id": "synthetic-workspace",
+    "authorized_at": "2026-10-31T10:00:00+00:00",
+    "reason": "authorized synthetic report cap increase",
+    "base_input_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "base_result_hash": "fde712e6358c4b53870cb44e7f069af80079a4f6ceccdb2ac26d3fe043cff3b7",
+    "from_call_id": "stopped-call",
+    "old_round": 0,
+    "target_round": 1,
+    "original_started_at": "2026-10-31T09:43:20+00:00",
+    "original_deadline": "2026-10-31T09:58:20+00:00",
+    "extra_seconds": 900,
+    "new_deadline": "2026-10-31T10:15:00+00:00",
+    "standby_seconds": 100.0,
+    "automatic_wait_seconds_at_authorization": 0,
+    "original_max_input_bytes": 100000,
+    "approved_max_input_bytes": 200000,
+    "stopped_request_bytes": 120000,
+    "original_provider_version": "old-provider",
+    "provider_pin": {
+      "provider": "biocheck",
+      "transport": "http",
+      "service_endpoint": "http://user:PRIVATE_CREDENTIAL@127.0.0.1:19662",
+      "version": "new-provider"
+    },
+    "projection_version": "synthetic-projection",
+    "code_version": {
+      "analysis": "bioradar-investigation-analysis-v0.5",
+      "prompt": "bioradar-investigation-reading-v0.5",
+      "host_sha256": "86296071629f09b91ad2072c6bff056c024748b516ec2a3633c59563a2f76326"
+    },
+    "profiles": [
+      {
+        "call_id": "new-call",
+        "stage": "biocheck_plan",
+        "request_bytes": 120000,
+        "request_sha256": "22786e937dd7c5ea44bd595f8e875dbd101a0d7cc21d4f82c08217b8c0355a58",
+        "original_max_input_bytes": 100000,
+        "effective_max_input_bytes": 200000
+      }
+    ],
+    "preserved_operation_ids": [
+      "old-operation"
+    ],
+    "loaded_provider_version": "new-provider"
+  }
+}
