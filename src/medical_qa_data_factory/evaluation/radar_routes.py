@@ -166,7 +166,8 @@ def _target_result(target, *, analysis_id, environment, provenance, evidence, ar
 _DIAGNOSTIC_FIELDS = {
     "id", "call_id", "call_key", "action_id", "query_index", "index", "step", "stage", "phase", "kind", "provider",
     "status", "error_code", "code", "rule_id", "rule_ids", "field_path", "path", "reason", "trigger_reason", "repair_reason",
-    "issue", "issue_id", "issue_type", "sentence_index", "sentence_id", "sentence_ordinal", "paragraph_index",
+    "issue", "issue_id", "issue_type", "issue_index", "labels", "sentence_index", "sentence_id", "sentence_ordinal", "sentence_numbers", "paragraph_index",
+    "unit_id", "claim_id", "claim_index", "verdict", "citation_status", "evidence_id", "segment_id", "version", "start", "end", "errors",
     "source_id", "source_instance", "source_record_id", "record_id", "version_id", "snapshot_id", "text_sha256",
     "normalized_text_hash", "evidence_key", "evidence_keys", "evidence_ids", "passage_id", "passage_ids", "check_id",
     "terms", "query", "page", "page_number", "next_cursor", "cursor", "has_more", "max_seq", "search_limit", "read_limit",
@@ -179,7 +180,9 @@ _DIAGNOSTIC_CONTAINERS = {
     "gaps", "rejections", "rejected", "rejection_reasons", "numeric_rejections", "validation_errors", "validation_issues",
     "repairs", "repair", "repair_diagnostics", "narrative_extractions", "data_preparation", "decisions", "state_summary",
     "coverage_issues", "unmet_reading", "incomplete_search_chains", "checks", "check", "audit", "support_audit",
-    "verification", "sentence_checks", "failed_sentences", "receipt", "history", "repair_attempts", "validation",
+    "verification", "verify", "units", "claims", "reviews", "evidence", "support",
+    "verification_errors", "verification_execution", "source_gaps", "scope_gaps", "read_requests",
+    "sentence_checks", "failed_sentences", "receipt", "history", "repair_attempts", "validation",
 }
 
 
@@ -202,6 +205,58 @@ def _diagnostic_rows(value, path, *, indexed=False):
     return rows
 
 
+
+def _report_diagnostic_presence(report):
+    """Describe missing native checks, without reconstructing a verdict or ID."""
+    presence = {"report": "present" if isinstance(report, dict) else "absent",
+                "verification": "absent", "claim_checks": "absent"}
+    missing = []
+    if not isinstance(report, dict):
+        return presence, missing
+
+    def required(row, path, fields):
+        absent = [key for key in fields if key not in row or row[key] is None]
+        if absent:
+            missing.append({"path": path, "fields": absent})
+
+    # Both names occur in native report versions; do not alias/replace either.
+    for key in ("verify", "verification", "check"):
+        review = report.get(key)
+        if not isinstance(review, dict):
+            continue
+        presence["verification"] = "present"
+        units = review.get("units")
+        if not isinstance(units, list):
+            continue
+        for index, unit in enumerate(units):
+            if not isinstance(unit, dict):
+                continue
+            path = "/result/report/" + key + "/units/" + str(index)
+            required(unit, path, ("unit_id", "verdict", "claims"))
+            claims = unit.get("claims")
+            if not isinstance(claims, list):
+                continue
+            for claim_index, claim in enumerate(claims):
+                if not isinstance(claim, dict):
+                    continue
+                presence["claim_checks"] = "present"
+                claim_path = path + "/claims/" + str(claim_index)
+                required(claim, claim_path, ("verdict",))
+                if claim.get("claim_id") is None and claim.get("claim_index") is None:
+                    missing.append({"path": claim_path, "fields": ["claim_id_or_claim_index"]})
+    audit = report.get("support_audit")
+    if isinstance(audit, dict) and isinstance(audit.get("checks"), list):
+        for index, check in enumerate(audit["checks"]):
+            if not isinstance(check, dict):
+                continue
+            presence["claim_checks"] = "present"
+            path = "/result/report/support_audit/checks/" + str(index)
+            required(check, path, ("unit_id", "verdict"))
+            if check.get("claim_id") is None and check.get("claim_index") is None:
+                missing.append({"path": path, "fields": ["claim_id_or_claim_index"]})
+    return presence, missing
+
+
 def export_radar_diagnostics(view, *, scenario=None, phase=None):
     """Read-only, source-body-free diagnostics even for blocked/absent routes.
 
@@ -215,6 +270,7 @@ def export_radar_diagnostics(view, *, scenario=None, phase=None):
     native = (view.get("result") or {}).get("report")
     if isinstance(native, dict):
         rows.extend(_diagnostic_rows(native, "/result/report"))
+    diagnostic_presence, missing_fields = _report_diagnostic_presence(native)
     raw_calls = view.get("calls")
     ledger, unique, problems, variants, ambiguous_stages = [], {}, [], {}, {}
     token_fields = ("prompt_tokens", "completion_tokens", "total_tokens", "input_tokens", "output_tokens")
@@ -298,6 +354,7 @@ def export_radar_diagnostics(view, *, scenario=None, phase=None):
             "analysis_error_code": view.get("error_code"),
             "native_report_status": native.get("status") if isinstance(native, dict) else None,
             "business_acceptance": "not_assessed", "diagnostic_rows": rows,
+            "diagnostic_presence": diagnostic_presence, "missing_diagnostic_fields": missing_fields,
             "model_calls": ledger, "model_usage": usage, "model_stages": stages, "usage_issues": problems,
             "excluded": ["source_bodies", "questions", "private_prompts", "raw_model_outputs", "numeric_observation_values"],
             "scope": "persisted_analysis_generation_calls_only; embedding/rerank/index are separately accounted",

@@ -124,3 +124,109 @@ def test_cross_stage_conflict_marks_each_original_stage_incomplete():
         assert out["model_stages"][stage]["total_tokens"] is None
         assert out["model_stages"][stage]["unknown_usage_calls"]==1
         assert out["model_stages"][stage]["ambiguous_call_ids"]==["conflict"]
+
+
+# Matches BioCheck core.verify()/support_audit() native result structure:
+# verify.units[*].claims[*], paragraph sentence_numbers, located evidence.version.
+def claim_view():
+    view = saved_view()
+    located = {"evidence_id": "E1", "version": "native-v1", "segment_id": "S2",
+               "quote": "SOURCE_SHORT_QUOTE", "start": 4, "end": 22}
+    unit = {"unit_id": "U1", "text": "PRIVATE_UNIT_BODY", "verdict": "insufficient",
+            "claims": [{"claim_id": "native-claim", "claim_index": 0,
+                        "span": "PRIVATE_CLAIM_BODY", "verdict": "insufficient",
+                        "sentence_numbers": [1, 2], "evidence": [located]}],
+            "issues": [{"issue_index": 0, "labels": ["REF"], "sentence_numbers": [1],
+                        "span": "PRIVATE_ISSUE_SPAN", "reason": "invalid selected segment"}]}
+    view["result"]["report"] = {"status": "REVIEW", "verify": {
+        "status": "REVIEW", "draft": "PRIVATE_DRAFT", "units": [unit],
+        "verification_errors": [{"unit_id": "U1", "errors": ["source_segment_invalid"]}],
+        "raw_response": {"reason": "PRIVATE_RAW_OUTPUT"}},
+        "support_audit": {"status": "REVIEW", "checks": [{"unit_id": "U1", "claim_index": 0,
+            "verdict": "uncertain", "support": [located],
+            "validation": {"code": "support_quote_not_in_segment", "field_path": "/support/0/quote"}}]}}
+    return view
+
+
+def test_native_claim_verification_identity_and_selected_evidence_are_retained():
+    out = export_radar_diagnostics(claim_view())
+    rows = {row["path"]: row["values"] for row in out["diagnostic_rows"]}
+    root = "/result/report/verify/units/0"
+    assert rows[root]["unit_id"] == "U1"
+    assert rows[root]["verdict"] == "insufficient"
+    assert rows[root + "/claims/0"]["claim_id"] == "native-claim"
+    assert rows[root + "/claims/0"]["claim_index"] == 0
+    assert rows[root + "/claims/0"]["sentence_numbers"] == [1, 2]
+    assert rows[root + "/claims/0/evidence/0"] == {
+        "evidence_id": "E1", "version": "native-v1", "segment_id": "S2", "start": 4, "end": 22}
+    assert rows["/result/report/verify/verification_errors/0"]["errors"] == ["source_segment_invalid"]
+    audit = "/result/report/support_audit/checks/0"
+    assert rows[audit]["claim_index"] == 0
+    assert rows[audit]["verdict"] == "uncertain"
+    assert rows[audit + "/validation"]["code"] == "support_quote_not_in_segment"
+    assert out["native_report_status"] == "REVIEW"
+
+
+def test_claim_containers_do_not_export_source_quote_draft_or_raw_response():
+    import json
+    view = claim_view()
+    view["result"]["report"]["verify"]["units"][0]["claims"][0]["payload"] = {
+        "reason": "PRIVATE_PAYLOAD", "evidence": [{"evidence_id": "PRIVATE_HIDDEN_ID"}]}
+    rendered = json.dumps(export_radar_diagnostics(view))
+    for forbidden in ["SOURCE_SHORT_QUOTE", "PRIVATE_UNIT_BODY", "PRIVATE_CLAIM_BODY", "PRIVATE_DRAFT",
+                      "PRIVATE_ISSUE_SPAN", "PRIVATE_RAW_OUTPUT", "PRIVATE_PAYLOAD", "PRIVATE_HIDDEN_ID"]:
+        assert forbidden not in rendered
+
+
+def test_missing_native_claim_fields_are_reported_without_filling_identity_or_verdict():
+    view = claim_view()
+    del view["result"]["report"]["verify"]["units"][0]["claims"][0]["verdict"]
+    out = export_radar_diagnostics(view)
+    missing = out["missing_diagnostic_fields"]
+    assert {"path": "/result/report/verify/units/0/claims/0", "fields": ["verdict"]} in missing
+    row = next(row for row in out["diagnostic_rows"] if row["path"].endswith("/claims/0"))
+    assert "verdict" not in row["values"]
+    del view["result"]["report"]
+    absent = export_radar_diagnostics(view)
+    assert absent["diagnostic_presence"]["report"] == "absent"
+    assert absent["diagnostic_presence"]["claim_checks"] == "absent"
+
+
+def test_new_report_round_calls_and_unsent_reservations_keep_exact_unique_usage():
+    view = saved_view()
+    view["calls"] += [
+        {"call_id": "new-round-write", "stage": "write", "status": "received",
+         "receipt": {"usage": {"total_tokens": 23}}},
+        {"call_id": "new-round-check", "stage": "verify_paragraph", "status": "failed", "receipt": {}},
+        {"call_id": "reserved", "stage": "verify_paragraph", "status": "prepared", "receipt": {}},
+        {"call_id": "unsent", "stage": "write", "status": "failed",
+         "receipt": {"status": "not_sent", "usage": {"total_tokens": 999}}},
+    ]
+    out = export_radar_diagnostics(view)
+    assert out["model_usage"] == {"calls": 3, "known_total_tokens": 40,
+                                  "unknown_usage_calls": 1, "total_tokens": None}
+    assert out["model_stages"]["write"]["known_total_tokens"] == 23
+    assert out["model_stages"]["verify_paragraph"]["unknown_usage_calls"] == 1
+    assert {row["call_id"] for row in out["model_calls"]} == {
+        "c1", "new-round-write", "new-round-check", "reserved", "unsent"}
+
+
+def test_actual_native_biocheck_projection_fixture_keeps_errors_without_raw_text():
+    import json
+    from pathlib import Path
+    fixture = json.loads((Path(__file__).parent / "fixtures/biocheck_native_diagnostics.json").read_text())
+    out = export_radar_diagnostics(fixture["view"])
+    rows = {row["path"]: row["values"] for row in out["diagnostic_rows"]}
+    claim = "/result/report/verification/units/0/claims/0"
+    assert rows[claim]["claim_index"] == 0
+    assert rows[claim]["sentence_numbers"] == [1]
+    assert rows[claim + "/evidence/0"]["version"] == "v-synthetic"
+    assert rows[claim + "/evidence/0"]["segment_id"] == "S1"
+    error = "/result/report/support_audit/verification_errors/0"
+    assert rows[error]["unit_id"] == "U1" and rows[error]["claim_index"] == 0
+    assert "复核摘录不在本条所选片段中" in rows[error]["reason"]
+    assert out["native_report_status"] == "REVIEW"
+    assert out["missing_diagnostic_fields"] == []
+    rendered = json.dumps(out)
+    for forbidden in ["SOURCE_SHORT_QUOTE", "PRIVATE_CLAIM_BODY", "NOT_IN_SELECTED_SOURCE"]:
+        assert forbidden not in rendered
