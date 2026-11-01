@@ -1,0 +1,229 @@
+{
+  "schema_version": "kdd-route-experiments-v1",
+  "frozen_protocol_ref": "contract-example-only-replace-with-pre-run-sealed-protocol-reference",
+  "experiments": [
+    {
+      "id": "A",
+      "direction": "public_health",
+      "provenance": "synthetic_fixture",
+      "experiment_kind": "synthetic_messages",
+      "experiment_group": null,
+      "control_role": "target",
+      "judgement_endpoints": [],
+      "required_fact_checks": [
+        "warning_boundary",
+        "counterevidence",
+        "count_correction"
+      ],
+      "arms": [
+        {
+          "analysis_id": "replace-with-actual-A-v2_new_capabilities",
+          "label": "v2_new_capabilities",
+          "policy_version": "replace-with-actual-policy-hash-v2_new_capabilities",
+          "action_space": [
+            "analysis_run",
+            "dataset_prepare",
+            "document_read",
+            "document_search",
+            "entity_relations",
+            "graph_neighbors",
+            "graph_path",
+            "professional_assess",
+            "source_fetch"
+          ],
+          "public_input_sha256": "replace-with-sealed-public-input-hash-A",
+          "source_scope_sha256": "replace-with-sealed-source-scope-hash-A",
+          "model_config_sha256": "replace-with-frozen-model-config-hash",
+          "prompt_config_sha256": "replace-with-actual-prompt-config-hash-v2_new_capabilities",
+          "budget_config_sha256": "replace-with-frozen-budget-hash",
+          "host_version": "replace-with-actual-host-commit"
+        },
+        {
+          "analysis_id": "replace-with-actual-A-frozen_legacy_baseline",
+          "label": "frozen_legacy_baseline",
+          "policy_version": "replace-with-actual-policy-hash-frozen_legacy_baseline",
+          "action_space": [
+            "document_search",
+            "entity_relations",
+            "graph_neighbors",
+            "graph_path"
+          ],
+          "public_input_sha256": "replace-with-sealed-public-input-hash-A",
+          "source_scope_sha256": "replace-with-sealed-source-scope-hash-A",
+          "model_config_sha256": "replace-with-frozen-model-config-hash",
+          "prompt_config_sha256": "replace-with-actual-prompt-config-hash-frozen_legacy_baseline",
+          "budget_config_sha256": "replace-with-frozen-budget-hash",
+          "host_version": "replace-with-actual-host-commit"
+        }
+      ]
+    },
+    {
+      "id": "B",
+      "direction": "research",
+      "provenance": "synthetic_fixture",
+      "experiment_kind": "synthetic_messages",
+      "experiment_group": null,
+      "control_role": "target",
+      "judgement_endpoints": [],
+      "required_fact_checks": [
+        "endpoint_boundary",
+        "safety",
+        "trial_correction"
+      ],
+      "arms": [
+        {
+          "analysis_id": "replace-with-actual-B-v2_new_capabilities",
+          "label": "v2_new_capabilities",
+          "policy_version": "replace-with-actual-policy-hash-v2_new_capabilities",
+          "action_space": [
+            "analysis_run",
+            "dataset_prepare",
+            "document_read",
+            "document_search",
+            "entity_relations",
+            "graph_neighbors",
+            "graph_path",
+            "professional_assess",
+            "source_fetch"
+          ],
+          "public_input_sha256": "replace-with-sealed-public-input-hash-B",
+          "source_scope_sha256": "replace-with-sealed-source-scope-hash-B",
+          "model_config_sha256": "replace-with-frozen-model-config-hash",
+          "prompt_config_sha256": "replace-with-actual-prompt-config-hash-v2_new_capabilities",
+          "budget_config_sha256": "replace-with-frozen-budget-hash",
+          "host_version": "replace-with-actual-host-commit"
+        },
+        {
+          "analysis_id": "replace-with-actual-B-frozen_legacy_baseline",
+          "label": "frozen_legacy_baseline",
+          "policy_version": "replace-with-actual-policy-hash-frozen_legacy_baseline",
+          "action_space": [
+            "document_search",
+            "entity_relations",
+            "graph_neighbors",
+            "graph_path"
+          ],
+          "public_input_sha256": "replace-with-sealed-public-input-hash-B",
+          "source_scope_sha256": "replace-with-sealed-source-scope-hash-B",
+          "model_config_sha256": "replace-with-frozen-model-config-hash",
+          "prompt_config_sha256": "replace-with-actual-prompt-config-hash-frozen_legacy_baseline",
+          "budget_config_sha256": "replace-with-frozen-budget-hash",
+          "host_version": "replace-with-actual-host-commit"
+        }
+      ]
+    },
+    {
+      "id": "C",
+      "direction": "business",
+      "provenance": "synthetic_fixture",
+      "experiment_kind": "synthetic_messages",
+      "experiment_group": null,
+      "control_role": "target",
+      "judgement_endpoints": [],
+      "required_fact_checks": [
+        "order_correction",
+        "cash_vs_revenue",
+        "utilization_scope"
+      ],
+      "arms": [
+        {
+          "analysis_id": "replace-with-actual-C-v2_new_capabilities",
+          "label": "v2_new_capabilities",
+          "policy_version": "replace-with-actual-policy-hash-v2_new_capabilities",
+          "action_space": [
+            "analysis_run",
+            "dataset_prepare",
+            "document_read",
+            "document_search",
+            "entity_relations",
+            "graph_neighbors",
+            "graph_path",
+            "professional_assess",
+            "source_fetch"
+          ],
+          "public_input_sha256": "replace-with-sealed-public-input-hash-C",
+          "source_scope_sha256": "replace-with-sealed-source-scope-hash-C",
+          "model_config_sha256": "replace-with-frozen-model-config-hash",
+          "prompt_config_sha256": "replace-with-actual-prompt-config-hash-v2_new_capabilities",
+          "budget_config_sha256": "replace-with-frozen-budget-hash",
+          "host_version": "replace-with-actual-host-commit"
+        },
+        {
+          "analysis_id": "replace-with-actual-C-frozen_legacy_baseline",
+          "label": "frozen_legacy_baseline",
+          "policy_version": "replace-with-actual-policy-hash-frozen_legacy_baseline",
+          "action_space": [
+            "document_search",
+            "entity_relations",
+            "graph_neighbors",
+            "graph_path"
+          ],
+          "public_input_sha256": "replace-with-sealed-public-input-hash-C",
+          "source_scope_sha256": "replace-with-sealed-source-scope-hash-C",
+          "model_config_sha256": "replace-with-frozen-model-config-hash",
+          "prompt_config_sha256": "replace-with-actual-prompt-config-hash-frozen_legacy_baseline",
+          "budget_config_sha256": "replace-with-frozen-budget-hash",
+          "host_version": "replace-with-actual-host-commit"
+        }
+      ]
+    },
+    {
+      "id": "D",
+      "direction": "public_health",
+      "provenance": "historical_replay",
+      "experiment_kind": "historical_replay",
+      "experiment_group": "historical-warning-and-controls",
+      "control_role": "target",
+      "judgement_endpoints": [
+        "cluster_risk",
+        "transmission_risk"
+      ],
+      "required_fact_checks": [
+        "visible_source_timing",
+        "hypothesis_support_and_counterevidence",
+        "independence"
+      ],
+      "arms": [
+        {
+          "analysis_id": "replace-with-actual-D-v2_new_capabilities",
+          "label": "v2_new_capabilities",
+          "policy_version": "replace-with-actual-policy-hash-v2_new_capabilities",
+          "action_space": [
+            "analysis_run",
+            "dataset_prepare",
+            "document_read",
+            "document_search",
+            "entity_relations",
+            "graph_neighbors",
+            "graph_path",
+            "professional_assess",
+            "source_fetch"
+          ],
+          "public_input_sha256": "replace-with-sealed-public-input-hash-D",
+          "source_scope_sha256": "replace-with-sealed-source-scope-hash-D",
+          "model_config_sha256": "replace-with-frozen-model-config-hash",
+          "prompt_config_sha256": "replace-with-actual-prompt-config-hash-v2_new_capabilities",
+          "budget_config_sha256": "replace-with-frozen-budget-hash",
+          "host_version": "replace-with-actual-host-commit"
+        },
+        {
+          "analysis_id": "replace-with-actual-D-frozen_legacy_baseline",
+          "label": "frozen_legacy_baseline",
+          "policy_version": "replace-with-actual-policy-hash-frozen_legacy_baseline",
+          "action_space": [
+            "document_search",
+            "entity_relations",
+            "graph_neighbors",
+            "graph_path"
+          ],
+          "public_input_sha256": "replace-with-sealed-public-input-hash-D",
+          "source_scope_sha256": "replace-with-sealed-source-scope-hash-D",
+          "model_config_sha256": "replace-with-frozen-model-config-hash",
+          "prompt_config_sha256": "replace-with-actual-prompt-config-hash-frozen_legacy_baseline",
+          "budget_config_sha256": "replace-with-frozen-budget-hash",
+          "host_version": "replace-with-actual-host-commit"
+        }
+      ]
+    }
+  ]
+}

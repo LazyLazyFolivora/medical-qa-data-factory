@@ -1,0 +1,662 @@
+"""Synthetic boundary inputs; no benchmark text or expected case answers."""
+import copy
+from medical_qa_data_factory.evaluation.radar_routes import export_radar_diagnostics, evaluate_radar_view
+
+
+def saved_view():
+    return {"id":"a1", "state":"blocked", "created_at":"2026-10-31T01:00:00Z", "error_code":"analysis_passage_invalid",
+      "question":"PRIVATE_QUESTION", "evidence":[{"text":"SOURCE_FULL_BODY"}],
+      "calls":[{"call_id":"c1","stage":"read_plan","status":"received","request":{"prompt":"PRIVATE_PROMPT"},
+                "receipt":{"usage":{"total_tokens":17},"response":{"text":"PRIVATE_MODEL_OUTPUT"}}}],
+      "queries":[{"index":0,"action_id":"search1","kind":"document_search","provider":"fabric","status":"read",
+        "plan":{"source_id":"source1","terms":["specific query"]},"pagination":{"has_more":True,"page_number":2,"next_cursor":"cursor2","max_seq":8}}],
+      "progress":{"narrative_extractions":{"k":{"record_ref":{"source_id":"source1","source_record_id":"r1","version_id":"v1"},
+        "gaps":[{"observation_index":3,"stage":"period","reason":"period_scope_missing","rule_id":"literal-period"}],
+        "observations":[{"value":999,"field_locators":{"quote":"SOURCE_QUOTE"}}]}},
+        "repair":{"trigger_reason":"analysis_passage_invalid","attempt":1,"error_code":"bad_locator"}},
+      "result":{"report":{"status":"FAIL","text":"NATIVE_REPORT_BODY","check":{"issues":[{"sentence_index":2,"issue_id":"i1","issue":"locator mismatch","rule_id":"exact-source"}]}}}}
+
+
+def test_failed_view_exports_diagnosis_without_prompt_source_or_fact_values():
+    view=saved_view(); before=copy.deepcopy(view)
+    out=export_radar_diagnostics(view, scenario="C", phase="smoke")
+    rendered=str(out)
+    for value in ["analysis_passage_invalid","specific query","cursor2","period_scope_missing","exact-source","locator mismatch","source1","r1","v1"]:
+        assert value in rendered
+    for value in ["PRIVATE_QUESTION","SOURCE_FULL_BODY","PRIVATE_PROMPT","PRIVATE_MODEL_OUTPUT","SOURCE_QUOTE","NATIVE_REPORT_BODY","999"]:
+        assert value not in rendered
+    assert out["native_report_status"]=="FAIL"
+    assert out["business_acceptance"]=="not_assessed"
+    assert out["model_usage"]["known_total_tokens"]==17
+    assert out["model_stages"]["read_plan"]["calls"]==1
+    assert view==before
+
+
+def test_absent_receipts_and_usage_remain_unknown_not_zero_pass():
+    view=saved_view(); view["calls"].append({"call_id":"c2","stage":"write","status":"unconfirmed","receipt":{}})
+    out=export_radar_diagnostics(view)
+    assert out["model_usage"]["unknown_usage_calls"]==1
+    assert out["model_usage"]["total_tokens"] is None
+    assert out["model_stages"]["write"]["known_total_tokens"]==0
+    assert out["model_stages"]["write"]["total_tokens"] is None
+    del view["calls"]
+    assert export_radar_diagnostics(view)["model_usage"] is None
+
+
+def test_duplicate_call_identity_is_explicit_and_cannot_inflate_known_total():
+    view=saved_view(); view["calls"].append(copy.deepcopy(view["calls"][0]))
+    out=export_radar_diagnostics(view)
+    assert out["model_usage"]["calls"]==1
+    assert out["model_usage"]["known_total_tokens"]==17
+    assert out["model_usage"]["total_tokens"] is None
+    assert "duplicate_model_call_id:c1" in out["usage_issues"]
+
+
+def test_unsupported_trace_keeps_diagnostics_in_import():
+    out=evaluate_radar_view(saved_view(),provenance="synthetic_fixture",trace_validator=lambda **kw: {},validator_version="test")
+    assert out["integrity"]["status"]=="not_evaluable"
+    assert out["diagnostics"]["analysis_error_code"]=="analysis_passage_invalid"
+
+
+def test_cli_uses_same_projection_and_preserves_existing_output(tmp_path, capsys):
+    import json
+    from argparse import Namespace
+    from medical_qa_data_factory.evaluation.kdd_routes_cli import command
+    source=tmp_path/"saved.json"; source.write_text(json.dumps(saved_view()))
+    out=tmp_path/"diagnostics.jsonl"
+    args=Namespace(route_mode="export-radar-diagnostics",views=[str(source)],scenario="C",phase="smoke",out=str(out))
+    assert command(args)==0
+    result=json.loads(out.read_text())
+    assert result["phase"]=="smoke" and result["scenario"]=="C"
+    assert result["source_file_sha256"]
+    before=out.read_bytes()
+    import pytest
+    with pytest.raises(FileExistsError): command(args)
+    assert out.read_bytes()==before
+
+
+def test_untrusted_nested_payloads_cannot_smuggle_body_into_diagnostics():
+    view=saved_view()
+    view["progress"]["arbitrary_blob"]={"reason":"SOURCE_SMUGGLED"}
+    view["queries"][0]["payload"]={"terms":["SOURCE_SMUGGLED"]}
+    view["result"]["report"]["text"]={"reason":"SOURCE_SMUGGLED"}
+    assert "SOURCE_SMUGGLED" not in str(export_radar_diagnostics(view))
+
+
+def test_nested_usage_payload_is_never_exported_and_is_counted_unknown():
+    import pytest
+    for bad in [{"private_prompt":"DO_NOT_EXPORT"},["DO_NOT_EXPORT"],float("nan"),float("inf"),-2,True]:
+        view=saved_view();view["calls"][0]["receipt"]["usage"]={"total_tokens":bad}
+        out=export_radar_diagnostics(view)
+        assert "DO_NOT_EXPORT" not in str(out)
+        assert out["model_usage"]["unknown_usage_calls"]==1
+        assert out["model_usage"]["known_total_tokens"]==0
+        assert out["model_usage"]["total_tokens"] is None
+        assert out["model_stages"]["read_plan"]["total_tokens"] is None
+        assert "invalid_model_usage_field:c1:total_tokens" in out["usage_issues"]
+
+
+def test_conflicting_duplicate_does_not_claim_first_tokens_as_lower_bound():
+    view=saved_view();view["calls"][0]["receipt"]["usage"]["total_tokens"]=100
+    second=copy.deepcopy(view["calls"][0]);second["receipt"]["usage"]["total_tokens"]=1
+    view["calls"].append(second)
+    out=export_radar_diagnostics(view)
+    assert out["model_usage"]["calls"]==1
+    assert out["model_usage"]["known_total_tokens"]==0
+    assert out["model_usage"]["unknown_usage_calls"]==1
+    assert out["model_stages"]["read_plan"]["known_total_tokens"]==0
+    assert out["model_stages"]["read_plan"]["total_tokens"] is None
+    assert "conflicting_model_call_id:c1" in out["usage_issues"]
+
+
+def test_cross_stage_conflict_marks_each_original_stage_incomplete():
+    view=saved_view()
+    view["calls"]=[{"call_id":"read-known","stage":"read","status":"received","receipt":{"usage":{"total_tokens":5}}},
+                   {"call_id":"write-known","stage":"write","status":"received","receipt":{"usage":{"total_tokens":7}}},
+                   {"call_id":"conflict","stage":"read","status":"received","receipt":{"usage":{"total_tokens":100}}},
+                   {"call_id":"conflict","stage":"write","status":"received","receipt":{"usage":{"total_tokens":1}}}]
+    out=export_radar_diagnostics(view)
+    assert out["model_usage"]["calls"]==3
+    assert out["model_usage"]["known_total_tokens"]==12
+    assert out["model_usage"]["unknown_usage_calls"]==1
+    for stage,lower in [("read",5),("write",7)]:
+        assert out["model_stages"][stage]["known_total_tokens"]==lower
+        assert out["model_stages"][stage]["total_tokens"] is None
+        assert out["model_stages"][stage]["unknown_usage_calls"]==1
+        assert out["model_stages"][stage]["ambiguous_call_ids"]==["conflict"]
+
+
+# Matches BioCheck core.verify()/support_audit() native result structure:
+# verify.units[*].claims[*], paragraph sentence_numbers, located evidence.version.
+def claim_view():
+    view = saved_view()
+    located = {"evidence_id": "E1", "version": "native-v1", "segment_id": "S2",
+               "quote": "SOURCE_SHORT_QUOTE", "start": 4, "end": 22}
+    unit = {"unit_id": "U1", "text": "PRIVATE_UNIT_BODY", "verdict": "insufficient",
+            "claims": [{"claim_id": "native-claim", "claim_index": 0,
+                        "span": "PRIVATE_CLAIM_BODY", "verdict": "insufficient",
+                        "sentence_numbers": [1, 2], "evidence": [located]}],
+            "issues": [{"issue_index": 0, "labels": ["REF"], "sentence_numbers": [1],
+                        "span": "PRIVATE_ISSUE_SPAN", "reason": "invalid selected segment"}]}
+    view["result"]["report"] = {"status": "REVIEW", "verify": {
+        "status": "REVIEW", "draft": "PRIVATE_DRAFT", "units": [unit],
+        "verification_errors": [{"unit_id": "U1", "errors": ["source_segment_invalid"]}],
+        "raw_response": {"reason": "PRIVATE_RAW_OUTPUT"}},
+        "support_audit": {"status": "REVIEW", "checks": [{"unit_id": "U1", "claim_index": 0,
+            "verdict": "uncertain", "support": [located],
+            "validation": {"code": "support_quote_not_in_segment", "field_path": "/support/0/quote"}}]}}
+    return view
+
+
+def test_native_claim_verification_identity_and_selected_evidence_are_retained():
+    out = export_radar_diagnostics(claim_view())
+    rows = {row["path"]: row["values"] for row in out["diagnostic_rows"]}
+    root = "/result/report/verify/units/0"
+    assert rows[root]["unit_id"] == "U1"
+    assert rows[root]["verdict"] == "insufficient"
+    assert rows[root + "/claims/0"]["claim_id"] == "native-claim"
+    assert rows[root + "/claims/0"]["claim_index"] == 0
+    assert rows[root + "/claims/0"]["sentence_numbers"] == [1, 2]
+    assert rows[root + "/claims/0/evidence/0"] == {
+        "evidence_id": "E1", "version": "native-v1", "segment_id": "S2", "start": 4, "end": 22}
+    assert rows["/result/report/verify/verification_errors/0"]["errors"] == ["source_segment_invalid"]
+    audit = "/result/report/support_audit/checks/0"
+    assert rows[audit]["claim_index"] == 0
+    assert rows[audit]["verdict"] == "uncertain"
+    assert rows[audit + "/validation"]["code"] == "support_quote_not_in_segment"
+    assert out["native_report_status"] == "REVIEW"
+
+
+def test_claim_containers_do_not_export_source_quote_draft_or_raw_response():
+    import json
+    view = claim_view()
+    view["result"]["report"]["verify"]["units"][0]["claims"][0]["payload"] = {
+        "reason": "PRIVATE_PAYLOAD", "evidence": [{"evidence_id": "PRIVATE_HIDDEN_ID"}]}
+    rendered = json.dumps(export_radar_diagnostics(view))
+    for forbidden in ["SOURCE_SHORT_QUOTE", "PRIVATE_UNIT_BODY", "PRIVATE_CLAIM_BODY", "PRIVATE_DRAFT",
+                      "PRIVATE_ISSUE_SPAN", "PRIVATE_RAW_OUTPUT", "PRIVATE_PAYLOAD", "PRIVATE_HIDDEN_ID"]:
+        assert forbidden not in rendered
+
+
+def test_missing_native_claim_fields_are_reported_without_filling_identity_or_verdict():
+    view = claim_view()
+    del view["result"]["report"]["verify"]["units"][0]["claims"][0]["verdict"]
+    out = export_radar_diagnostics(view)
+    missing = out["missing_diagnostic_fields"]
+    assert {"path": "/result/report/verify/units/0/claims/0", "fields": ["verdict"]} in missing
+    row = next(row for row in out["diagnostic_rows"] if row["path"].endswith("/claims/0"))
+    assert "verdict" not in row["values"]
+    del view["result"]["report"]
+    absent = export_radar_diagnostics(view)
+    assert absent["diagnostic_presence"]["report"] == "absent"
+    assert absent["diagnostic_presence"]["claim_checks"] == "absent"
+
+
+def test_new_report_round_calls_and_unsent_reservations_keep_exact_unique_usage():
+    view = saved_view()
+    view["calls"] += [
+        {"call_id": "new-round-write", "stage": "write", "status": "received",
+         "receipt": {"usage": {"total_tokens": 23}}},
+        {"call_id": "new-round-check", "stage": "verify_paragraph", "status": "failed", "receipt": {}},
+        {"call_id": "reserved", "stage": "verify_paragraph", "status": "prepared", "receipt": {}},
+        {"call_id": "unsent", "stage": "write", "status": "failed",
+         "receipt": {"status": "not_sent", "usage": {"total_tokens": 999}}},
+    ]
+    out = export_radar_diagnostics(view)
+    assert out["model_usage"] == {"calls": 3, "known_total_tokens": 40,
+                                  "unknown_usage_calls": 1, "total_tokens": None}
+    assert out["model_stages"]["write"]["known_total_tokens"] == 23
+    assert out["model_stages"]["verify_paragraph"]["unknown_usage_calls"] == 1
+    assert {row["call_id"] for row in out["model_calls"]} == {
+        "c1", "new-round-write", "new-round-check", "reserved", "unsent"}
+
+
+def test_actual_native_biocheck_projection_fixture_keeps_errors_without_raw_text():
+    import json
+    from pathlib import Path
+    fixture = json.loads((Path(__file__).parent / "fixtures/biocheck_native_diagnostics.json").read_text())
+    out = export_radar_diagnostics(fixture["view"])
+    rows = {row["path"]: row["values"] for row in out["diagnostic_rows"]}
+    claim = "/result/report/verification/units/0/claims/0"
+    assert rows[claim]["claim_index"] == 0
+    assert rows[claim]["sentence_numbers"] == [1]
+    assert rows[claim + "/evidence/0"]["version"] == "v-synthetic"
+    assert rows[claim + "/evidence/0"]["segment_id"] == "S1"
+    error = "/result/report/support_audit/verification_errors/0"
+    assert rows[error]["unit_id"] == "U1" and rows[error]["claim_index"] == 0
+    assert "复核摘录不在本条所选片段中" in rows[error]["reason"]
+    assert out["native_report_status"] == "REVIEW"
+    assert out["missing_diagnostic_fields"] == []
+    rendered = json.dumps(out)
+    for forbidden in ["SOURCE_SHORT_QUOTE", "PRIVATE_CLAIM_BODY", "NOT_IN_SELECTED_SOURCE"]:
+        assert forbidden not in rendered
+
+
+def assessment_review_view():
+    import json
+    from pathlib import Path
+    fixture = json.loads((Path(__file__).parent / "fixtures/radar_native_assessment_review.json").read_text())
+    view = saved_view()
+    view["result"]["assessment_axes"] = fixture["assessment_axes"]
+    view["human_review_context"] = fixture["human_review_context"]
+    return view
+
+
+def test_native_assessment_arrays_remain_separate_and_keep_unassessed_nulls():
+    view = assessment_review_view()
+    out = export_radar_diagnostics(view)
+    axes = out["assessment_axes"]
+    assert [r["grade"] for r in axes["source_reliability"]] == ["B", "F"]
+    assert [r["grade"] for r in axes["information_credibility"]] == ["2", "6"]
+    assert axes["source_reliability"][1]["assessed_by"] is None
+    assert axes["information_credibility"][1]["assessed_at"] is None
+    assert axes["information_credibility"][1]["assessment_status"] == "not_assessed"
+    assert axes["information_credibility"][0]["claim_text_sha256"] == "b" * 64
+    assert axes["source_reliability"][0]["assessment_basis_refs"][0]["adopted_version"] == "native-v1"
+    assert axes["evidence_level"] == "unverified"
+    assert axes["heat"] == {"score": 2, "qualification": "attention only"}
+    assert out["diagnostic_presence"]["assessment_axes"] == "present"
+    assert view == assessment_review_view()
+
+
+def test_human_context_retains_fixed_object_native_binding_without_signing_alert():
+    out = export_radar_diagnostics(assessment_review_view())
+    context = out["human_review_context"]
+    assert context["status"] == "recorded"
+    review = context["reviews"][0]
+    assert review["entry_id"] == "entry-review"
+    assert review["review_revision"] == 2
+    assert review["reviewer_actor"] == "synthetic-reviewer"
+    assert review["binding_status"] == "exact_target"
+    assert review["decision"] == "accepted_within_scope"
+    assert review["target"]["analysis_id"] == "synthetic-analysis"
+    assert review["basis_record_refs"][0]["content_hash"] == "a" * 64
+    assert review["analysis_input_hash"] == "c" * 64
+    assert "alert_status" not in review
+    view = assessment_review_view()
+    view["human_review_context"]["status"] = "not_reviewed"
+    view["human_review_context"]["reviews"][0]["binding_status"] = "target_changed"
+    changed = export_radar_diagnostics(view)["human_review_context"]
+    assert changed["status"] == "not_reviewed"
+    assert changed["reviews"][0]["binding_status"] == "target_changed"
+
+
+def test_assessment_and_review_projection_drops_bodies_and_arbitrary_nested_metadata():
+    import json
+    view = assessment_review_view()
+    view["result"]["assessment_axes"]["source_reliability"][0]["record_ref"]["source"] = {
+        "reason": "PRIVATE_REF_PAYLOAD"}
+    view["human_review_context"]["reviews"][0]["target"]["payload"] = {
+        "analysis_id": "PRIVATE_TARGET_PAYLOAD"}
+    view["human_review_context"]["reviews"][0]["raw_source"] = {"reason": "PRIVATE_REVIEW_PAYLOAD"}
+    out = export_radar_diagnostics(view)
+    for forbidden in ["PRIVATE_ASSESSMENT_BODY", "PRIVATE_CLAIM_TEXT", "PRIVATE_HEAT_BODY",
+                      "PRIVATE_HUMAN_NOTE", "PRIVATE_HUMAN_CONDITIONS", "PRIVATE_REF_PAYLOAD",
+                      "PRIVATE_TARGET_PAYLOAD", "PRIVATE_REVIEW_PAYLOAD"]:
+        assert forbidden not in json.dumps(out)
+    assert out["model_usage"]["calls"] == 1
+    assert out["model_usage"]["total_tokens"] == 17
+
+
+def test_absent_axes_review_and_missing_grade_are_not_defaulted_or_reconstructed():
+    view = saved_view()
+    out = export_radar_diagnostics(view)
+    assert out["assessment_axes"] is None and out["human_review_context"] is None
+    assert out["diagnostic_presence"]["assessment_axes"] == "absent"
+    assert out["diagnostic_presence"]["human_review_context"] == "absent"
+    view = assessment_review_view()
+    del view["result"]["assessment_axes"]["source_reliability"][0]["grade"]
+    del view["human_review_context"]["reviews"][0]["reviewer_actor"]
+    out = export_radar_diagnostics(view)
+    assert "grade" not in out["assessment_axes"]["source_reliability"][0]
+    assert "reviewer_actor" not in out["human_review_context"]["reviews"][0]
+    assert {"path": "/result/assessment_axes/source_reliability/0", "fields": ["grade"]} in out["missing_diagnostic_fields"]
+    assert {"path": "/human_review_context/reviews/0", "fields": ["reviewer_actor"]} in out["missing_diagnostic_fields"]
+
+
+def test_malformed_native_metadata_is_missing_and_never_exported_as_payload():
+    import json
+    view = assessment_review_view()
+    view["result"]["assessment_axes"]["source_reliability"][0]["grade"] = {"private": "PRIVATE_INVALID_GRADE"}
+    view["result"]["assessment_axes"]["heat"] = ["PRIVATE_INVALID_HEAT"]
+    view["human_review_context"]["reviews"][0]["target"]["type"] = {"private": "PRIVATE_INVALID_TARGET"}
+    out = export_radar_diagnostics(view)
+    assert "grade" not in out["assessment_axes"]["source_reliability"][0]
+    assert "heat" not in out["assessment_axes"]
+    assert "type" not in out["human_review_context"]["reviews"][0]["target"]
+    for body in ["PRIVATE_INVALID_GRADE", "PRIVATE_INVALID_HEAT", "PRIVATE_INVALID_TARGET"]:
+        assert body not in json.dumps(out)
+    paths = {item["path"] for item in out["missing_diagnostic_fields"]}
+    assert "/result/assessment_axes" in paths
+    assert "/human_review_context/reviews/0/target" in paths
+
+
+def test_other_native_review_targets_and_confirmation_refs_are_not_rebound():
+    for target in [{"type": "candidate", "run_id": "run-1", "result_hash": "d" * 64, "candidate_key": "candidate-1"},
+                   {"type": "claim", "analysis_id": "synthetic-analysis", "claim_id": "claim-1", "claim_sha256": "e" * 64}]:
+        view = assessment_review_view()
+        review = view["human_review_context"]["reviews"][0]
+        review["target"] = target
+        review["binding_status"] = "different_target"
+        info = view["result"]["assessment_axes"]["information_credibility"][0]
+        info["independent_confirmation_refs"] = copy.deepcopy(info["assessment_basis_refs"])
+        out = export_radar_diagnostics(view)
+        assert out["human_review_context"]["reviews"][0]["target"] == target
+        assert out["human_review_context"]["reviews"][0]["binding_status"] == "different_target"
+        assert out["assessment_axes"]["information_credibility"][0]["independent_confirmation_refs"] == info["independent_confirmation_refs"]
+
+
+def test_metadata_at_unapproved_locations_is_not_used_as_native_assessment_or_review():
+    view = saved_view()
+    fixture = assessment_review_view()
+    view["assessment_axes"] = fixture["result"]["assessment_axes"]
+    view["progress"]["human_review_context"] = fixture["human_review_context"]
+    view["result"]["payload"] = {"assessment_axes": fixture["result"]["assessment_axes"]}
+    out = export_radar_diagnostics(view)
+    assert out["assessment_axes"] is None
+    assert out["human_review_context"] is None
+
+
+def cited_claim_view(name="valid"):
+    import json
+    from pathlib import Path
+    fixture = json.loads((Path(__file__).parent / "fixtures/biocheck_cited_claim_diagnostics.json").read_text())
+    review = fixture["reviews"][name]
+    view = saved_view()
+    view["result"]["report"] = {"status": review["status"], "verification": review}
+    return view
+
+
+def test_actual_cited_claim_method_checks_errors_and_stage_metadata_are_exported():
+    for name in ("valid", "reused", "invalid_quote", "repair"):
+        view = cited_claim_view(name)
+        native = view["result"]["report"]["verification"]
+        out = export_radar_diagnostics(view)
+        rows = {row["path"]: row["values"] for row in out["diagnostic_rows"]}
+        root = "/result/report/verification"
+        assert rows[root]["verification_method"] == "cited_claims"
+        assert rows[root]["method_provider_version"] == native["method_provider_version"]
+        assert rows[root]["draft_sha256"] == native["draft_sha256"]
+        checked = rows[root + "/claim_checks/0"]
+        assert checked["claim_id"] == native["claim_checks"][0]["claim_id"]
+        assert checked["fingerprint"] == native["claim_checks"][0]["fingerprint"]
+        assert checked["effective_verdict"] == native["claim_checks"][0]["effective_verdict"]
+        assert checked["errors"] == native["claim_checks"][0]["errors"]
+        assert checked["error_codes"] == native["claim_checks"][0]["error_codes"]
+        if name == "invalid_quote":
+            error = rows[root + "/verification_errors/0"]
+            assert error["error_codes"] == ["quote_not_found"]
+        assert rows[root + "/coverage_receipt"]["request_hash"] == native["coverage_receipt"]["request_hash"]
+        assert out["native_report_status"] == native["status"]
+        if native["verification_execution"]:
+            execution = rows[root + "/verification_execution/0"]
+            assert execution["stage"] == "verify_claim"
+            assert execution["claim_ids"] == native["verification_execution"][0]["claim_ids"]
+            assert execution["max_output_tokens"] == native["verification_execution"][0]["max_output_tokens"]
+
+
+def test_reused_and_repair_claim_ids_stay_native_without_new_usage_or_inferred_reasons():
+    for name, expected_action in (("reused", "reused"), ("repair", "check")):
+        view = cited_claim_view(name)
+        native = view["result"]["report"]["verification"]
+        out = export_radar_diagnostics(view)
+        rows = {row["path"]: row["values"] for row in out["diagnostic_rows"]}
+        root = "/result/report/verification"
+        assert rows[root]["reused_claims"] == native["reused_claims"]
+        assert rows[root]["repair_claims"] == native["repair_claims"]
+        assert rows[root + "/reuse_decisions/0"]["action"] == expected_action
+        assert rows[root + "/reuse_decisions/0"]["reason_code"] == native["reuse_decisions"][0]["reason_code"]
+        assert rows[root + "/reuse_decisions/0"]["changed_binding_fields"] == native["reuse_decisions"][0]["changed_binding_fields"]
+        assert "reason" not in rows[root + "/reuse_decisions/0"]  # native has not recorded one
+        assert out["model_usage"]["calls"] == 1 and out["model_usage"]["total_tokens"] == 17
+
+
+def test_claim_short_quote_locators_survive_but_answers_bindings_and_bodies_do_not():
+    import json
+    for name in ("valid", "invalid_quote"):
+        view = cited_claim_view(name)
+        review = view["result"]["report"]["verification"]
+        review["claim_checks"][0]["binding"] = {"context": "PRIVATE_BINDING_BODY", "claim": {"reason": "PRIVATE_BINDING_BODY"}}
+        review["claim_checks"][0]["answer"]["reason"] = "PRIVATE_RAW_ANSWER"
+        review["coverage_receipt"]["output"]["reason"] = "PRIVATE_COVERAGE_OUTPUT"
+        out = export_radar_diagnostics(view)
+        rendered = json.dumps(out)
+        for body in ("PRIVATE_SOURCE_BODY_ALPHA", "PRIVATE_INVALID_QUOTE", "PRIVATE_BINDING_BODY", "PRIVATE_RAW_ANSWER", "PRIVATE_COVERAGE_OUTPUT"):
+            assert body not in rendered
+        assert not any("/answer" in row["path"] or "/binding" in row["path"]
+                       or "/coverage_receipt/output" in row["path"] for row in out["diagnostic_rows"])
+        if name == "valid":
+            quoted = next(row["values"] for row in out["diagnostic_rows"] if "/short_quotes/0" in row["path"])
+            assert quoted["reference"] == "E1:S1" and quoted["version"] == "native-v1"
+            assert quoted["start"] == 0 and quoted["end"] > 0
+            assert "quote" not in quoted
+
+
+
+
+
+
+
+
+def reading_diagnostics_view():
+    import json
+    from pathlib import Path
+    fixture = json.loads((Path(__file__).parent / "fixtures/radar_native_reading_diagnostics.json").read_text())
+    view = saved_view()
+    view["progress"] = {"diagnostics": {key: fixture[key] for key in ("reading_validation_errors", "reading_repairs")}}
+    return view
+
+
+def test_native_reading_diagnostics_keep_exact_code_path_hash_and_call_links():
+    view = reading_diagnostics_view()
+    before = copy.deepcopy(view)
+    out = export_radar_diagnostics(view)
+    rows = {row["path"]: row["values"] for row in out["diagnostic_rows"]}
+    root = "/progress/diagnostics"
+    assert rows[root + "/reading_validation_errors/0"] == {key: value for key, value in view["progress"]["diagnostics"]["reading_validation_errors"][0].items() if key != "field_errors"}
+    assert rows[root + "/reading_validation_errors/0/field_errors/0"] == {"path": "/coverage/checks/0/claim_ids/0", "error_code": "unknown_claim"}
+    assert rows[root + "/reading_repairs/0"] == view["progress"]["diagnostics"]["reading_repairs"][0]
+    assert view == before
+    for key in ("model_calls", "model_usage", "model_stages", "usage_issues"):
+        assert out[key] == export_radar_diagnostics(saved_view())[key]
+
+
+def test_reading_diagnostics_cannot_export_body_payload_or_nested_metadata():
+    import json
+    view = reading_diagnostics_view()
+    validation = view["progress"]["diagnostics"]["reading_validation_errors"][0]
+    repair = view["progress"]["diagnostics"]["reading_repairs"][0]
+    for row in (validation, repair):
+        row.update(text="PRIVATE_BODY", source={"error_code": "PRIVATE_SOURCE"}, payload={"reason": "PRIVATE_PAYLOAD"}, quote="PRIVATE_REJECTED_QUOTE")
+    repair["reason"] = "PRIVATE REJECTED FRAGMENT"
+    repair["allowed_claim_ids"] = [{"claim": "PRIVATE_CLAIM_BODY"}]
+    validation["original_output_sha256"] = {"text": "PRIVATE_RAW_OUTPUT"}
+    validation["field_errors"][0]["path"] = {"quote": "PRIVATE_PATH_BODY"}
+    validation["field_errors"][0]["text"] = "PRIVATE_FIELD_BODY"
+    out = export_radar_diagnostics(view)
+    rendered = json.dumps(out)
+    assert "PRIVATE" not in rendered
+    rows = {row["path"]: row["values"] for row in out["diagnostic_rows"]}
+    assert "reason" not in rows["/progress/diagnostics/reading_repairs/0"]
+    assert "allowed_claim_ids" not in rows["/progress/diagnostics/reading_repairs/0"]
+    assert rows["/progress/diagnostics/reading_validation_errors/0/field_errors/0"] == {"error_code": "unknown_claim"}
+
+
+def response_received_view():
+    import json
+    from pathlib import Path
+    fixture = json.loads((Path(__file__).parent / "fixtures/radar_native_output_diagnostic.json").read_text())
+    view = saved_view()
+    view["result"] = None
+    view["calls"] = [
+        {"call_id": "physical-original", "call_key": "logical-stage", "stage": "mech_local_review", "status": "failed",
+         "receipt": {"status": "failed", "http_status": 200, "finish_reason": "stop", "error_code": "model_output_invalid",
+                     "output_diagnostic": fixture["output_diagnostic"], "usage": {"total_tokens": 17}}},
+        {"call_id": "physical-retry", "call_key": "logical-stage:format-retry", "stage": "mech_local_review", "status": "response_received",
+         "receipt": {"status": "completed", "usage": {"total_tokens": 31}},
+         "private_response": {"content_json": "PRIVATE_UNPARSED_RESPONSE"}, "private_raw": "PRIVATE_RAW"},
+    ]
+    return view
+
+
+def test_received_unparsed_and_failed_physical_calls_are_both_charged_without_success_inference():
+    view = response_received_view()
+    before = copy.deepcopy(view)
+    out = export_radar_diagnostics(view)
+    assert out["model_usage"] == {"calls": 2, "known_total_tokens": 48, "unknown_usage_calls": 0, "total_tokens": 48}
+    assert out["model_stages"]["mech_local_review"] == out["model_usage"]
+    assert [c["call_id"] for c in out["model_calls"]] == ["physical-original", "physical-retry"]
+    assert [c["status"] for c in out["model_calls"]] == ["failed", "response_received"]
+    assert out["native_report_status"] is None and out["business_acceptance"] == "not_assessed"
+    assert view == before
+    del view["calls"][1]["receipt"]["usage"]
+    out = export_radar_diagnostics(view)
+    assert out["model_usage"] == {"calls": 2, "known_total_tokens": 17, "unknown_usage_calls": 1, "total_tokens": None}
+
+
+def test_native_parser_diagnostic_metadata_survives_without_private_response_or_rejected_fragment():
+    import json
+    view = response_received_view()
+    diagnostic = view["calls"][0]["receipt"]["output_diagnostic"]
+    expected = copy.deepcopy(diagnostic)
+    diagnostic.update(message="PRIVATE_REJECTED_FRAGMENT", content="PRIVATE_CONTENT", payload={"reason": "PRIVATE_PAYLOAD"})
+    out = export_radar_diagnostics(view)
+    rows = {row["path"]: row["values"] for row in out["diagnostic_rows"]}
+    assert rows["/calls/0/receipt/output_diagnostic"] == expected
+    assert "PRIVATE" not in json.dumps(out)
+    diagnostic["content_sha256"] = {"text": "PRIVATE_HASH_BODY"}
+    diagnostic["category"] = "PRIVATE FREE TEXT"
+    diagnostic["line"] = -1
+    row = next(row["values"] for row in export_radar_diagnostics(view)["diagnostic_rows"] if row["path"].endswith("/output_diagnostic"))
+    assert not {"content_sha256", "category", "line"} & set(row)
+    assert "PRIVATE" not in json.dumps(row)
+
+
+def test_native_mech_retry_call_links_are_projected_without_reconstructing_policy_or_cost():
+    import json
+    from pathlib import Path
+    fixture = json.loads((Path(__file__).parent / "fixtures/radar_native_mech_retry.json").read_text())
+    view = response_received_view()
+    view["calls"][1].update(fixture["retry_call_links"])
+    before = export_radar_diagnostics(response_received_view())
+    out = export_radar_diagnostics(view)
+    rows = {row["path"]: row["values"] for row in out["diagnostic_rows"]}
+    for key, value in fixture["retry_call_links"].items():
+        assert rows["/calls/1"][key] == value
+    for key in ("model_calls", "model_usage", "model_stages", "usage_issues"):
+        assert before[key] == out[key]
+    assert not any("mech_format_retry" in row["path"] for row in out["diagnostic_rows"])
+    view["calls"][1]["retry_reason"] = {"reason": "PRIVATE_PAYLOAD"}
+    view["calls"][1]["original_request_sha256"] = "PRIVATE HASH BODY"
+    view["calls"][1]["retry_policy"] = "PRIVATE FREE TEXT"
+    assert "PRIVATE" not in json.dumps(export_radar_diagnostics(view))
+
+
+def test_native_public_mech_retry_policy_is_exact_metadata_without_fabricated_fallback():
+    import json
+    from pathlib import Path
+    fixture = json.loads((Path(__file__).parent / "fixtures/radar_native_mech_retry.json").read_text())
+    view = response_received_view()
+    view["calls"][1].update(fixture["retry_call_links"])
+    view["progress"] = {"diagnostics": {"mech_format_retry": copy.deepcopy(fixture["mech_format_retry"])}}
+    before = copy.deepcopy(view)
+    out = export_radar_diagnostics(view)
+    rows = {row["path"]: row["values"] for row in out["diagnostic_rows"]}
+    path = "/progress/diagnostics/mech_format_retry"
+    assert rows[path] == fixture["mech_format_retry"]
+    assert view == before
+    for key in ("model_calls", "model_usage", "model_stages", "usage_issues"):
+        assert out[key] == export_radar_diagnostics(response_received_view())[key]
+    policy = view["progress"]["diagnostics"]["mech_format_retry"]
+    policy.update(payload={"reason": "PRIVATE_BODY"}, source={"text": "PRIVATE_SOURCE"}, reason="PRIVATE FREE TEXT")
+    policy["original_request_sha256"] = {"text": "PRIVATE_HASH"}
+    policy["max_total_retries"] = -1
+    out = export_radar_diagnostics(view)
+    assert "PRIVATE" not in json.dumps(out)
+    selected = next(row["values"] for row in out["diagnostic_rows"] if row["path"] == path)
+    assert not {"reason", "original_request_sha256", "max_total_retries"} & set(selected)
+    del view["progress"]["diagnostics"]["mech_format_retry"]
+    assert not any(row["path"] == path for row in export_radar_diagnostics(view)["diagnostic_rows"])
+
+
+def test_structured_claim_locator_and_repair_kind_project_without_repair_text():
+    import json
+
+    # The existing producer fixture supplies the native units/claims/short_quotes
+    # shape; these locator and repair fields are Pan's declared next contract.
+    view = cited_claim_view("valid")
+    review = view["result"]["report"]["verification"]
+    quote = review["units"][0]["claims"][0]["short_quotes"][0]
+    locator = {"output_path": "/mechanism_summary", "offset_basis": "selected_value_json",
+               "value_start": 2, "value_end": 19}
+    quote.update(locator)
+    changed = {"claim_id": "claim-unreported", "repair_kind": "unreported_as_absent"}
+    view["result"]["report"]["revision"] = {"changed_claims": [changed]}
+    forbidden = ("body", "prompt", "raw", "raw_reviews", "private_response", "repair_span", "scope_revision", "before", "after")
+    for row in (quote, changed):
+        for field in forbidden:
+            row[field] = {"reason": "PRIVATE_" + field.upper()}
+        row["repair_span"] = "PRIVATE_ORIGINAL_VERDICT_FRAGMENT"
+    before = copy.deepcopy(view)
+    out = export_radar_diagnostics(view)
+    root = "/result/report/verification"
+    quote_path = root + "/units/0/claims/0/short_quotes/0"
+    changed_path = "/result/report/revision/changed_claims/0"
+    rows = {row["path"]: row["values"] for row in out["diagnostic_rows"]}
+    assert ({key: rows.get(quote_path, {}).get(key) for key in locator},
+            rows.get(changed_path)) == (locator, {"claim_id": "claim-unreported", "repair_kind": "unreported_as_absent"})
+    assert "PRIVATE" not in json.dumps(out)
+    assert not any(field in row["values"] for field in forbidden for row in out["diagnostic_rows"])
+    assert view == before
+
+    # Objects under scalar metadata names must not become traversal containers.
+    for field in locator:
+        quote[field] = {"reason": "PRIVATE_LOCATOR_OBJECT"}
+    changed["repair_kind"] = {"reason": "PRIVATE_REPAIR_OBJECT"}
+    malformed = export_radar_diagnostics(view)
+    rows = {row["path"]: row["values"] for row in malformed["diagnostic_rows"]}
+    assert not set(locator).intersection(rows[quote_path])
+    assert "repair_kind" not in rows[changed_path]
+    assert "PRIVATE" not in json.dumps(malformed)
+
+
+def test_required_gap_discovery_metadata_projects_without_policy_or_record_bodies():
+    import json
+
+    view = saved_view()
+    version = "bounded-required-gap-discovery-v1"
+    basis = {"version": version, "kind": "required_gap_repeat_search",
+             "query_index": 7, "check_ids": ["required-gap"]}
+    candidate = {"id": "catalog:fixed", "kind": "document_search",
+                 "discovery_basis": copy.deepcopy(basis),
+                 "arguments": {"source_id": "external_archive", "terms": []}}
+    request = {"discovery_version": version, "candidates": [candidate],
+               "question": "PRIVATE_POLICY_QUESTION", "prompt": "PRIVATE_POLICY_PROMPT"}
+    view["query_policy"] = {"discovery_version": version, "decisions": [
+        {"policy_request": request, "action": copy.deepcopy(candidate)}]}
+    returned = {"source_id": "external_archive", "source_record_id": "record1", "version_id": "fixed-v1"}
+    view["queries"][0]["returned_versions"] = [{**returned, "body": "PRIVATE_RETURNED_BODY",
+                                                "raw": {"reason": "PRIVATE_RETURNED_RAW"}}]
+    for node in (request, candidate, candidate["discovery_basis"], view["query_policy"]["decisions"][0]["action"]):
+        node.update(body="PRIVATE_BODY", private_response={"reason": "PRIVATE_RESPONSE"})
+    before = copy.deepcopy(view)
+    out = export_radar_diagnostics(view)
+    rows = {row["path"]: row["values"] for row in out["diagnostic_rows"]}
+    root = "/query_policy/decisions/0"
+    assert all(rows.get(path) for path in (
+        "/query_policy", root + "/policy_request", root + "/policy_request/candidates/0/discovery_basis",
+        root + "/action/discovery_basis", "/queries/0/returned_versions/0"))
+    assert rows["/query_policy"]["discovery_version"] == version
+    assert rows[root + "/policy_request"]["discovery_version"] == version
+    assert rows[root + "/policy_request/candidates/0/discovery_basis"] == basis
+    assert rows[root + "/action/discovery_basis"] == basis
+    assert rows["/queries/0/returned_versions/0"] == returned
+    assert "PRIVATE" not in json.dumps(out)
+    assert view == before
+
+    # The old native contract has no new diagnostics; do not manufacture them.
+    legacy = export_radar_diagnostics(saved_view())
+    assert not any("discovery_basis" in row["path"] or "returned_versions" in row["path"]
+                   or "discovery_version" in row["values"] for row in legacy["diagnostic_rows"])
+    for key in ("model_calls", "model_usage", "model_stages", "usage_issues"):
+        assert out[key] == legacy[key]

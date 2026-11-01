@@ -9,6 +9,16 @@
 - 下游选择器或查询规划器只能通过导出的版本化数据契约消费结果。
 - `PolicyCost` 是数据构造和离线策略比较使用的实验量；原始 token、耗时和金额单独记录，不直接等同于策略成本。
 
+## KDD 路由对接
+
+已增加多方向公开任务、版本化观测/回执环境及独立 solver 评测入口：
+`python -m medical_qa_data_factory eval routes solve|evaluate|compare`。
+方向采用 `pipeline / research / business / public_health`。真实宿主通过
+`ObservationReceiptEnvironment` 提供当前合法候选与真实回执，工厂不接管工具执行。
+公开任务、隐藏目标、环境版本、生成轨迹及新求解轨迹分别保存；未审核真实任务不产生 gold 分数。
+具体函数、请求形状、命令及本轮验证限制见
+[query-planner 交接](docs/query-planner-release-handoff.md#多方向-kdd-路由评测2026-10-30)。
+
 ## 当前状态
 
 当前已实现：

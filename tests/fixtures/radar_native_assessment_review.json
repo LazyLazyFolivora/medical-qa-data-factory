@@ -1,0 +1,319 @@
+{
+  "fixture_origin": "Actual WIP Radar AssessmentAxes.model_dump and delivery.human_review_context, synthetic in-memory records only; no DB/network/model.",
+  "assessment_axes": {
+    "source_reliability": [
+      {
+        "record_ref": {
+          "provider": "fixture",
+          "object_type": "document",
+          "object_id": "synthetic-source",
+          "adopted_version": "native-v1",
+          "version_source": "provider",
+          "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "authorization_ref": "synthetic-grant"
+        },
+        "assessment_status": "human_reviewed",
+        "reason_code": "explicit_human_review",
+        "assessment_basis_refs": [
+          {
+            "provider": "fixture",
+            "object_type": "document",
+            "object_id": "synthetic-source",
+            "adopted_version": "native-v1",
+            "version_source": "provider",
+            "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "authorization_ref": "synthetic-grant"
+          }
+        ],
+        "assessment_basis": "PRIVATE_ASSESSMENT_BODY",
+        "assessed_by": "synthetic-reviewer",
+        "assessed_at": "2026-10-31T10:00:00Z",
+        "taxonomy_name": "admiralty-scale",
+        "taxonomy_version": 5,
+        "native_review_entry_id": "entry-review",
+        "review_revision": 2,
+        "previous_assessment_ref": null,
+        "grade": "B",
+        "publisher_scope": "declared synthetic publisher only"
+      },
+      {
+        "record_ref": {
+          "provider": "fixture",
+          "object_type": "document",
+          "object_id": "synthetic-source",
+          "adopted_version": "native-v1",
+          "version_source": "provider",
+          "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "authorization_ref": "synthetic-grant"
+        },
+        "assessment_status": "not_assessed",
+        "reason_code": "basis_missing",
+        "assessment_basis_refs": [],
+        "assessment_basis": "",
+        "assessed_by": null,
+        "assessed_at": null,
+        "taxonomy_name": "admiralty-scale",
+        "taxonomy_version": 5,
+        "native_review_entry_id": null,
+        "review_revision": null,
+        "previous_assessment_ref": null,
+        "grade": "F",
+        "publisher_scope": null
+      }
+    ],
+    "information_credibility": [
+      {
+        "record_ref": {
+          "provider": "fixture",
+          "object_type": "document",
+          "object_id": "synthetic-source",
+          "adopted_version": "native-v1",
+          "version_source": "provider",
+          "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "authorization_ref": "synthetic-grant"
+        },
+        "assessment_status": "human_reviewed",
+        "reason_code": "explicit_human_review",
+        "assessment_basis_refs": [
+          {
+            "provider": "fixture",
+            "object_type": "document",
+            "object_id": "synthetic-source",
+            "adopted_version": "native-v1",
+            "version_source": "provider",
+            "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "authorization_ref": "synthetic-grant"
+          }
+        ],
+        "assessment_basis": "PRIVATE_ASSESSMENT_BODY",
+        "assessed_by": "synthetic-reviewer",
+        "assessed_at": "2026-10-31T10:00:00Z",
+        "taxonomy_name": "admiralty-scale",
+        "taxonomy_version": 5,
+        "native_review_entry_id": "entry-review",
+        "review_revision": 2,
+        "previous_assessment_ref": null,
+        "grade": "2",
+        "claim_id": "claim-1",
+        "claim_text": "PRIVATE_CLAIM_TEXT",
+        "claim_text_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "independent_confirmation_refs": [],
+        "independent_confirmation_basis": ""
+      },
+      {
+        "record_ref": {
+          "provider": "fixture",
+          "object_type": "document",
+          "object_id": "synthetic-source",
+          "adopted_version": "native-v1",
+          "version_source": "provider",
+          "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "authorization_ref": "synthetic-grant"
+        },
+        "assessment_status": "not_assessed",
+        "reason_code": "basis_missing",
+        "assessment_basis_refs": [],
+        "assessment_basis": "",
+        "assessed_by": null,
+        "assessed_at": null,
+        "taxonomy_name": "admiralty-scale",
+        "taxonomy_version": 5,
+        "native_review_entry_id": null,
+        "review_revision": null,
+        "previous_assessment_ref": null,
+        "grade": "6",
+        "claim_id": null,
+        "claim_text": null,
+        "claim_text_sha256": null,
+        "independent_confirmation_refs": [],
+        "independent_confirmation_basis": ""
+      }
+    ],
+    "evidence_level": "unverified",
+    "heat": {
+      "score": 2,
+      "qualification": "attention only",
+      "raw_source": "PRIVATE_HEAT_BODY"
+    }
+  },
+  "human_review_context": {
+    "status": "recorded",
+    "analysis_id": "synthetic-analysis",
+    "reviews": [
+      {
+        "entry_id": "entry-review",
+        "review_revision": 2,
+        "reviewer_actor": "synthetic-reviewer",
+        "reviewed_at": "2026-10-31T10:00:00Z",
+        "binding_status": "exact_target",
+        "text": "PRIVATE_HUMAN_NOTE",
+        "conditions": "PRIVATE_HUMAN_CONDITIONS",
+        "basis_entry_ids": [
+          "material-1"
+        ],
+        "decision": "accepted_within_scope",
+        "scope": "selected synthetic report only",
+        "target": {
+          "type": "report",
+          "analysis_id": "synthetic-analysis",
+          "text_sha256": "94938804352feffb78ed1c7ece55253b2d598e42171f88a268a55b9d6154cf32"
+        },
+        "basis_record_refs": [
+          {
+            "provider": "fixture",
+            "object_type": "document",
+            "object_id": "synthetic-source",
+            "adopted_version": "native-v1",
+            "version_source": "provider",
+            "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "authorization_ref": "synthetic-grant"
+          }
+        ],
+        "analysis_input_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "assessment_axes": {
+          "source_reliability": [
+            {
+              "record_ref": {
+                "provider": "fixture",
+                "object_type": "document",
+                "object_id": "synthetic-source",
+                "adopted_version": "native-v1",
+                "version_source": "provider",
+                "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "authorization_ref": "synthetic-grant"
+              },
+              "assessment_status": "human_reviewed",
+              "reason_code": "explicit_human_review",
+              "assessment_basis_refs": [
+                {
+                  "provider": "fixture",
+                  "object_type": "document",
+                  "object_id": "synthetic-source",
+                  "adopted_version": "native-v1",
+                  "version_source": "provider",
+                  "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "authorization_ref": "synthetic-grant"
+                }
+              ],
+              "assessment_basis": "PRIVATE_ASSESSMENT_BODY",
+              "assessed_by": "synthetic-reviewer",
+              "assessed_at": "2026-10-31T10:00:00Z",
+              "taxonomy_name": "admiralty-scale",
+              "taxonomy_version": 5,
+              "native_review_entry_id": "entry-review",
+              "review_revision": 2,
+              "previous_assessment_ref": null,
+              "grade": "B",
+              "publisher_scope": "declared synthetic publisher only"
+            },
+            {
+              "record_ref": {
+                "provider": "fixture",
+                "object_type": "document",
+                "object_id": "synthetic-source",
+                "adopted_version": "native-v1",
+                "version_source": "provider",
+                "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "authorization_ref": "synthetic-grant"
+              },
+              "assessment_status": "not_assessed",
+              "reason_code": "basis_missing",
+              "assessment_basis_refs": [],
+              "assessment_basis": "",
+              "assessed_by": null,
+              "assessed_at": null,
+              "taxonomy_name": "admiralty-scale",
+              "taxonomy_version": 5,
+              "native_review_entry_id": null,
+              "review_revision": null,
+              "previous_assessment_ref": null,
+              "grade": "F",
+              "publisher_scope": null
+            }
+          ],
+          "information_credibility": [
+            {
+              "record_ref": {
+                "provider": "fixture",
+                "object_type": "document",
+                "object_id": "synthetic-source",
+                "adopted_version": "native-v1",
+                "version_source": "provider",
+                "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "authorization_ref": "synthetic-grant"
+              },
+              "assessment_status": "human_reviewed",
+              "reason_code": "explicit_human_review",
+              "assessment_basis_refs": [
+                {
+                  "provider": "fixture",
+                  "object_type": "document",
+                  "object_id": "synthetic-source",
+                  "adopted_version": "native-v1",
+                  "version_source": "provider",
+                  "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "authorization_ref": "synthetic-grant"
+                }
+              ],
+              "assessment_basis": "PRIVATE_ASSESSMENT_BODY",
+              "assessed_by": "synthetic-reviewer",
+              "assessed_at": "2026-10-31T10:00:00Z",
+              "taxonomy_name": "admiralty-scale",
+              "taxonomy_version": 5,
+              "native_review_entry_id": "entry-review",
+              "review_revision": 2,
+              "previous_assessment_ref": null,
+              "grade": "2",
+              "claim_id": "claim-1",
+              "claim_text": "PRIVATE_CLAIM_TEXT",
+              "claim_text_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "independent_confirmation_refs": [],
+              "independent_confirmation_basis": ""
+            },
+            {
+              "record_ref": {
+                "provider": "fixture",
+                "object_type": "document",
+                "object_id": "synthetic-source",
+                "adopted_version": "native-v1",
+                "version_source": "provider",
+                "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "authorization_ref": "synthetic-grant"
+              },
+              "assessment_status": "not_assessed",
+              "reason_code": "basis_missing",
+              "assessment_basis_refs": [],
+              "assessment_basis": "",
+              "assessed_by": null,
+              "assessed_at": null,
+              "taxonomy_name": "admiralty-scale",
+              "taxonomy_version": 5,
+              "native_review_entry_id": null,
+              "review_revision": null,
+              "previous_assessment_ref": null,
+              "grade": "6",
+              "claim_id": null,
+              "claim_text": null,
+              "claim_text_sha256": null,
+              "independent_confirmation_refs": [],
+              "independent_confirmation_basis": ""
+            }
+          ],
+          "evidence_level": "unverified",
+          "heat": {
+            "score": 2,
+            "qualification": "attention only",
+            "raw_source": "PRIVATE_HEAT_BODY"
+          }
+        }
+      }
+    ],
+    "investigation_only_judgment_count": 0,
+    "qualification": "人工记录仅适用于所列固定对象和范围；不改变机器核验，不签发对外警报，也不自动适用于新版。"
+  },
+  "producer_state": "Actual WIP types/producer; final AnalysisView route wiring not yet accepted.",
+  "producer_files_sha256": {
+    "services/bioradar/research/mining/models.py": "369aeedea6e47b5ed00eba8a1f0668dff334d4c300fdbadfc735a110a16626dc",
+    "services/bioradar/delivery/research_report.py": "6ba4066c3a41959612b65ccf1f0a184b3636b34e6b70d4f9f5bb361f9ef8ab30"
+  }
+}

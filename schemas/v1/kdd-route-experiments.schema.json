@@ -1,0 +1,197 @@
+{
+  "$defs": {
+    "Experiment": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "direction": {
+          "enum": [
+            "pipeline",
+            "research",
+            "business",
+            "public_health"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "provenance": {
+          "enum": [
+            "real_task",
+            "synthetic_fixture",
+            "historical_replay"
+          ],
+          "title": "Provenance",
+          "type": "string"
+        },
+        "experiment_kind": {
+          "enum": [
+            "synthetic_messages",
+            "historical_replay",
+            "real_task"
+          ],
+          "title": "Experiment Kind",
+          "type": "string"
+        },
+        "experiment_group": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Experiment Group"
+        },
+        "control_role": {
+          "default": "target",
+          "enum": [
+            "target",
+            "false_rumor",
+            "prior_season"
+          ],
+          "title": "Control Role",
+          "type": "string"
+        },
+        "judgement_endpoints": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Judgement Endpoints",
+          "type": "array"
+        },
+        "required_fact_checks": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Required Fact Checks",
+          "type": "array"
+        },
+        "arms": {
+          "items": {
+            "$ref": "#/$defs/ExperimentArm"
+          },
+          "minItems": 1,
+          "title": "Arms",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "direction",
+        "provenance",
+        "experiment_kind",
+        "required_fact_checks",
+        "arms"
+      ],
+      "title": "Experiment",
+      "type": "object"
+    },
+    "ExperimentArm": {
+      "additionalProperties": false,
+      "properties": {
+        "analysis_id": {
+          "minLength": 1,
+          "title": "Analysis Id",
+          "type": "string"
+        },
+        "label": {
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "policy_version": {
+          "minLength": 1,
+          "title": "Policy Version",
+          "type": "string"
+        },
+        "action_space": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Action Space",
+          "type": "array"
+        },
+        "public_input_sha256": {
+          "minLength": 1,
+          "title": "Public Input Sha256",
+          "type": "string"
+        },
+        "source_scope_sha256": {
+          "minLength": 1,
+          "title": "Source Scope Sha256",
+          "type": "string"
+        },
+        "model_config_sha256": {
+          "minLength": 1,
+          "title": "Model Config Sha256",
+          "type": "string"
+        },
+        "prompt_config_sha256": {
+          "minLength": 1,
+          "title": "Prompt Config Sha256",
+          "type": "string"
+        },
+        "budget_config_sha256": {
+          "minLength": 1,
+          "title": "Budget Config Sha256",
+          "type": "string"
+        },
+        "host_version": {
+          "minLength": 1,
+          "title": "Host Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "analysis_id",
+        "label",
+        "policy_version",
+        "action_space",
+        "public_input_sha256",
+        "source_scope_sha256",
+        "model_config_sha256",
+        "prompt_config_sha256",
+        "budget_config_sha256",
+        "host_version"
+      ],
+      "title": "ExperimentArm",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "kdd-route-experiments-v1",
+      "default": "kdd-route-experiments-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "frozen_protocol_ref": {
+      "minLength": 1,
+      "title": "Frozen Protocol Ref",
+      "type": "string"
+    },
+    "experiments": {
+      "items": {
+        "$ref": "#/$defs/Experiment"
+      },
+      "minItems": 1,
+      "title": "Experiments",
+      "type": "array"
+    }
+  },
+  "required": [
+    "frozen_protocol_ref",
+    "experiments"
+  ],
+  "title": "ExperimentProtocol",
+  "type": "object"
+}

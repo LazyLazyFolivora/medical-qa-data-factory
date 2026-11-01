@@ -1,0 +1,105 @@
+{
+  "additionalProperties": false,
+  "description": "Public task metadata only. Runtime checks are supplied by the host.",
+  "properties": {
+    "schema_version": {
+      "const": "kdd-route-task-v1",
+      "default": "kdd-route-task-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "qid": {
+      "minLength": 1,
+      "title": "Qid",
+      "type": "string"
+    },
+    "question": {
+      "maxLength": 4000,
+      "minLength": 1,
+      "title": "Question",
+      "type": "string"
+    },
+    "direction": {
+      "enum": [
+        "pipeline",
+        "research",
+        "business",
+        "public_health"
+      ],
+      "title": "Direction",
+      "type": "string"
+    },
+    "as_of": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "As Of"
+    },
+    "environment_ref": {
+      "minLength": 1,
+      "title": "Environment Ref",
+      "type": "string"
+    },
+    "environment_version": {
+      "minLength": 1,
+      "title": "Environment Version",
+      "type": "string"
+    },
+    "provenance": {
+      "enum": [
+        "real_task",
+        "synthetic_fixture",
+        "historical_replay"
+      ],
+      "title": "Provenance",
+      "type": "string"
+    },
+    "budget": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Budget",
+      "type": "object"
+    },
+    "max_steps": {
+      "default": 24,
+      "maximum": 256,
+      "minimum": 1,
+      "title": "Max Steps",
+      "type": "integer"
+    },
+    "partition": {
+      "default": "development",
+      "enum": [
+        "train",
+        "development",
+        "test"
+      ],
+      "title": "Partition",
+      "type": "string"
+    },
+    "split_group": {
+      "minLength": 1,
+      "title": "Split Group",
+      "type": "string"
+    }
+  },
+  "required": [
+    "qid",
+    "question",
+    "direction",
+    "environment_ref",
+    "environment_version",
+    "provenance",
+    "budget",
+    "split_group"
+  ],
+  "title": "RouteTask",
+  "type": "object"
+}

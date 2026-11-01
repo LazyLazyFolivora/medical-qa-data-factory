@@ -48,7 +48,12 @@ class LiteratureEvidenceExecutor:
                 "literature_capability_unavailable",
                 "the literature provider cannot search and read chunks back",
             )
-        if not capability.supports_pinned_snapshot:
+        if (
+            not capability.supports_pinned_snapshot
+            or capability.snapshot is None
+            or not capability.snapshot.pinned
+            or not capability.snapshot.snapshot_id
+        ):
             raise ToolCallError(
                 "literature_snapshot_unavailable",
                 "formal evidence requires a pinned literature snapshot",

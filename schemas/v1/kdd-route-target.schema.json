@@ -1,0 +1,154 @@
+{
+  "$defs": {
+    "ObservationRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "weight": {
+          "default": 1,
+          "exclusiveMinimum": 0,
+          "title": "Weight",
+          "type": "number"
+        },
+        "acceptable_evidence_sets": {
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": "Acceptable Evidence Sets",
+          "type": "array"
+        },
+        "acceptable_artifact_sets": {
+          "items": {
+            "items": {
+              "$ref": "#/$defs/VersionRef"
+            },
+            "type": "array"
+          },
+          "title": "Acceptable Artifact Sets",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "ObservationRequirement",
+      "type": "object"
+    },
+    "VersionRef": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "version"
+      ],
+      "title": "VersionRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Hidden post-solve assessment; unreviewed real tasks have no gold score.",
+  "properties": {
+    "schema_version": {
+      "const": "kdd-route-target-v1",
+      "default": "kdd-route-target-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "qid": {
+      "minLength": 1,
+      "title": "Qid",
+      "type": "string"
+    },
+    "environment_ref": {
+      "minLength": 1,
+      "title": "Environment Ref",
+      "type": "string"
+    },
+    "environment_version": {
+      "minLength": 1,
+      "title": "Environment Version",
+      "type": "string"
+    },
+    "provenance": {
+      "enum": [
+        "real_task",
+        "synthetic_fixture",
+        "historical_replay"
+      ],
+      "title": "Provenance",
+      "type": "string"
+    },
+    "review_status": {
+      "enum": [
+        "unreviewed",
+        "independent_review",
+        "fixture_expected"
+      ],
+      "title": "Review Status",
+      "type": "string"
+    },
+    "reviewer": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reviewer"
+    },
+    "review_basis_refs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Review Basis Refs",
+      "type": "array"
+    },
+    "expected_outcome": {
+      "default": "unknown",
+      "enum": [
+        "sufficient",
+        "insufficient",
+        "unknown"
+      ],
+      "title": "Expected Outcome",
+      "type": "string"
+    },
+    "requirements": {
+      "items": {
+        "$ref": "#/$defs/ObservationRequirement"
+      },
+      "title": "Requirements",
+      "type": "array"
+    }
+  },
+  "required": [
+    "qid",
+    "environment_ref",
+    "environment_version",
+    "provenance",
+    "review_status"
+  ],
+  "title": "RouteEvaluationTarget",
+  "type": "object"
+}

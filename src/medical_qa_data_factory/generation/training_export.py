@@ -1,4 +1,4 @@
-"""Versioned export of QA items and Query Planner samples."""
+"""Versioned export of QA items and generation-policy exploration samples."""
 from __future__ import annotations
 
 import hashlib
@@ -26,6 +26,8 @@ class SplitLeakageError(RuntimeError):
 
 class TrainingExportManifest(ContractModel):
     schema_version: str = "training-export-manifest-v1"
+    artifact_role: Literal["generation_exploration"] = "generation_exploration"
+    blind_solver_training_compatible: Literal[False] = False
     qa_item_count: int = Field(ge=0)
     planner_sample_count: int = Field(ge=0)
     trajectory_count: int = Field(ge=0)
@@ -63,7 +65,11 @@ def _leakage_fingerprint(item: QAItem) -> str:
 
 
 def export_training_data(workspace: str | Path, output: str | Path) -> Path:
-    """Write JSONL datasets, rejecting cross-split structural leakage."""
+    """Export generation-policy exploration, not independent solver trajectories.
+
+    Blind solvers consume TaskReleaseExporter.public/planner_questions.jsonl
+    and must collect their own transitions before training.
+    """
     destination = Path(output)
     destination.mkdir(parents=True, exist_ok=True)
     qa_path = destination / "qa_items.jsonl"

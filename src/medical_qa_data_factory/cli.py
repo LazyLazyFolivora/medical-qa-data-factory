@@ -135,6 +135,8 @@ def build_parser() -> argparse.ArgumentParser:
     evaluation_react.add_argument("--manifest", required=True)
     evaluation_react.add_argument("--provider", default="primekg")
     evaluation_react.add_argument("--report", default=None)
+    from .evaluation.kdd_routes_cli import add_commands as add_route_commands
+    add_route_commands(evaluation_commands)
 
     literature = commands.add_parser(
         "literature", help="Diagnose the configured literature providers"
@@ -226,13 +228,13 @@ def build_parser() -> argparse.ArgumentParser:
     evidence_pubmed_search.add_argument("--limit", type=int, default=10)
 
     training = commands.add_parser(
-        "training", help="Export Query Planner training artifacts"
+        "training", help="Export generation-exploration research artifacts (not blind solver traces)"
     )
     training_commands = training.add_subparsers(
         dest="training_command", required=True
     )
     training_export = training_commands.add_parser(
-        "export", help="Export QAItems and Planner samples as JSONL"
+        "export", help="Export QAItems and generation-policy samples as JSONL"
     )
     training_export.add_argument("--workspace", required=True)
     training_export.add_argument("--output", required=True)
@@ -559,6 +561,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "validate":
         return _run_validate_command(args)
     if args.command == "eval":
+        if args.evaluation_command == "routes":
+            from .evaluation.kdd_routes_cli import command as route_command
+            return route_command(args)
         from .evaluation.cli import evaluation_command, react_evaluation_command
 
         if args.evaluation_command == "react":
