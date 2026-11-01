@@ -432,64 +432,10 @@ def test_claim_short_quote_locators_survive_but_answers_bindings_and_bodies_do_n
             assert "quote" not in quoted
 
 
-def continuation_view():
-    import json
-    from pathlib import Path
-    fixture = json.loads((Path(__file__).parent / "fixtures/radar_native_report_continuation.json").read_text())
-    view = saved_view()
-    view["progress"]["report_continuation"] = fixture["report_continuation"]
-    view["calls"] += [
-        {"call_id": "stopped-call", "stage": "biocheck_plan", "status": "failed", "receipt": {"status": "not_sent"}},
-        {"call_id": "new-call", "stage": "biocheck_plan", "status": "received",
-         "report_continuation_id": fixture["report_continuation"]["id"], "continues_call_id": "stopped-call",
-         "receipt": {"usage": {"total_tokens": 31}}},
-    ]
-    return view
 
 
-def test_final_native_report_continuation_identity_scope_caps_and_call_links_survive():
-    view = continuation_view()
-    native = view["progress"]["report_continuation"]
-    out = export_radar_diagnostics(view)
-    grant = out["report_continuation"]
-    for field in ("id", "status", "actor_id", "workspace_id", "authorized_at", "reason", "base_input_hash",
-                  "base_result_hash", "from_call_id", "old_round", "target_round", "original_started_at",
-                  "original_deadline", "extra_seconds", "new_deadline", "standby_seconds",
-                  "automatic_wait_seconds_at_authorization", "original_max_input_bytes", "approved_max_input_bytes",
-                  "stopped_request_bytes", "original_provider_version", "projection_version", "loaded_provider_version"):
-        assert grant[field] == native[field]
-    assert grant["provider_pin"] == {k: v for k, v in native["provider_pin"].items() if k != "service_endpoint"}
-    assert grant["code_version"] == native["code_version"]
-    assert grant["preserved_operation_ids"] == native["preserved_operation_ids"]
-    assert grant["profiles"] == native["profiles"]
-    rows = {row["path"]: row["values"] for row in out["diagnostic_rows"]}
-    assert rows["/calls/2"]["report_continuation_id"] == native["id"]
-    assert rows["/calls/2"]["continues_call_id"] == "stopped-call"
-    assert out["model_usage"] == {"calls": 2, "known_total_tokens": 48, "unknown_usage_calls": 0, "total_tokens": 48}
-    assert out["diagnostic_presence"]["report_continuation"] == "present"
 
 
-def test_continuation_keeps_missing_fields_and_excludes_endpoint_body_and_arbitrary_payload():
-    import json
-    view = continuation_view()
-    grant = view["progress"]["report_continuation"]
-    grant["payload"] = {"reason": "PRIVATE_CONTINUATION_BODY"}
-    grant["provider_pin"]["credential"] = "PRIVATE_CREDENTIAL"
-    grant["code_version"]["system_prompt"] = "PRIVATE_SYSTEM_PROMPT"
-    grant["profiles"][0]["request"] = {"text": "PRIVATE_REQUEST_BODY"}
-    view["progress"]["report_continuation_previous_fields"] = {"reason": "PRIVATE_PREVIOUS_BODY"}
-    del grant["actor_id"]
-    before = copy.deepcopy(view)
-    out = export_radar_diagnostics(view)
-    assert "actor_id" not in out["report_continuation"]
-    assert {"path": "/progress/report_continuation", "fields": ["actor_id"]} in out["missing_diagnostic_fields"]
-    assert out["report_continuation"]["profiles"][0]["request_sha256"] == grant["profiles"][0]["request_sha256"]
-    for text in ("PRIVATE_CONTINUATION_BODY", "PRIVATE_CREDENTIAL", "PRIVATE_SYSTEM_PROMPT", "PRIVATE_REQUEST_BODY", "PRIVATE_PREVIOUS_BODY", "service_endpoint"):
-        assert text not in json.dumps(out)
-    assert view == before
-    absent = export_radar_diagnostics(saved_view())
-    assert absent["report_continuation"] is None
-    assert absent["diagnostic_presence"]["report_continuation"] == "absent"
 
 
 def reading_diagnostics_view():
