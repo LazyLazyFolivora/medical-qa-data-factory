@@ -96,14 +96,22 @@
       "items": {
         "$ref": "#/$defs/CandidateClaim"
       },
-      "minItems": 1,
       "title": "Claims",
       "type": "array"
+    },
+    "insufficiency_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Insufficiency Reason"
     }
   },
-  "required": [
-    "claims"
-  ],
   "title": "CandidateClaimBatch",
   "type": "object"
 }

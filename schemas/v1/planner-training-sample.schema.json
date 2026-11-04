@@ -46,6 +46,14 @@
           "title": "Available Actions",
           "type": "array"
         },
+        "available_skills": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Available Skills",
+          "type": "array"
+        },
         "evidence_gaps": {
           "items": {
             "type": "string"

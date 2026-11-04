@@ -18,7 +18,7 @@ from .contracts import (
     QuestionDraft,
     VerificationResult,
 )
-from .semantics import RelationSemanticsPolicy
+from .semantics import RelationSemanticsPolicy, contains_semantic_term
 
 
 @runtime_checkable
@@ -39,7 +39,9 @@ def check_relation_semantics_safety(
     """Blocking only for explicit causal or therapeutic misstatement."""
     lowered = question_text.lower()
     offenders = sorted(
-        word for word in policy.forbidden_words(relation) if word.lower() in lowered
+        word
+        for word in policy.forbidden_words(relation)
+        if contains_semantic_term(lowered, word)
     )
     if offenders:
         return (

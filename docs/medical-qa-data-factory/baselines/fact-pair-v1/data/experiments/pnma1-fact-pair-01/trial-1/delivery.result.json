@@ -1,0 +1,36 @@
+{
+  "invocation_id": "graph-pilot.delivery.f69cb220db4287e3",
+  "role": "question_method_pilot",
+  "parsed": {
+    "question": {
+      "question": "举出一种过表达能抑制PNMA1诱导的神经元凋亡的蛋白，并说明该蛋白在人类中的已知一般凋亡调控机制。",
+      "answer": "BCL2；该蛋白在人类中的一般凋亡调控机制是通过控制线粒体膜通透性来调节细胞死亡。",
+      "operation": "结合关系原文确定抑制PNMA1诱导神经元凋亡的蛋白为BCL2，再查询人类BCL2的注释以获取其一般凋亡调控机制。",
+      "evidence_needs": [
+        {
+          "fact": "Bcl2的过表达抑制了PNMA1诱导的神经元凋亡",
+          "source": "pubmed:20936693",
+          "quote": "Apoptosis by PNMA1 expression is inhibited by overexpression of Bcl2"
+        },
+        {
+          "fact": "BCL2通常通过控制线粒体膜通透性来调节细胞死亡",
+          "source": "uniprot:P10415",
+          "quote": "Regulates cell death by controlling the mitochondrial membrane permeability"
+        }
+      ],
+      "dependency": "识别对象：需从关系证据中识别出过表达可抑制PNMA1诱导神经元凋亡的蛋白（BCL2）。查询功能：需基于人类蛋白注释（Uniprot）获取该蛋白的一般凋亡调控作用描述。两者分别来自不同来源，需组合以回答完整问题。",
+      "completion": "题干明确指定了筛选条件（抑制PNMA1诱导的神经元凋亡），锁定目标蛋白为BCL2。答案部分要求说明该蛋白在人类中的一般凋亡调控机制，依据Uniprot注释，其机制为“控制线粒体膜通透性来调节细胞死亡”。题目未要求解释原实验中的具体分子细节，仅询问一般作用，故答案保持在这一层级。",
+      "difficulty": "具有明确的关系连接结构（PNMA1诱导凋亡 -> BCL2抑制 -> BCL2调节膜通透性），暂定中等。需理解不同证据来源的分工及“一般作用”的表述边界。",
+      "shortcut": "当前两份资料分别提供关系和功能；可能存在一篇综述同时给出两者，尚未排查是否存在单篇文献直接包含“BCL2抑制PNMA1诱导凋亡且其机制为调节膜通透性”的表述。"
+    },
+    "gap": "无。证据充分，可直接生成。"
+  },
+  "usage": {
+    "input_tokens": 1636,
+    "output_tokens": 545,
+    "model_config_id": "qwen-self-hosted:Qwen3.6-FP8",
+    "attempts": 1,
+    "structured_output_fallback": false
+  },
+  "model_config_id": "qwen-self-hosted:Qwen3.6-FP8"
+}

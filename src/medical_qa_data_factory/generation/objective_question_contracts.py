@@ -12,7 +12,7 @@ import json
 from enum import Enum
 from typing import Annotated, Any, Literal, Sequence
 
-from pydantic import Field, model_validator
+from pydantic import Field, StringConstraints, model_validator
 
 from ..domain.common import ContractModel, UtcDateTime
 from .evidence_provider import ProviderTerminalStatus
@@ -239,7 +239,8 @@ class EvidenceAnchor(ObjectiveContractModel):
     section_or_field: str = Field(min_length=1)
     start_offset: int = Field(ge=0)
     end_offset: int = Field(gt=0)
-    quoted_text: str = Field(min_length=1)
+    # Offsets and hashes address the exact source bytes/text, including whitespace.
+    quoted_text: Annotated[str, StringConstraints(strip_whitespace=False)] = Field(min_length=1)
     quote_hash: Digest
 
     @model_validator(mode="after")
@@ -295,6 +296,7 @@ class CandidateClaim(ObjectiveContractModel):
 
 
 class QuestionHypothesis(ObjectiveContractModel):
+    proposed_difficulty: Literal["easy", "medium", "hard"] | None = None
     hypothesis_id: str = Field(min_length=1)
     candidate_claim_ids: list[str] = Field(min_length=1)
     question_intent: str = Field(min_length=1)
@@ -476,6 +478,8 @@ class PublicQuestionAuditResult(ObjectiveContractModel):
 
 
 class AnswerEvidenceAuditResult(ObjectiveContractModel):
+    evidence_need: str | None = None
+    assessed_difficulty: Literal["easy", "medium", "hard"] | None = None
     task_id: str = Field(min_length=1)
     public_question_digest: Digest
     question_answer_contract_digest: Digest
@@ -490,6 +494,7 @@ class AnswerEvidenceAuditResult(ObjectiveContractModel):
 
 
 class ObjectiveValidationReport(ObjectiveContractModel):
+    assessed_difficulty: Literal["easy", "medium", "hard"] | None = None
     report_id: str = Field(min_length=1)
     question_id: str = Field(min_length=1)
     verdict: ObjectiveVerdict
@@ -558,6 +563,8 @@ class GenerationGoal(ObjectiveContractModel):
     question_count_upper_bound: int = Field(ge=0)
     difficulty_targets: list[str] = Field(default_factory=list)
     style_targets: list[str] = Field(default_factory=list)
+    language: str | None = None
+    planner_environment: dict[str, Any] = Field(default_factory=dict)
     allowed_fact_types: list[str] = Field(default_factory=list)
     run_budget: dict[str, Any] = Field(min_length=1)
     run_manifest_id: str = Field(min_length=1)

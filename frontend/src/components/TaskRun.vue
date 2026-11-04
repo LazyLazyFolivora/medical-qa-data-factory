@@ -87,7 +87,9 @@ const taskOptionLabel = (task) =>
             </option>
           </select>
         </label>
-        <a class="quiet-action" :href="task.detail_url">完整任务记录 ↗</a>
+        <a v-if="task.detail_url" class="quiet-action" :href="task.detail_url">
+          完整任务记录 ↗
+        </a>
       </div>
     </header>
 
@@ -131,7 +133,7 @@ const taskOptionLabel = (task) =>
           </h3>
           <p>{{ failureMessage }}</p>
         </div>
-        <a :href="task.detail_url">查看诊断详情 →</a>
+        <a v-if="task.detail_url" :href="task.detail_url">查看诊断详情 →</a>
       </div>
 
       <div v-if="questions.length" class="result-list">
@@ -157,7 +159,7 @@ const taskOptionLabel = (task) =>
               <span>{{ question.validation_label }}</span>
             </div>
           </div>
-          <a class="result-link" :href="question.review_url">
+          <a v-if="question.review_url" class="result-link" :href="question.review_url">
             审查 <span aria-hidden="true">→</span>
           </a>
         </article>

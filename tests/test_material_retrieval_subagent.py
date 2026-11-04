@@ -272,3 +272,70 @@ def test_pubmed_adapter_relaxes_an_overlong_empty_query() -> None:
 
     assert result.terminal_status is ProviderTerminalStatus.SUCCEEDED
     assert client.queries[-1] == "ZRSR2"
+
+
+def test_pubmed_adapter_fetches_full_text_for_selected_materials() -> None:
+    provider = PubMedMaterialProvider(
+        FakePubMedWithoutContent(),
+        fulltext_transport=lambda url: {
+            "PubTator3": [
+                {
+                    "pmid": "123",
+                    "passages": [
+                        {
+                            "infons": {"type": "title"},
+                            "text": "ZRSR2 localization",
+                        },
+                        {
+                            "infons": {"section_type": "results"},
+                            "text": (
+                                "ZRSR2 loss impaired minor intron splicing "
+                                "and increased hematopoietic self-renewal."
+                            ),
+                        },
+                    ],
+                }
+            ]
+        },
+    )
+    request = EvidenceProviderRequest(
+        request_id="request.pubmed.details",
+        provider_id="pubmed",
+        provider_version="pubmed-eutils-v1",
+        operation_key="run|pubmed|details",
+        query={"term": "ZRSR2"},
+        requested_at=NOW,
+        material_limit=5,
+    )
+
+    result = provider.retrieve_details(
+        request,
+        material_ids=["material.pubmed.123"],
+    )
+
+    assert result.terminal_status is ProviderTerminalStatus.SUCCEEDED
+    assert result.materials[0]["material_type"] == "literature_full_text"
+    content = result.raw_content_by_material_id["material.pubmed.123"]
+    assert "[results]" in content
+    assert "minor intron splicing" in content
+    assert any(
+        anchor["section_or_field"] == "results"
+        and "hematopoietic self-renewal" in anchor["quoted_text"]
+        for anchor in result.anchors
+    )
+
+
+class FakePubMedWithoutContent:
+    def search_result(self, query, *, limit):
+        return PubMedSearchResult(
+            status=PubMedProviderStatus.EMPTY,
+            snapshot_id="pubmed:test",
+            query=query,
+        )
+
+    def fetch_result(self, pmids, *, limit):
+        return PubMedFetchResult(
+            status=PubMedProviderStatus.EMPTY,
+            snapshot_id="pubmed:test",
+            input_pmids=list(pmids),
+        )

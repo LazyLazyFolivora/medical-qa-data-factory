@@ -20,7 +20,10 @@ from medical_qa_data_factory.generation.contracts import (
 )
 from medical_qa_data_factory.generation.curation import curate_evidence
 from medical_qa_data_factory.generation.planning import QuestionPlanner
-from medical_qa_data_factory.generation.semantics import RelationSemanticsPolicy
+from medical_qa_data_factory.generation.semantics import (
+    RelationSemanticsPolicy,
+    study_claim_rejection_codes,
+)
 from medical_qa_data_factory.generation.question_skills import load_question_skill
 from medical_qa_data_factory.generation.style_evaluation import (
     StructuredStyleJudge,
@@ -386,6 +389,20 @@ def test_association_with_causal_wording_is_blocking() -> None:
     )
     assert code == "relation_semantics_violation"
     assert message
+
+
+def test_association_filter_does_not_match_words_by_substring() -> None:
+    reasons = study_claim_rejection_codes(
+        intent="association_research",
+        polarity="increase",
+        claim_text=(
+            "The treatment arm remained associated with the outcome "
+            "because the confidence interval excluded zero."
+        ),
+        direct_evidence=[],
+    )
+
+    assert "claim_strength_exaggerated" not in reasons
 
 
 def test_association_with_treatment_wording_is_blocking() -> None:

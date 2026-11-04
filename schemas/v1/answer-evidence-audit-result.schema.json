@@ -12,9 +12,38 @@
   },
   "additionalProperties": false,
   "properties": {
+    "assessed_difficulty": {
+      "anyOf": [
+        {
+          "enum": [
+            "easy",
+            "medium",
+            "hard"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Assessed Difficulty"
+    },
     "contradiction_checked": {
       "title": "Contradiction Checked",
       "type": "boolean"
+    },
+    "evidence_need": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Evidence Need"
     },
     "independent_evidence_digest": {
       "pattern": "^[0-9a-f]{64}$",

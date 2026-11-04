@@ -1,0 +1,27 @@
+{
+  "invocation_id": "graph-pilot.fact-pair.5390c6830b225d24",
+  "role": "question_method_pilot",
+  "parsed": {
+    "observation": {
+      "fact": "过表达 Bcl2 抑制 PNMA1 诱导的神经元细胞死亡",
+      "source": "Induction of neuronal cell death by paraneoplastic Ma1 antigen. (pmid:20936693)",
+      "quote": "Apoptosis by PNMA1 expression is inhibited by overexpression of Bcl2"
+    },
+    "added_fact": {
+      "fact": "人类 BCL2 蛋白通常通过控制线粒体膜通透性来调节细胞死亡",
+      "source": "UniProt (P10415)",
+      "quote": "Regulates cell death by controlling the mitochondrial membrane permeability"
+    },
+    "information_gain": "第一项事实指出了 Bcl2 在该特定实验背景下能对抗 PNMA1 诱导的凋亡，而第二项事实补充了 BCL2 作为凋亡调节蛋白在一般生理或病理背景下的核心机制背景（即作用于线粒体膜通透性），这有助于理解为何该蛋白能发挥这种保护作用。",
+    "reader_need": "读者在找到抑制 PNMA1 诱导神经元凋亡的蛋白（Bcl2）后，自然想了解该蛋白本身的一般凋亡调控功能，以建立从实验观察到生物学功能的联系。",
+    "proposal": "pair"
+  },
+  "usage": {
+    "input_tokens": 5667,
+    "output_tokens": 293,
+    "model_config_id": "qwen-self-hosted:Qwen3.6-FP8",
+    "attempts": 1,
+    "structured_output_fallback": false
+  },
+  "model_config_id": "qwen-self-hosted:Qwen3.6-FP8"
+}

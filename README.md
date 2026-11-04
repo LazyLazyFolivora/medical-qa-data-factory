@@ -76,8 +76,9 @@
 
 **模型**
 
-- OpenAI-compatible structured-output adapter：严格 JSON Schema、一次 schema repair、
-  稳定错误分类、逐 physical attempt 计费；配置只保存 `api_key_env`，不接受内联密钥。
+- OpenAI-compatible LLM adapter：可配置多个云端或自部署 provider，支持 Bearer/无鉴权，
+  以及 `json_schema`、`json_object`、`prompt_only` 三种结构化输出兼容级别；包含一次
+  schema repair、稳定错误分类和逐 physical attempt 计费。配置不接受内联密钥。
 
 **尚未实现或未验证**
 
@@ -166,21 +167,24 @@ export PYTHONPATH="$PWD/src"
 python -m medical_qa_data_factory demo run --output data/runs/local-demo --task-id aspirin-local-demo --seed aspirin
 ```
 
-启动问题生成工作台：
+启动后端 API：
 
 ```bat
 python -m medical_qa_data_factory web serve --workspace data/runs/local-demo --host 127.0.0.1 --port 8765
 ```
 
-浏览器打开 `http://127.0.0.1:8765`。保持终端运行，按 `Ctrl+C` 停止服务。
-首页是问题生成主工作台；生成记录、问题库、数据集和审核功能位于顶部导航。
-首页会从 PrimeKG 边表前部提取并去重展示 10 个种子实体，即使 workspace 为空也可以直接选择；
-搜索框覆盖 PrimeKG 全表实体，按名称或原生 ID 返回最多 10 个候选。选择实体、生成数量和难度后，
-点击“开始生成”即可直接运行 `rule-based + PrimeKG` 生成任务；生成完成后页面会自动刷新。
-生成期间页面每 750 ms 从不可变运行记录读取进度，实时显示当前节点、已完成节点、Planner
-轮次、动作和新增证据数，无需等待整次任务结束后才刷新执行轨迹。
-全局搜索使用 `data/cache/primekg-entities.sqlite` 派生实体目录，首次搜索会构建一次，
-后续查询直接读取索引；原始 PrimeKG 文件始终保持只读。
+后端只提供 JSON API，`http://127.0.0.1:8765/` 返回服务状态，不托管前端页面。
+
+另开终端启动 Vue：
+
+```bat
+cd frontend
+npm install
+npm run dev
+```
+
+浏览器打开 `http://127.0.0.1:5173`。Vite 会把 `/api` 代理到
+`http://127.0.0.1:8765`。两个终端需要保持运行，分别按 `Ctrl+C` 停止。
 
 数据仓库采用不可变版本；如果需要重新运行演示，请更换 `--output` 和
 `--task-id`，例如使用 `local-demo-2` 和 `aspirin-local-demo-2`。
@@ -188,15 +192,10 @@ python -m medical_qa_data_factory web serve --workspace data/runs/local-demo --h
 `pyproject.toml` 同时声明直接依赖（`dependencies`）与打包元数据、测试配置和命令行入口，
 便于 editable install；第三方依赖的具体版本仍以 `requirements.txt` 与 `constraints.txt` 为准。
 
-Web 首页提供两种生成引擎：
-
-- `Agent（LLM）`：`verify_seed` 后进入 ReAct 探索，Planner、Writer 和 Verifier
-  使用配置的结构化模型；
-- `规则基线`：不调用模型的确定性单跳路径，用于对照和故障排查。
-
-从 `config/models.example.json` 创建 `config/models.json`，填写 OpenAI-compatible endpoint、
-模型名和密钥所在的环境变量，再重启 Web 服务。配置和密钥均可用时，首页默认选择 Agent；
-否则 Agent 选项会禁用并显示缺失原因，不会静默回退到规则模式。
+Web 首页只走 Objective 主 Agent 生成链路。可以在 `config/models.json` 中配置多个
+OpenAI-compatible 模型；页面会列出所有就绪 provider，并把本次选择固定到运行请求中。
+从 `config/models.example.json` 复制配置后填写 endpoint 和模型名。自部署且无需鉴权的服务用
+`"auth_mode": "none"`；需要密钥时只填写 `api_key_env`，不要把密钥写进 JSON。
 
 Agent 模式还提供三种可版本化的问题风格 Skill：
 
@@ -282,9 +281,9 @@ python -m medical_qa_data_factory kg paths --provider primekg --start aspirin --
 
 ## 模型诊断
 
-`structured` 模式的 provider 从 `config/models.json` 装配，可用
-`MEDICAL_QA_MODEL_CONFIG` 覆盖路径。配置只保存 API key 所在的环境变量名，
-不接受内联密钥：
+Objective 主链的 provider 从 `config/models.json` 装配，可用
+`MEDICAL_QA_MODEL_CONFIG` 覆盖路径。可以同时配置多个 provider，Web 页面按运行选择其中一个。
+以下是一个无需鉴权、只支持 JSON object mode 的自部署服务：
 
 ```json
 {
@@ -294,7 +293,9 @@ python -m medical_qa_data_factory kg paths --provider primekg --start aspirin --
       "driver": "openai_compatible",
       "base_url": "http://127.0.0.1:8000/v1/chat/completions",
       "model_id": "my-model",
-      "api_key_env": "MY_MODEL_API_KEY"
+      "auth_mode": "none",
+      "structured_output_mode": "json_object",
+      "supports_strict_json_schema": false
     }
   }
 }
@@ -304,7 +305,10 @@ python -m medical_qa_data_factory kg paths --provider primekg --start aspirin --
 python -m medical_qa_data_factory model providers
 ```
 
-该命令只输出环境变量名和是否存在，不输出密钥本身。
+`structured_output_mode` 可取 `json_schema`（严格 schema）、`json_object`（JSON mode）或
+`prompt_only`（服务不接受 `response_format`）。需要 Bearer token 时设置
+`"auth_mode": "bearer"` 和 `"api_key_env": "MY_MODEL_API_KEY"`。诊断命令只输出环境变量名
+和是否存在，不输出密钥本身。
 
 ## 文献检索诊断
 
@@ -530,13 +534,16 @@ python -m medical_qa_data_factory web serve \
   --port 8765
 ```
 
-浏览器打开：
+后端启动后只监听 API。另开终端启动 Vue：
 
-```text
-http://127.0.0.1:8765
+```powershell
+cd frontend
+npm install
+npm run dev
 ```
 
-保持终端运行；按 `Ctrl+C` 停止服务。端口被占用时可以把 `8765` 改成其他本地端口。
+浏览器打开 `http://127.0.0.1:5173`。前端和后端是两个独立进程；`npm run build`
+会把纯静态前端输出到 `frontend/dist`，由单独的静态文件服务器或 CDN 托管。
 
 默认绑定 `127.0.0.1`，只允许本机访问。如果部署到受控的 Linux 服务器并需要通过反向代理
 访问，可改为 `--host 0.0.0.0`；不要直接把开发服务暴露到公网，生产环境应由反向代理、

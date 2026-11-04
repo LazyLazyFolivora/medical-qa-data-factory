@@ -62,6 +62,9 @@ def default_objective_role_registry() -> dict[
                     "evidence_need",
                     "allowed_providers",
                     "material_limit",
+                    "max_search_rounds",
+                    "max_queries_per_round",
+                    "preview_chars",
                     "snapshot_policy",
                 }
             ),
@@ -126,6 +129,11 @@ def default_objective_role_registry() -> dict[
                     "difficulty_targets",
                     "style_targets",
                     "candidate_claims",
+                    "claim_groups",
+                    "evidence_excerpts",
+                    "question_portfolio",
+                    "language",
+                    "planner_environment",
                 }
             ),
             forbidden_input_fields=_COMMON_FORBIDDEN
@@ -148,6 +156,7 @@ def default_objective_role_registry() -> dict[
             allowed_input_fields=frozenset(
                 {
                     "frozen_question_contract",
+                    "design_requirements",
                 }
             ),
             forbidden_input_fields=_COMMON_FORBIDDEN

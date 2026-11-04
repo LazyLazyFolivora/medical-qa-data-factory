@@ -72,6 +72,42 @@ def test_a_provider_without_api_key_env_is_rejected(tmp_path: Path) -> None:
     assert "api_key_env" in str(excinfo.value)
 
 
+def test_a_self_hosted_provider_may_disable_authentication(tmp_path: Path) -> None:
+    payload = _valid_payload()
+    provider = payload["providers"]["local"]
+    provider.pop("api_key_env")
+    provider["auth_mode"] = "none"
+    provider["structured_output_mode"] = "json_object"
+    provider["supports_strict_json_schema"] = False
+
+    config = load_model_config(_write(tmp_path, payload))
+
+    selected = config.provider()
+    assert selected.auth_mode == "none"
+    assert selected.api_key_env is None
+    assert selected.has_api_key() is True
+    assert selected.structured_output_mode == "json_object"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("auth_mode", "basic"),
+        ("structured_output_mode", "yaml"),
+    ],
+)
+def test_invalid_self_hosted_adapter_modes_are_rejected(
+    tmp_path: Path,
+    field: str,
+    value: str,
+) -> None:
+    payload = _valid_payload()
+    payload["providers"]["local"][field] = value
+
+    with pytest.raises(ModelConfigurationError):
+        load_model_config(_write(tmp_path, payload))
+
+
 def test_the_api_key_is_read_from_the_environment_at_call_time(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -109,6 +145,13 @@ def test_the_default_provider_may_be_omitted(tmp_path: Path) -> None:
     del payload["default_provider"]
     config = load_model_config(_write(tmp_path, payload))
     assert config.default_provider == "local"
+
+
+def test_the_default_provider_must_exist(tmp_path: Path) -> None:
+    payload = _valid_payload(default_provider="absent")
+    with pytest.raises(ModelConfigurationError) as excinfo:
+        load_model_config(_write(tmp_path, payload))
+    assert "default_provider" in str(excinfo.value)
 
 
 def test_the_error_code_for_a_configuration_problem_is_stable() -> None:

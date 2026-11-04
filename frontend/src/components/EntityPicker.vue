@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { apiFetch, readApiPayload } from "../api";
 
 const props = defineProps({
   entities: { type: Array, default: () => [] },
@@ -24,7 +25,14 @@ const candidates = computed(() => {
   if (query.value.trim() && remoteEntities.value.length) {
     return remoteEntities.value.slice(0, 10);
   }
-  return props.entities.slice(0, 10);
+  const defaults = props.entities.slice(0, 10);
+  if (
+    selected.value &&
+    !defaults.some((item) => item.value === selected.value.value)
+  ) {
+    return [...defaults.slice(0, 9), selected.value];
+  }
+  return defaults;
 });
 
 const entityTypeLabel = (value) => value?.replaceAll("_", "/") || "未知类型";
@@ -36,12 +44,18 @@ const search = async () => {
   searching.value = true;
   searchError.value = "";
   try {
-    const response = await fetch(
+    const response = await apiFetch(
       `/api/entities?q=${encodeURIComponent(value)}&limit=10`,
       { signal: activeSearch.signal },
     );
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || "实体搜索失败");
+    const { payload, problem } = await readApiPayload(response);
+    if (!response.ok || !payload) {
+      throw new Error(
+        payload?.error ||
+          problem ||
+          `实体搜索失败（HTTP ${response.status}）`,
+      );
+    }
     remoteEntities.value = (payload.entities || []).map((entity) => ({
       ...entity,
       value: entity.canonical_id || entity.entity_ref_id,

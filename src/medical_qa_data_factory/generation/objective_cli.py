@@ -8,7 +8,8 @@ from pathlib import Path
 from ..knowledge_graph import provider_from_config
 from ..llm.registry import build_model_port
 from .agent_loop import ObjectiveQuestionAgentLoop
-from .main_agent import StructuredMainAgent
+from .fact_source_policy import default_objective_fact_types
+from .workflow_scheduler import FINAL_QUESTION_WORKFLOW, HierarchicalMainAgent
 from .objective_provider_adapters import (
     CtdMaterialProvider,
     PrimeKgMaterialProvider,
@@ -98,14 +99,14 @@ def run_objective_generation_command(args) -> int:
         manifest = RunManifest(
             manifest_id=f"manifest.{args.run_id}",
             run_id=args.run_id,
-            orchestrator_version="objective-agent-loop-v1",
-            main_agent_version="objective-main-agent-v1",
+            orchestrator_version=FINAL_QUESTION_WORKFLOW,
+            main_agent_version="objective-workflow-planner-v1",
             subagent_role_versions={
                 "material_retrieval": "material-retrieval-v1",
                 "fact_understanding": "fact-understanding-v1",
                 "objective_question_design": "objective-question-design-v1",
                 "objective_answer_verification": (
-                    "objective-answer-verification-v1"
+                    "final-question-v2"
                 ),
                 "objective_question_realization": (
                     "objective-question-realization-v1"
@@ -123,15 +124,16 @@ def run_objective_generation_command(args) -> int:
                 "objective_question_contracts": "objective-question-v1",
                 "runtime": "objective-runtime-v1",
             },
-            validation_policy_version="objective-policy-v1",
+            validation_policy_version="final-question-v2",
             data_snapshot_or_retrieval_time_policy="pinned-per-run",
             runtime_bundle_id="objective-runtime-v1",
             runtime_bundle_digest=bundle_digest,
         )
+        goal = _goal(args, bundle_digest, sorted(providers))
         runtime = ObjectiveRuntimeRepository.create(
             workspace,
             manifest=manifest,
-            goal=_goal(args, bundle_digest),
+            goal=goal,
             budget=RuntimeBudget(
                 max_cost=args.max_cost,
                 max_model_calls=args.max_model_calls,
@@ -140,10 +142,11 @@ def run_objective_generation_command(args) -> int:
         loop = ObjectiveQuestionAgentLoop(
             runtime=runtime,
             persistence=ObjectiveQuestionPersistence(workspace),
-            goal=_goal(args, bundle_digest),
-            main_agent=StructuredMainAgent(
+            goal=goal,
+            main_agent=HierarchicalMainAgent(
                 model,
                 provider_ids=sorted(providers),
+                memory_root=workspace,
             ),
             model=model,
             providers=providers,
@@ -184,7 +187,11 @@ def run_objective_generation_command(args) -> int:
             kg_provider.close()
 
 
-def _goal(args, bundle_digest: str) -> GenerationGoal:
+def _goal(
+    args,
+    bundle_digest: str,
+    provider_ids: list[str],
+) -> GenerationGoal:
     return GenerationGoal(
         run_id=args.run_id,
         target_entity=args.entity_name,
@@ -193,7 +200,10 @@ def _goal(args, bundle_digest: str) -> GenerationGoal:
         question_count_upper_bound=args.question_count,
         difficulty_targets=["easy"],
         style_targets=["concise"],
-        allowed_fact_types=["entity_identity", "classification", "gene_location"],
+        allowed_fact_types=default_objective_fact_types(
+            args.entity_type,
+            available_providers=provider_ids,
+        ),
         run_budget={
             "max_actions": args.max_actions,
             "max_cost": args.max_cost,

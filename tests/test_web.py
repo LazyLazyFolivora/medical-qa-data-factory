@@ -116,7 +116,7 @@ def build_demo_workspace(
     return result
 
 
-def test_generation_workspace_serves_the_vue_application(tmp_path):
+def test_api_root_does_not_serve_the_vue_application(tmp_path):
     build_demo_workspace(tmp_path)
     client = TestClient(create_app(tmp_path))
 
@@ -124,24 +124,22 @@ def test_generation_workspace_serves_the_vue_application(tmp_path):
     workspace = client.get("/api/generation-workspace").json()
 
     assert response.status_code == 200
-    assert "data-vue-generation-app" in response.text
-    assert "/static/generation-app/app.js" in response.text
-    assert "/static/generation-app/app.css" in response.text
+    assert response.json()["service"] == "medical-qa-data-factory-api"
+    assert response.json()["frontend"] == "run the Vue app separately"
+    assert "data-vue-generation-app" not in response.text
     assert workspace["selected_entity_id"] == "demo:aspirin"
     assert workspace["selected_task"]["task_id"] == "aspirin-web-demo"
     assert workspace["questions"][0]["answer"] == "PTGS1"
 
 
-def test_vue_assets_are_served_with_browser_executable_mime_types(tmp_path):
+def test_backend_does_not_serve_vue_assets(tmp_path):
     client = TestClient(create_app(tmp_path))
 
     script = client.get("/static/generation-app/app.js")
     stylesheet = client.get("/static/generation-app/app.css")
 
-    assert script.status_code == 200
-    assert script.headers["content-type"].startswith("text/javascript")
-    assert stylesheet.status_code == 200
-    assert stylesheet.headers["content-type"].startswith("text/css")
+    assert script.status_code == 404
+    assert stylesheet.status_code == 404
 
 
 def test_generation_workspace_api_describes_question_limit(
@@ -158,7 +156,7 @@ def test_generation_workspace_api_describes_question_limit(
     assert payload["selected_task"]["question_count"] == 1
 
 
-def test_generation_workspace_serves_one_vue_root(tmp_path):
+def test_generation_workspace_has_no_server_rendered_html(tmp_path):
     result = build_demo_workspace(tmp_path)
     repository = LocalArtifactRepository(tmp_path)
     current_task = repository.load_latest_task(result.task.task_id)
@@ -174,8 +172,8 @@ def test_generation_workspace_serves_one_vue_root(tmp_path):
     response = client.get("/")
 
     assert response.status_code == 200
-    assert response.text.count('id="generation-app"') == 1
-    assert "data-vue-generation-app" in response.text
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json()["service"] == "medical-qa-data-factory-api"
 
 
 def test_generation_workspace_api_scopes_results_to_the_latest_task(tmp_path):
@@ -226,8 +224,8 @@ def test_generation_workspace_api_can_select_an_explicit_task(tmp_path):
     payload = response.json()
     assert payload["selected_task"]["task_id"] == result.task.task_id
     assert payload["questions"][0]["question_id"] == result.questions[0].question_id
-    assert payload["selected_task"]["detail_url"].endswith(
-        f"/tasks/{result.task.task_id}"
+    assert payload["selected_task"]["detail_url"] == (
+        f"/?task={result.task.task_id}"
     )
 
 
@@ -403,11 +401,9 @@ def test_workbench_generation_accepts_graph_entity_without_workspace_record(
         },
     )
 
-    assert response.status_code == 200
-    request = captured["request"]
-    assert request.seed.provider_id == "primekg"
-    assert request.seed.native_id == "1191"
-    assert request.seed.entity_type == "drug"
+    assert response.status_code == 410
+    assert response.json()["code"] == "legacy_generation_retired"
+    assert captured == {}
 
 
 def test_workbench_rejects_unready_agent_before_writing_a_task(tmp_path):
@@ -423,9 +419,8 @@ def test_workbench_rejects_unready_agent_before_writing_a_task(tmp_path):
         },
     )
 
-    assert response.status_code == 422
-    assert response.json()["code"] == "model_config_error"
-    assert "未配置模型" in response.json()["error"]
+    assert response.status_code == 410
+    assert response.json()["code"] == "legacy_generation_retired"
     assert LocalArtifactRepository(tmp_path).list_latest_tasks() == []
 
 
@@ -571,47 +566,53 @@ def test_workbench_can_run_structured_agent_path(
         },
     )
 
-    assert response.status_code == 200, response.text
-    assert response.json()["model_mode"] == "structured"
-    assert len(response.json()["question_ids"]) == 3
-    assert model.calls_for("exploration_planner")
-    assert model.calls_for("question_writer")
-    assert model.calls_for("style_judge")
-    assert model.calls_for("answer_verifier")
-    question = LocalArtifactRepository(tmp_path).load_latest_question(
-        response.json()["question_ids"][0]
-    )
-    assert question.gold_answer.answer_mode.value == "entity"
-    assert question.query_intent["question_intent"] == "association_research"
-    assert question.query_intent["answer_candidate_count"] == 1
-
-    task_id = response.json()["task_id"]
-    detail = client.get(f"/tasks/{task_id}")
-    assert detail.status_code == 200
-    assert "Agent 编排" in detail.text
-    assert "查询图谱邻居" in detail.text
-    assert "query_neighbors" in detail.text
-    assert "primekg:drug:1191" in detail.text
-    assert "outgoing" in detail.text
-    assert "10" in detail.text
+    assert response.status_code == 410
+    assert response.json()["code"] == "legacy_generation_retired"
+    assert model.invocations == []
 
 
-def test_entity_workspace_remains_available_as_the_question_library(tmp_path):
+def test_generation_workspace_api_contains_entity_context(tmp_path):
     build_demo_workspace(tmp_path)
     client = TestClient(create_app(tmp_path))
 
-    home = client.get("/")
-    response = client.get("/entities")
-    detail = client.get("/entities/seed-aspirin")
+    response = client.get("/api/generation-workspace")
 
-    assert '>生成<' in home.text
     assert response.status_code == 200
-    assert "种子实体工作台" in response.text
-    assert "阿司匹林" in response.text
-    assert "用此实体生成题目" in response.text
-    assert "?entity=demo%3Aaspirin" in response.text
-    assert detail.status_code == 200
-    assert "用此实体生成题目" in detail.text
+    payload = response.json()
+    assert payload["selected_entity_id"] == "demo:aspirin"
+    assert payload["selected_task"]["task_id"] == "aspirin-web-demo"
+
+
+def test_legacy_archive_exposes_original_status_without_objective_mapping(
+    tmp_path,
+):
+    build_demo_workspace(tmp_path)
+    client = TestClient(create_app(tmp_path))
+
+    response = client.get("/api/legacy/tasks")
+
+    assert response.status_code == 200
+    payload = response.json()
+    archived = next(
+        item
+        for item in payload["tasks"]
+        if item["task_id"] == "aspirin-web-demo"
+    )
+    assert archived["engine"] == "legacy"
+    assert archived["can_resume"] is False
+
+
+def test_objective_run_id_cannot_reuse_a_legacy_task_id(tmp_path):
+    build_demo_workspace(tmp_path)
+    client = TestClient(create_app(tmp_path, structured_model=object()))
+
+    response = client.post(
+        "/api/objective/generate",
+        json={"run_id": "aspirin-web-demo"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "run_id_conflict"
 
 
 def test_workbench_generation_runs_the_generation_service(tmp_path, monkeypatch):
@@ -649,29 +650,9 @@ def test_workbench_generation_runs_the_generation_service(tmp_path, monkeypatch)
         },
     )
 
-    assert response.status_code == 200
-    assert response.json()["question_ids"] == ["question-web"]
-    assert response.json()["max_questions"] == 2
-    assert captured["service"]["provider_id"] == "demo"
-    assert captured["service"]["model_mode"] == "rule-based"
-    request = captured["request"]
-    assert request.task_id == "web-test-run"
-    assert request.seed.native_id == "aspirin"
-    assert request.question_count == 2
-    assert [item.value for item in request.generation_spec.difficulty_targets] == [
-        "easy",
-        "hard",
-    ]
-    assert [item.value for item in request.generation_spec.allowed_sources] == [
-        "knowledge_graph"
-    ]
-    assert request.generation_spec.question_style_ids == ["medical-learner-v1"]
-    assert request.generation_spec.variants_per_blueprint == 3
-    assert request.safety_budget is not None
-    assert request.safety_budget.max_tool_calls == 20
-    assert request.safety_budget.max_edges_observed == 500
-    assert request.safety_budget.max_model_attempts == 20
-    assert request.safety_budget.max_wall_time_seconds == 300
+    assert response.status_code == 410
+    assert response.json()["code"] == "legacy_generation_retired"
+    assert captured == {}
 
 
 def test_workbench_generation_validates_inputs(tmp_path):
@@ -683,8 +664,8 @@ def test_workbench_generation_validates_inputs(tmp_path):
         json={"entity_ref_id": "seed-aspirin", "max_questions": 21},
     )
 
-    assert response.status_code == 400
-    assert "1 到 20" in response.json()["error"]
+    assert response.status_code == 410
+    assert response.json()["code"] == "legacy_generation_retired"
 
 
 def test_workbench_generation_accepts_legacy_question_count(
@@ -717,8 +698,9 @@ def test_workbench_generation_accepts_legacy_question_count(
         json={"entity_ref_id": "seed-aspirin", "question_count": 2},
     )
 
-    assert response.status_code == 200
-    assert captured["question_count"] == 2
+    assert response.status_code == 410
+    assert response.json()["code"] == "legacy_generation_retired"
+    assert captured == {}
 
 
 def test_workbench_generation_rejects_unknown_entity(tmp_path):
@@ -730,7 +712,8 @@ def test_workbench_generation_rejects_unknown_entity(tmp_path):
         json={"entity_ref_id": "missing", "question_count": 2},
     )
 
-    assert response.status_code == 404
+    assert response.status_code == 410
+    assert response.json()["code"] == "legacy_generation_retired"
 
 
 def test_generation_workspace_visualizes_persisted_execution_trace(tmp_path):
@@ -800,94 +783,7 @@ def test_generation_workspace_visualizes_persisted_execution_trace(tmp_path):
     assert operation["elapsed_label"] == "420 ms"
 
 
-def test_runs_page_reads_latest_workspace_records(tmp_path):
-    build_demo_workspace(tmp_path)
-    client = TestClient(create_app(tmp_path))
-
-    response = client.get("/tasks")
-
-    assert response.status_code == 200
-    assert "任务视图" in response.text
-    assert "aspirin-web-demo" in response.text
-    assert "completed" in response.text
-    assert 'class="section-block artifacts task-questions"' not in response.text
-
-
-def test_question_view_lists_questions_and_status_filter(tmp_path):
-    result = build_demo_workspace(tmp_path)
-    client = TestClient(create_app(tmp_path))
-
-    response = client.get("/questions")
-
-    assert response.status_code == 200
-    assert "题目视图" in response.text
-    assert 'data-table-status-target="question-table"' in response.text
-    assert 'value="machine_validated"' in response.text
-    assert result.questions[0].question_id in response.text
-    assert result.questions[0].canonical_question in response.text
-    assert result.task.task_id in response.text
-
-
-def test_legacy_runs_route_remains_available(tmp_path):
-    build_demo_workspace(tmp_path)
-    client = TestClient(create_app(tmp_path))
-
-    response = client.get("/runs")
-
-    assert response.status_code == 200
-    assert "任务视图" in response.text
-
-
-def test_entity_detail_collects_evidence_questions_and_runs(tmp_path):
-    result = build_demo_workspace(tmp_path)
-    client = TestClient(create_app(tmp_path))
-
-    response = client.get("/entities/seed-aspirin")
-
-    assert response.status_code == 200
-    assert "实体产出" in response.text
-    assert "aspirin-web-demo" in response.text
-    assert result.questions[0].question_id in response.text
-    assert "PTGS1" in response.text
-
-
-def test_entity_detail_supports_entity_type_with_path_separator(tmp_path):
-    entity_ref_id = "entity-primekg:gene/protein:P12345"
-    build_demo_workspace(
-        tmp_path,
-        entity_ref_id=entity_ref_id,
-        canonical_id="primekg:gene/protein:P12345",
-        entity_type="gene/protein",
-    )
-    app = create_app(tmp_path)
-    client = TestClient(app)
-
-    home = client.get("/")
-    detail_path = app.url_path_for(
-        "entity_detail", entity_ref_id=entity_ref_id
-    )
-    detail = client.get(str(detail_path))
-
-    assert home.status_code == 200
-    assert str(detail_path) == "/entities/entity-primekg:gene/protein:P12345"
-    assert detail.status_code == 200
-    assert "实体产出" in detail.text
-
-
-def test_task_detail_links_generated_artifacts(tmp_path):
-    result = build_demo_workspace(tmp_path)
-    client = TestClient(create_app(tmp_path))
-
-    response = client.get(f"/tasks/{result.task.task_id}")
-
-    assert response.status_code == 200
-    assert "流水线状态" in response.text
-    assert "对应生成的题目" in response.text
-    assert result.bundles[0].bundle_id in response.text
-    assert result.questions[0].question_id in response.text
-
-
-def test_task_detail_shows_agent_query_and_exact_failed_step(tmp_path):
+def test_generation_progress_api_shows_exact_failed_step(tmp_path):
     build_demo_workspace(tmp_path)
     now = utc_now()
     episode_id = "episode-agent-failure-detail"
@@ -969,52 +865,27 @@ def test_task_detail_shows_agent_query_and_exact_failed_step(tmp_path):
     )
     client = TestClient(create_app(tmp_path))
 
-    response = client.get("/tasks/aspirin-web-demo")
+    response = client.get("/api/generation/aspirin-web-demo")
 
     assert response.status_code == 200
-    assert "Agent 编排" in response.text
-    assert "第 1 轮" in response.text
-    assert "PNMA1 的关联疾病" in response.text
-    assert "primekg:gene/protein:9240" in response.text
-    assert "exposure_disease" in response.text
-    assert "max_results" in response.text
-    assert "失败于 agent_explore" in response.text
-    assert "model_error" in response.text
-    assert "PNMA1|neighbors|outgoing" in response.text
-    assert "continue_search requires exactly one action" in response.text
+    payload = response.json()
+    assert payload["planner_steps"][0]["turn"] == 1
+    assert "primekg:gene/protein:9240" in payload["planner_steps"][0][
+        "parameters_json"
+    ]
+    assert "exposure_disease" in payload["planner_steps"][0][
+        "parameters_json"
+    ]
+    assert payload["operations"][0]["error_code"] == "model_error"
 
 
-def test_review_page_renders_evidence_spine(tmp_path):
-    result = build_demo_workspace(tmp_path)
+def test_unknown_route_returns_json_404(tmp_path):
     client = TestClient(create_app(tmp_path))
 
-    response = client.get(f"/review/{result.questions[0].question_id}")
-
-    assert response.status_code == 200
-    assert "Claim 脊柱" in response.text
-    assert "PTGS1" in response.text
-    assert "Demo evidence" in response.text
-    assert 'data-evidence-id=' in response.text
-
-
-def test_unknown_task_returns_404(tmp_path):
-    client = TestClient(create_app(tmp_path))
-
-    response = client.get("/tasks/missing")
+    response = client.get("/missing")
 
     assert response.status_code == 404
-    assert "没有找到这条记录" in response.text
-
-
-def test_review_page_exposes_write_actions(tmp_path):
-    result = build_demo_workspace(tmp_path)
-    client = TestClient(create_app(tmp_path))
-
-    response = client.get(f"/review/{result.questions[0].question_id}")
-
-    assert 'data-review-action="confirm"' in response.text
-    assert 'id="review-summary"' in response.text
-    assert "只读预览" not in response.text
+    assert response.json()["code"] == "not_found"
 
 
 def test_confirm_question_persists_new_version(tmp_path):
@@ -1032,8 +903,6 @@ def test_confirm_question_persists_new_version(tmp_path):
     latest = repository.load_latest_question(question_id)
     assert latest.validation_level.value == "human_confirmed"
     assert len(repository.list_versions("questions", question_id)) == 2
-    page = client.get(f"/review/{question_id}")
-    assert "human_confirmed" in page.text
 
 
 def test_review_requires_summary(tmp_path):
@@ -1074,17 +943,6 @@ def test_claim_review_rejects_unknown_status(tmp_path):
     )
 
     assert response.status_code == 400
-
-
-def test_dataset_page_lists_export_blockers(tmp_path):
-    build_demo_workspace(tmp_path)
-    client = TestClient(create_app(tmp_path))
-
-    response = client.get("/dataset")
-
-    assert response.status_code == 200
-    assert "导出阻塞清单" in response.text
-    assert "包含 mock 工具产物" in response.text
 
 
 def test_formal_export_is_refused_for_mock_workspace(tmp_path):

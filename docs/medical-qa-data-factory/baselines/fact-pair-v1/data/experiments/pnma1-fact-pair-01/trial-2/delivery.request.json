@@ -1,0 +1,32 @@
+{
+  "invocation_id": "graph-pilot.delivery.c481166b49ac94b8",
+  "role": "question_method_pilot",
+  "system_prompt_version": "question-method-pilot-v1",
+  "skill_id": "pilot-focused-composition",
+  "skill_version": "651a3ff027ca1c57b7a1e557c0e30a37edd1e2597557f072964b786e9b8e19e9",
+  "skill_instruction": "---\nname: pilot-focused-composition\ndescription: 使用已选定的单一信息需求、关系原文和定向补查结果写一道问题，保留关系与属性之间的依赖。\n---\n\n# 完成选定的一道题\n\n题干、答案和说明使用中文，基因符号与原文引句保留原文。\n\n输入是已选定的信息需求、关系来源原文和一次定向补查。你的任务是完成这一个需求。先从原文确定关系事实，再从补查结果确定另一端对象的相关属性，最后组织问题与答案。\n\n按以下顺序构造，不需要输出额外检查报告：\n\n1. 先还原观察：干预对象是什么，实施了什么操作，改变了什么效应，发生在哪类细胞或条件中。题干隐藏对象名称，但保留操作、效应与已知条件。例如“过表达”“神经元”“抑制 A 诱导的凋亡”共同定义检索目标，不是可随意删掉的修饰。\n2. 再写最小充分答案：一个有依据的对象名称，加上补查需求所要求的一般作用。问“一般作用”时，抗凋亡及调节线粒体膜通透性这一级描述即可；无需自动扩成详细机制、定位、全部功能列表。\n3. 对答案中的每个陈述选择对应原句，再写自然题干。数据库同一段里的不同功能分别成立，不意味着前一个功能由后一个实现。例如“抑制凋亡；也抑制自噬”不能合写成“通过抑制自噬实现抗凋亡”。同样，原文只说调控膜通透性，不应改成某个更具体的通透性转换机制。\n4. 知识依赖描述回答需要识别什么、了解什么；难度写作待测判断。来源分开只说明当前证据的分布，不能据此断言求解必须两次检索。\n\n题干应让读者先识别关系另一端，再回答其相关功能；对象名称留在答案中。两个回答部分要服务于同一个自然的信息需求。可改进措辞和证据边界，不能另选一条简单事实、改问种子蛋白的属性，或只问补查对象的孤立功能。缺证据就返回 question=null 和 gap，允许实验失败。\n\n例如，“举出一种过表达能抑制 A 诱导的某类细胞凋亡的蛋白，并说明该蛋白在凋亡调控中的一般作用。”实际填写 A、细胞条件与效应。无需强行增加故事、病人或应用场景。不能把一般作用写成解释原实验的确切机制，也不能把功能抑制写成直接结合。\n\n题干不使用“上述”“本材料”“根据 PMID”；物种、细胞和操作只采用对应原文已支持的条件。补查人类蛋白的一般功能与原始实验物种分开表述，不能暗自给实验补上人类条件。允许举例题有其他正确答案，交付的是一个有证据的参考答案。\n\n输出 question（question/answer/operation/evidence_needs/dependency/completion/difficulty/shortcut）及 gap。依据引用真实 source URL 或 PMID 和原文；不能为新蛋白沿用种子蛋白的 accession。说明识别对象→查询功能的依赖，但不声称只能两次查询解决；若存在单篇直接短解要承认。生成过程调用两次工具不等于难题；难度是待评估判断。不得声称已独立验证。\n\n完整交接示范（虚构符号）：\n- 原关系：“Overexpression of R inhibits A-induced neuronal apoptosis.” 物种未说明。\n- 补查：人类 R 的注释给出其一般抗凋亡功能。\n- 题目：“举出一种过表达能抑制 A 诱导的神经元凋亡的蛋白，并说明其人类同源蛋白在凋亡调控中的一般作用。”\n- 答案：“R；人类 R 的一般作用为……。该一般作用不等于已经确定该实验中的具体机制。”\n- 难度：“具有关系连接结构，暂定中等；未测求解难度。”\n- 短解：“当前两份资料分别提供关系和功能；可能存在一篇综述同时给出两者，尚未排查。”\n\n如任务草稿误加“人类神经元”或省略过表达，按原文修正这些限定。保留知识目标并不要求继承草稿中的事实错误。",
+  "payload": {
+    "stage": "delivery",
+    "assignment": {
+      "information_need": "找出一种通过过表达可抑制 PNMA1 诱导的神经元凋亡的蛋白，并了解对应人类蛋白的一般凋亡调控作用。"
+    },
+    "evidence_packet": {
+      "relation_evidence": [
+        {
+          "fact": "PNMA1过表达诱导神经元凋亡，且该凋亡效应可被Bcl2过表达抑制",
+          "source": "10.1002/jnr.22506",
+          "quote": "Apoptosis by PNMA1 expression is inhibited by overexpression of Bcl2"
+        }
+      ],
+      "property_evidence": [
+        {
+          "fact": "Bcl2通过控制线粒体膜通透性来调节细胞死亡",
+          "source": "UniProt (P10415)",
+          "quote": "Regulates cell death by controlling the mitochondrial membrane permeability"
+        }
+      ],
+      "property_source_species": "Homo sapiens"
+    }
+  },
+  "idempotency_key": "graph-pilot|delivery|651a3ff027ca1c57b7a1e557c0e30a37edd1e2597557f072964b786e9b8e19e9|c481166b49ac94b867b3200a1b739a9bfe08f8ec552deb5b719f2d3ff27690a4"
+}

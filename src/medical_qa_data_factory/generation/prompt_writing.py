@@ -14,6 +14,7 @@ from .task_contracts import (
     StudyRelationIntent,
     ValidatedTask,
 )
+from .semantics import contains_semantic_term
 from .task_realization import QuestionVariant, TextSemanticReport
 
 
@@ -379,11 +380,14 @@ def _question_strength_is_invalid(
         "leads to",
         "results in",
     )
-    if any(term in lowered for term in efficacy_terms):
+    if any(contains_semantic_term(lowered, term) for term in efficacy_terms):
         return True
     if context.relation_intent in {
         "association_research",
         "biomarker_research",
-    } and any(term in lowered for term in causal_terms):
+    } and any(
+        contains_semantic_term(lowered, term)
+        for term in causal_terms
+    ):
         return True
     return False

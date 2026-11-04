@@ -376,14 +376,6 @@
     },
     "plan": {
       "$ref": "#/$defs/VerificationPlan"
-    },
-    "supporting_anchor_ids": {
-      "items": {
-        "type": "string"
-      },
-      "minItems": 1,
-      "title": "Supporting Anchor Ids",
-      "type": "array"
     }
   },
   "required": [
@@ -391,7 +383,6 @@
     "attempts",
     "coverage",
     "anchors",
-    "supporting_anchor_ids",
     "completeness_basis"
   ],
   "title": "VerificationEvidenceBundle",

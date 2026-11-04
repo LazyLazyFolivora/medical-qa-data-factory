@@ -4,22 +4,22 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import mimetypes
+import os
 import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
+from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, JSONResponse
-from starlette.routing import Mount, Route
-from starlette.staticfiles import StaticFiles
-from starlette.templating import Jinja2Templates
+from starlette.responses import JSONResponse
+from starlette.routing import Route
 
-from ..domain import ClaimStatus, EndpointKind, EvidenceBundle, EntityRef
+from ..domain import ClaimStatus, EvidenceBundle, EntityRef
 from ..domain.common import new_id
 from ..domain import DatasetSplit
 from ..domain import Route as DomainRoute
@@ -52,11 +52,17 @@ from ..generation.contracts import (
 )
 from ..generation.service import EntityGenerationService, GenerationError
 from ..generation.agent_loop import ObjectiveQuestionAgentLoop
-from ..generation.main_agent import StructuredMainAgent
+from ..generation.fact_source_policy import (
+    FACT_SOURCE_ROUTES,
+    default_objective_fact_types,
+)
+from ..generation.workflow_scheduler import FINAL_QUESTION_WORKFLOW, HierarchicalMainAgent
 from ..generation.objective_provider_adapters import (
+    CtdMaterialProvider,
     PrimeKgMaterialProvider,
     PubMedMaterialProvider,
 )
+from ..evidence_enrichment.ctd import CtdEvidenceIndex
 from ..generation.structured_biomedical_providers import (
     EnsemblMaterialProvider,
     HgncMaterialProvider,
@@ -86,16 +92,16 @@ from ..generation.question_skills import (
 from ..generation.training_repository import TrainingRepository
 from ..llm.errors import ModelError
 from ..llm.registry import ProviderRegistry
-from .group_view import build_groups
+from .objective_projection import (
+    OBJECTIVE_STALL_AFTER_SECONDS,
+    build_objective_summary,
+    build_objective_workbench,
+    build_question_evidence_dossier,
+    objective_decision_order,
+    public_questions_for_run,
+)
 
-mimetypes.add_type("text/javascript", ".js")
-mimetypes.add_type("text/javascript", ".mjs")
-
-
-WEB_ROOT = Path(__file__).parent
-templates = Jinja2Templates(directory=WEB_ROOT / "templates")
 WEB_TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
-OBJECTIVE_STALL_AFTER_SECONDS = 10 * 60
 AGENT_ACTION_LABELS = {
     "query_neighbors": "查询图谱邻居",
     "expand_entity": "扩展实体",
@@ -150,8 +156,25 @@ OBJECTIVE_PROVIDER_LABELS = {
 OBJECTIVE_MATERIAL_LABELS = {
     "knowledge_graph_edge": "知识图谱边",
     "literature_abstract": "文献摘要",
+    "literature_full_text": "文献全文",
+    "hgnc_gene_record": "HGNC 基因记录",
+    "ncbi_gene_record": "NCBI Gene 记录",
+    "ensembl_gene_record": "Ensembl 基因记录",
     "ctd_chemical_disease_record": "CTD 化学物—疾病记录",
     "text": "文本材料",
+}
+OBJECTIVE_ARTIFACT_LABELS = {
+    "provider_result": "数据源结果",
+    "evidence_material": "证据材料",
+    "evidence_anchor": "证据定位",
+    "candidate_claim": "候选事实",
+    "fact_understanding_batch": "事实抽取批次",
+    "question_hypothesis": "候选题",
+    "answer_resolution": "答案核验",
+    "frozen_question_contract": "冻结题目契约",
+    "objective_question_draft": "题目草稿",
+    "objective_validation_report": "发布复核",
+    "subagent_failure": "子 Agent 失败",
 }
 
 
@@ -161,6 +184,70 @@ def _objective_run_root(workspace: str | Path, run_id: str) -> Path:
 
 def _objective_release_root(workspace: str | Path, run_id: str) -> Path:
     return Path(workspace) / "objective_releases" / run_id
+
+
+def _objective_provider_map(
+    providers: list[str],
+    objective_providers: dict[str, object] | None,
+) -> tuple[dict[str, object], object | None]:
+    provider_map = dict(objective_providers or {})
+    kg_provider = None
+    if "primekg" in providers and "primekg" not in provider_map:
+        kg_provider = provider_from_config("primekg")
+        provider_map["primekg"] = PrimeKgMaterialProvider(kg_provider)
+    if "pubmed" in providers and "pubmed" not in provider_map:
+        provider_map["pubmed"] = PubMedMaterialProvider()
+    if "ctd" in providers and "ctd" not in provider_map:
+        ctd_index_path = os.environ.get("MEDICAL_QA_CTD_INDEX")
+        if not ctd_index_path:
+            evidence_config = Path("config/evidence_enrichment.json")
+            if evidence_config.is_file():
+                ctd_index_path = json.loads(
+                    evidence_config.read_text(encoding="utf-8")
+                ).get("ctd_index_path")
+        if not ctd_index_path:
+            raise ValueError(
+                "CTD provider requires MEDICAL_QA_CTD_INDEX or "
+                "config/evidence_enrichment.json"
+            )
+        provider_map["ctd"] = CtdMaterialProvider(
+            CtdEvidenceIndex(ctd_index_path)
+        )
+    if "hgnc" in providers and "hgnc" not in provider_map:
+        provider_map["hgnc"] = HgncMaterialProvider()
+    if "ncbi_gene" in providers and "ncbi_gene" not in provider_map:
+        provider_map["ncbi_gene"] = NcbiGeneMaterialProvider()
+    if "ensembl" in providers and "ensembl" not in provider_map:
+        provider_map["ensembl"] = EnsemblMaterialProvider()
+    selected = {
+        name: provider_map[name]
+        for name in providers
+        if name in provider_map
+    }
+    if not selected:
+        raise ValueError("no usable objective provider configured")
+    return selected, kg_provider
+
+
+def _objective_run_provider_ids(snapshot: object) -> list[str]:
+    names = set(snapshot.manifest.provider_adapter_versions)
+    for artifact in snapshot.artifacts.values():
+        if artifact.artifact_type != "provider_result":
+            continue
+        request = artifact.payload.get("request", {})
+        provider_id = str(request.get("provider_id") or "").strip()
+        if provider_id:
+            names.add(provider_id)
+    return sorted(names)
+
+
+def _recovery_error_payload(exc: Exception) -> dict[str, object]:
+    if isinstance(exc, ModelError):
+        return exc.as_dict()
+    return {
+        "code": type(exc).__name__,
+        "message": str(exc),
+    }
 
 
 def _objective_progress_timing(
@@ -196,6 +283,178 @@ def _objective_progress_timing(
     return last_commit_at, seconds_since_progress, stalled
 
 
+def _trace_query_label(query: Any) -> str:
+    if not isinstance(query, dict):
+        return str(query or "")
+    return " · ".join(
+        f"{key}={value}"
+        for key, value in query.items()
+    )
+
+
+def _decision_output_trace(artifacts: list[Any]) -> dict[str, Any]:
+    counts: dict[str, int] = {}
+    providers = []
+    claims = []
+    hypotheses = []
+    resolutions = []
+    drafts = []
+    validations = []
+    failures = []
+    fact_batches = []
+    for artifact in artifacts:
+        artifact_type = artifact.artifact_type
+        counts[artifact_type] = counts.get(artifact_type, 0) + 1
+        payload = artifact.payload
+        if artifact_type == "provider_result":
+            request = payload.get("request", {})
+            provider_id = str(request.get("provider_id", ""))
+            providers.append(
+                {
+                    "provider_id": provider_id,
+                    "provider_label": OBJECTIVE_PROVIDER_LABELS.get(
+                        provider_id,
+                        provider_id,
+                    ),
+                    "purpose": artifact.metadata.get(
+                        "purpose",
+                        "discovery",
+                    ),
+                    "terminal_status": payload.get("terminal_status"),
+                    "error_category": payload.get("error_category"),
+                    "material_count": len(
+                        payload.get("material_ids", [])
+                    ),
+                    "candidate_count": payload.get("usage", {}).get(
+                        "candidate_count",
+                        len(payload.get("material_ids", [])),
+                    ),
+                    "query": request.get("query"),
+                    "query_label": _trace_query_label(
+                        request.get("query")
+                    ),
+                    "search_trace": payload.get("usage", {}).get(
+                        "search_trace",
+                        [],
+                    ),
+                    "detail_trace": payload.get("usage", {}).get(
+                        "detail_trace",
+                        [],
+                    ),
+                    "search_rationale": payload.get("usage", {}).get(
+                        "search_rationale"
+                    ),
+                }
+            )
+        elif artifact_type == "candidate_claim":
+            claims.append(
+                {
+                    "claim_id": payload.get("claim_id"),
+                    "subject": payload.get("subject"),
+                    "predicate": payload.get("predicate"),
+                    "object_or_value": payload.get("object_or_value"),
+                    "claim_strength": payload.get("claim_strength"),
+                    "polarity": payload.get("polarity"),
+                    "supporting_anchor_ids": list(
+                        payload.get("supporting_anchor_ids", [])
+                    ),
+                }
+            )
+        elif artifact_type == "question_hypothesis":
+            hypotheses.append(
+                {
+                    "hypothesis_id": payload.get("hypothesis_id"),
+                    "question_intent": payload.get("question_intent"),
+                    "public_scope": payload.get("proposed_public_scope"),
+                    "answer_type": payload.get("proposed_answer_type"),
+                    "answer_values": list(
+                        payload.get("proposed_answer_values", [])
+                    ),
+                    "candidate_claim_ids": list(
+                        payload.get("candidate_claim_ids", [])
+                    ),
+                }
+            )
+        elif artifact_type == "answer_resolution":
+            resolutions.append(
+                {
+                    "resolution_id": payload.get("resolution_id"),
+                    "hypothesis_id": payload.get("hypothesis_id"),
+                    "status": payload.get("status"),
+                    "answer_values": list(
+                        payload.get("verified_answer_values", [])
+                    ),
+                    "verification_sources": list(
+                        payload.get("verification_sources", [])
+                    ),
+                    "completeness_basis": payload.get(
+                        "completeness_basis"
+                    ),
+                }
+            )
+        elif artifact_type == "objective_question_draft":
+            drafts.append(
+                {
+                    "draft_id": payload.get("draft_id"),
+                    "question_text": payload.get("question_text"),
+                    "answer_values": list(
+                        payload.get("answer_values", [])
+                    ),
+                }
+            )
+        elif artifact_type == "objective_validation_report":
+            validations.append(
+                {
+                    "report_id": payload.get("report_id"),
+                    "question_id": payload.get("question_id"),
+                    "verdict": payload.get("verdict"),
+                    "release_allowed": payload.get("release_allowed"),
+                    "primary_reason": payload.get("primary_reason"),
+                    "blocking_findings": list(
+                        payload.get("blocking_findings", [])
+                    ),
+                }
+            )
+        elif artifact_type == "fact_understanding_batch":
+            fact_batches.append(
+                {
+                    "batch_id": payload.get("batch_id"),
+                    "material_count": len(
+                        payload.get("material_ids", [])
+                    ),
+                    "claim_count": len(payload.get("claim_ids", [])),
+                }
+            )
+        elif artifact_type == "subagent_failure":
+            failures.append(
+                {
+                    "failure_id": payload.get("failure_id"),
+                    "action": payload.get("action"),
+                    "error_code": payload.get("error_code"),
+                    "error_message": payload.get("error_message"),
+                    "retryable": payload.get("retryable"),
+                }
+            )
+    return {
+        "counts": {
+            key: counts[key]
+            for key in sorted(counts)
+        },
+        "count_labels": {
+            OBJECTIVE_ARTIFACT_LABELS.get(key, key): count
+            for key, count in sorted(counts.items())
+        },
+        "providers": providers,
+        "claims": claims,
+        "hypotheses": hypotheses,
+        "resolutions": resolutions,
+        "drafts": drafts,
+        "validations": validations,
+        "fact_batches": fact_batches,
+        "failures": failures,
+    }
+
+
 def _objective_run_payload(
     workspace: str | Path,
     run_id: str,
@@ -203,22 +462,27 @@ def _objective_run_payload(
     run_root = _objective_run_root(workspace, run_id)
     runtime = ObjectiveRuntimeRepository(run_root, run_id=run_id)
     snapshot = runtime.load()
-    release_root = _objective_release_root(workspace, run_id)
-    public_questions_path = release_root / "public" / "questions.jsonl"
-    questions = []
-    if public_questions_path.is_file():
-        questions = [
-            json.loads(line)
-            for line in public_questions_path.read_text(encoding="utf-8").splitlines()
-            if line.strip()
-        ]
+    questions = public_questions_for_run(workspace, run_id, snapshot)
     reports = [
         artifact.payload
         for artifact in snapshot.artifacts.values()
         if artifact.artifact_type == "objective_validation_report"
     ]
+    artifacts_by_decision: dict[str, list[Any]] = {}
+    for artifact in snapshot.artifacts.values():
+        if artifact.parent_decision_id:
+            artifacts_by_decision.setdefault(
+                artifact.parent_decision_id,
+                [],
+            ).append(artifact)
     steps = []
-    for sequence, decision in enumerate(snapshot.decisions.values(), start=1):
+    for sequence, decision in enumerate(
+        objective_decision_order(workspace, run_id, snapshot),
+        start=1,
+    ):
+        outputs = _decision_output_trace(
+            artifacts_by_decision.get(decision.decision_id, [])
+        )
         steps.append(
             {
                 "sequence": sequence,
@@ -234,8 +498,13 @@ def _objective_run_payload(
                 "information_gain_label": (
                     f"{round(decision.expected_information_gain * 100)}%"
                 ),
+                "expected_information_gain": (
+                    decision.expected_information_gain
+                ),
+                "input_artifact_ids": list(decision.input_artifact_ids),
                 "parameters": decision.action_parameters,
                 "stop_reason": decision.stop_reason,
+                "outputs": outputs,
             }
         )
     artifact_counts: dict[str, int] = {}
@@ -265,25 +534,76 @@ def _objective_run_payload(
         provider_id = str(request.get("provider_id", ""))
         if isinstance(query, dict) and isinstance(query.get(provider_id), dict):
             query = query[provider_id]
-        query_label = (
-            " · ".join(f"{key}={value}" for key, value in query.items())
-            if isinstance(query, dict)
-            else str(query)
-        )
-        retrieval_sources.append(
-            {
-                "provider_id": provider_id,
-                "provider_label": OBJECTIVE_PROVIDER_LABELS.get(
-                    provider_id, provider_id
-                ),
-                "purpose": purpose,
-                "terminal_status": provider_result.get("terminal_status"),
-                "query_label": query_label,
-                "material_count": len(provider_result.get("material_ids", [])),
-                "snapshot_id": provider_result.get("snapshot_id"),
-                "error_category": provider_result.get("error_category"),
-            }
-        )
+        usage = provider_result.get("usage", {})
+        trace = usage.get("search_trace", [])
+        if trace:
+            for item in trace:
+                trace_query = item.get("query", {})
+                query_label = (
+                    " · ".join(
+                        f"{key}={value}"
+                        for key, value in trace_query.items()
+                    )
+                    if isinstance(trace_query, dict)
+                    else str(trace_query)
+                )
+                retrieval_sources.append(
+                    {
+                        "provider_id": provider_id,
+                        "provider_label": OBJECTIVE_PROVIDER_LABELS.get(
+                            provider_id, provider_id
+                        ),
+                        "purpose": purpose,
+                        "terminal_status": item.get("terminal_status"),
+                        "query_label": query_label,
+                        "query": trace_query,
+                        "material_count": item.get("material_count", 0),
+                        "candidate_count": usage.get(
+                            "candidate_count",
+                            item.get("material_count", 0),
+                        ),
+                        "search_rationale": usage.get("search_rationale"),
+                        "detail_trace": usage.get("detail_trace", []),
+                        "snapshot_id": provider_result.get("snapshot_id"),
+                        "error_category": item.get("error_category"),
+                        "search_round": item.get("round"),
+                    }
+                )
+        else:
+            query_label = (
+                " · ".join(
+                    f"{key}={value}" for key, value in query.items()
+                )
+                if isinstance(query, dict)
+                else str(query)
+            )
+            retrieval_sources.append(
+                {
+                    "provider_id": provider_id,
+                    "provider_label": OBJECTIVE_PROVIDER_LABELS.get(
+                        provider_id, provider_id
+                    ),
+                    "purpose": purpose,
+                    "terminal_status": provider_result.get(
+                        "terminal_status"
+                    ),
+                    "query_label": query_label,
+                    "query": query,
+                    "material_count": len(
+                        provider_result.get("material_ids", [])
+                    ),
+                    "candidate_count": usage.get(
+                        "candidate_count",
+                        len(provider_result.get("material_ids", [])),
+                    ),
+                    "search_rationale": usage.get("search_rationale"),
+                    "detail_trace": usage.get("detail_trace", []),
+                    "snapshot_id": provider_result.get("snapshot_id"),
+                    "error_category": provider_result.get(
+                        "error_category"
+                    ),
+                }
+            )
     persistence = ObjectiveQuestionPersistence(run_root)
     materials = []
     for artifact in snapshot.artifacts.values():
@@ -299,6 +619,18 @@ def _objective_run_payload(
         preview = " ".join(str(preview).split())
         if len(preview) > 320:
             preview = preview[:317] + "..."
+        purpose = result_purpose_by_request.get(
+            material.retrieval_request_id,
+            artifact.metadata.get("purpose", "discovery"),
+        )
+        purposes = list(
+            dict.fromkeys(
+                [
+                    *artifact.metadata.get("purposes", []),
+                    str(purpose),
+                ]
+            )
+        )
         materials.append(
             {
                 "material_id": material.material_id,
@@ -311,10 +643,8 @@ def _objective_run_payload(
                 "material_label": OBJECTIVE_MATERIAL_LABELS.get(
                     material.material_type, material.material_type
                 ),
-                "purpose": result_purpose_by_request.get(
-                    material.retrieval_request_id,
-                    artifact.metadata.get("purpose", "discovery"),
-                ),
+                "purpose": purpose,
+                "purposes": purposes,
                 "retrieved_at": material.retrieved_at.isoformat(),
                 "anchor_count": anchor_counts.get(material.material_id, 0),
                 "preview": preview,
@@ -364,12 +694,50 @@ def _objective_run_payload(
             "没有产生新的 runtime commit，任务可能卡在模型调用或后台异常；"
             "当前 run 无法从该检查点自动继续。"
         )
+    pending_decision = runtime.pending_decision()
+    last_successful_step = (
+        len(steps) - 1
+        if pending_decision is not None
+        else len(steps)
+    )
+    next_step = (
+        len(steps)
+        if pending_decision is not None
+        else snapshot.resume_after_step
+        if snapshot.resume_after_step is not None
+        else len(steps) + 1
+    )
     return {
         "task_id": run_id,
         "engine": "objective",
         "status": status,
-        "status_label": status_label,
+        "status_label": "已暂停" if snapshot.stop_reason == "user_paused" else status_label,
+        "pause_requested": runtime.pause_requested,
         "run_state": snapshot.run_state.value,
+        "can_resume": (
+            snapshot.run_state is RuntimeRunState.RECOVERY_REQUIRED
+            or stalled
+        ),
+        "recovery_state": (
+            snapshot.recovery_state.value
+            if snapshot.recovery_state is not None
+            else None
+        ),
+        "resume_count": snapshot.resume_count,
+        "recovery_events": list(snapshot.recovery_events),
+        "resume_events": list(snapshot.resume_events),
+        "last_successful_step": last_successful_step,
+        "next_step": next_step,
+        "pending_decision_id": (
+            pending_decision.decision_id
+            if pending_decision is not None
+            else None
+        ),
+        "pending_action": (
+            pending_decision.action
+            if pending_decision is not None
+            else None
+        ),
         "state_revision": snapshot.state_revision,
         "commit_sequence": snapshot.commit_sequence,
         "stop_reason": effective_stop_reason,
@@ -382,6 +750,19 @@ def _objective_run_payload(
         "stalled": stalled,
         "target_question_count": (
             snapshot.goal.question_count_upper_bound
+            if snapshot.goal is not None
+            else None
+        ),
+        "goal": (
+            {
+                "target_entity": snapshot.goal.target_entity,
+                "target_entity_id": snapshot.goal.target_entity_id,
+                "target_entity_type": snapshot.goal.target_entity_type,
+                "difficulty_targets": list(
+                    snapshot.goal.difficulty_targets
+                ),
+                "style_targets": list(snapshot.goal.style_targets),
+            }
             if snapshot.goal is not None
             else None
         ),
@@ -422,19 +803,12 @@ def _objective_published_question_rows(
     workspace: str | Path,
 ) -> list[dict[str, object]]:
     releases_root = Path(workspace) / "objective_releases"
-    if not releases_root.is_dir():
-        return []
+    runs_root = Path(workspace) / "objective_runs"
     rows: list[dict[str, object]] = []
-    release_dirs = sorted(
-        (item for item in releases_root.iterdir() if item.is_dir()),
-        key=lambda item: item.stat().st_mtime,
-        reverse=True,
-    )
-    for release_dir in release_dirs:
-        questions_path = release_dir / "public" / "questions.jsonl"
-        if not questions_path.is_file():
-            continue
-        run_id = release_dir.name
+    run_ids = {item.name for root in (releases_root, runs_root) if root.is_dir()
+               for item in root.iterdir() if item.is_dir()}
+    for run_id in sorted(run_ids):
+        questions_path = releases_root / run_id / "public" / "questions.jsonl"
         snapshot = None
         try:
             snapshot = ObjectiveRuntimeRepository(
@@ -443,6 +817,9 @@ def _objective_published_question_rows(
             ).load()
         except Exception:
             pass
+        questions = public_questions_for_run(workspace, run_id, snapshot)
+        if not questions:
+            continue
         contract_by_id = {}
         draft_by_id = {}
         resolution_by_id = {}
@@ -462,7 +839,7 @@ def _objective_published_question_rows(
                     if question_id:
                         report_by_question_id[question_id] = artifact.payload
         published_at = datetime.fromtimestamp(
-            questions_path.stat().st_mtime,
+            (questions_path if questions_path.is_file() else runs_root / run_id).stat().st_mtime,
             tz=timezone.utc,
         )
         if snapshot is not None:
@@ -484,10 +861,7 @@ def _objective_published_question_rows(
                     commits[-1].stat().st_mtime,
                     tz=timezone.utc,
                 )
-        for line in questions_path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            payload = json.loads(line)
+        for payload in questions:
             question_id = str(payload.get("question_id") or "")
             report = report_by_question_id.get(question_id, {})
             answers = payload.get("answer", [])
@@ -533,7 +907,7 @@ def _objective_published_question_rows(
                     "run_url": f"/?task={run_id}",
                 }
             )
-    return rows
+    return sorted(rows, key=lambda row: row["published_at"], reverse=True)
 
 
 def _objective_artifact_counts(
@@ -556,29 +930,21 @@ def _run_objective_web_generation(
     question_count: int,
     max_actions: int,
     providers: list[str],
+    allowed_fact_types: list[str],
+    difficulty_targets: list[str],
+    style_targets: list[str],
     model: object,
+    model_provider_id: str | None = None,
     objective_providers: dict[str, object] | None = None,
 ) -> dict[str, object]:
     run_root = _objective_run_root(workspace, run_id)
     release_root = _objective_release_root(workspace, run_id)
     if run_root.exists() or release_root.exists():
         raise FileExistsError(f"objective run already exists: {run_id}")
-    provider_map = dict(objective_providers or {})
-    kg_provider = None
-    if "primekg" in providers and "primekg" not in provider_map:
-        kg_provider = provider_from_config("primekg")
-        provider_map["primekg"] = PrimeKgMaterialProvider(kg_provider)
-    if "pubmed" in providers and "pubmed" not in provider_map:
-        provider_map["pubmed"] = PubMedMaterialProvider()
-    if "hgnc" in providers and "hgnc" not in provider_map:
-        provider_map["hgnc"] = HgncMaterialProvider()
-    if "ncbi_gene" in providers and "ncbi_gene" not in provider_map:
-        provider_map["ncbi_gene"] = NcbiGeneMaterialProvider()
-    if "ensembl" in providers and "ensembl" not in provider_map:
-        provider_map["ensembl"] = EnsemblMaterialProvider()
-    selected = {name: provider_map[name] for name in providers if name in provider_map}
-    if not selected:
-        raise ValueError("no usable objective provider configured")
+    selected, kg_provider = _objective_provider_map(
+        providers,
+        objective_providers,
+    )
     manifest_seed = json.dumps(
         {
             "model": getattr(model, "model_config_id", "structured-model"),
@@ -592,18 +958,22 @@ def _run_objective_web_generation(
     manifest = RunManifest(
         manifest_id=f"manifest.{run_id}",
         run_id=run_id,
-        orchestrator_version="objective-agent-loop-v1",
-        main_agent_version="objective-main-agent-v1",
-        subagent_role_versions={"all": "v1"},
+        orchestrator_version=FINAL_QUESTION_WORKFLOW,
+        main_agent_version="objective-workflow-planner-v1",
+        subagent_role_versions={"all": "v1", "objective_answer_verification": "final-question-v2"},
         model_versions={
             "structured": getattr(
                 model,
                 "model_config_id",
                 "structured-model",
-            )
+            ),
+            "provider_id": model_provider_id or "",
+        },
+        provider_adapter_versions={
+            name: "v1" for name in sorted(selected)
         },
         schema_versions={"objective_question_contracts": "objective-question-v1"},
-        validation_policy_version="objective-policy-v1",
+        validation_policy_version="final-question-v2",
         data_snapshot_or_retrieval_time_policy="pinned-per-run",
         runtime_bundle_id="objective-runtime-v1",
         runtime_bundle_digest=bundle_digest,
@@ -614,9 +984,9 @@ def _run_objective_web_generation(
         target_entity_id=entity_canonical_id.rsplit(":", 1)[-1],
         target_entity_type=entity_type or None,
         question_count_upper_bound=question_count,
-        difficulty_targets=["easy"],
-        style_targets=["concise"],
-        allowed_fact_types=["entity_identity", "classification", "gene_location"],
+        difficulty_targets=difficulty_targets,
+        style_targets=style_targets,
+        allowed_fact_types=allowed_fact_types,
         run_budget={"max_actions": max_actions},
         run_manifest_id=manifest.manifest_id,
         runtime_bundle_id=manifest.runtime_bundle_id,
@@ -631,22 +1001,164 @@ def _run_objective_web_generation(
                 max_model_calls=max(20, max_actions * 3),
             ),
         )
+        try:
+            result = ObjectiveQuestionAgentLoop(
+                runtime=runtime,
+                persistence=ObjectiveQuestionPersistence(run_root),
+                goal=goal,
+                main_agent=HierarchicalMainAgent(
+                    model,
+                    provider_ids=sorted(selected),
+                    memory_root=run_root,
+                ),
+                model=model,
+                providers=selected,
+                max_actions=max_actions,
+            ).run()
+        except Exception as exc:
+            try:
+                latest = runtime.load()
+                runtime.set_run_state(
+                    expected_state_revision=latest.state_revision,
+                    target=RuntimeRunState.RECOVERY_REQUIRED,
+                    stop_reason=(
+                        f"{type(exc).__name__}: {exc}"
+                    ),
+                    recovery_error=_recovery_error_payload(exc),
+                )
+            except Exception:
+                pass
+            raise
+        _export_completed_web_run(result, release_root)
+    finally:
+        if kg_provider is not None:
+            kg_provider.close()
+    return _objective_run_payload(workspace, run_id)
+
+
+def _export_completed_web_run(result, release_root: Path) -> None:
+    if result.run_state not in {RuntimeRunState.COMPLETED, RuntimeRunState.COMPLETED_WITH_ZERO_QUESTIONS}:
+        return
+    manifest = release_root / "audit" / "manifest.json"
+    if manifest.is_file():
+        previous = json.loads(manifest.read_text(encoding="utf-8"))
+        if previous.get("run_id") == result.run_id and previous.get("run_state") == "RECOVERY_REQUIRED":
+            # Older web runs exported a provisional package when paused.
+            # Build the final package first and keep the old files outside the release index.
+            from uuid import uuid4
+            workspace = release_root.resolve().parent.parent
+            if release_root.resolve() != workspace / "objective_releases" / result.run_id:
+                raise ValueError("unexpected release path")
+            # A private temp directory on Windows gives the moved release an
+            # owner-only ACL. Inherit the workspace ACL like a normal export.
+            staging = workspace / f"release-repair-{uuid4().hex}"
+            staging.mkdir()
+            ready = export_objective_release(result, staging / "completed")
+            previous_path = staging / "paused"
+            release_root.rename(previous_path)
+            try:
+                ready.rename(release_root)
+            except OSError:
+                previous_path.rename(release_root)
+                raise
+            return
+    export_objective_release(result, release_root)
+
+
+def _resume_objective_web_generation(
+    *,
+    workspace: str | Path,
+    run_id: str,
+    model: object | None = None,
+    model_provider_id: str | None = None,
+    objective_providers: dict[str, object] | None = None,
+) -> dict[str, object]:
+    run_root = _objective_run_root(workspace, run_id)
+    release_root = _objective_release_root(workspace, run_id)
+    runtime = ObjectiveRuntimeRepository(run_root, run_id=run_id)
+    snapshot = runtime.load()
+    recovering = (
+        snapshot.run_state is RuntimeRunState.RECOVERY_REQUIRED
+    )
+    if not recovering:
+        _last_commit, age, stalled = _objective_progress_timing(
+            run_root,
+            terminal=False,
+        )
+        if not stalled:
+            raise ValueError("run is neither recoverable nor stalled")
+        if snapshot.run_state in {
+            RuntimeRunState.COMPLETED,
+            RuntimeRunState.COMPLETED_WITH_ZERO_QUESTIONS,
+            RuntimeRunState.PROVIDER_FAILED,
+            RuntimeRunState.VERSION_INCOMPATIBLE,
+            RuntimeRunState.CANCELLED,
+        }:
+            raise ValueError("run is terminal")
+    goal = snapshot.goal
+    if goal is None:
+        raise ValueError("objective run has no generation goal")
+
+    provider_ids = _objective_run_provider_ids(snapshot)
+    if not provider_ids and objective_providers:
+        provider_ids = sorted(objective_providers)
+    selected, kg_provider = _objective_provider_map(
+        provider_ids,
+        objective_providers,
+    )
+    selected_model = model
+    if selected_model is None:
+        from ..llm.registry import build_model_port
+
+        requested_provider = (
+            model_provider_id
+            or snapshot.manifest.model_versions.get("provider_id")
+            or None
+        )
+        selected_model = build_model_port(requested_provider or None)
+
+    max_actions = int(goal.run_budget.get("max_actions", 100))
+    if recovering:
+        runtime.resume_from_recovery()
+    else:
+        runtime.resume_stalled(
+            reason=(
+                f"no runtime commit for {age} seconds; "
+                "resume from the pending decision"
+            )
+        )
+    try:
         result = ObjectiveQuestionAgentLoop(
             runtime=runtime,
             persistence=ObjectiveQuestionPersistence(run_root),
             goal=goal,
-            main_agent=StructuredMainAgent(
-                model,
+            main_agent=HierarchicalMainAgent(
+                selected_model,
                 provider_ids=sorted(selected),
+                memory_root=run_root,
             ),
-            model=model,
+            model=selected_model,
             providers=selected,
             max_actions=max_actions,
         ).run()
-        export_objective_release(result, release_root)
+    except Exception as exc:
+        try:
+            latest = runtime.load()
+            if latest.run_state is not RuntimeRunState.RECOVERY_REQUIRED:
+                runtime.set_run_state(
+                    expected_state_revision=latest.state_revision,
+                    target=RuntimeRunState.RECOVERY_REQUIRED,
+                    stop_reason=f"{type(exc).__name__}: {exc}",
+                    recovery_error=_recovery_error_payload(exc),
+                )
+        except Exception:
+            pass
+        raise
     finally:
         if kg_provider is not None:
             kg_provider.close()
+
+    _export_completed_web_run(result, release_root)
     return _objective_run_payload(workspace, run_id)
 
 
@@ -673,26 +1185,29 @@ def _structured_model_status() -> dict[str, object]:
     """Secret-free readiness check for the Agent path."""
     try:
         registry = ProviderRegistry.from_config()
-        provider = registry.provider_config()
+        providers = registry.describe()
+        default_provider = registry.config.default_provider
+        provider = next(
+            item
+            for item in providers
+            if item["provider_id"] == default_provider
+        )
     except ModelError as exc:
         return {
             "ready": False,
             "provider_id": None,
             "model_id": None,
+            "default_provider": None,
+            "providers": [],
             "detail": exc.message,
         }
-    if not provider.has_api_key():
-        return {
-            "ready": False,
-            "provider_id": provider.provider_id,
-            "model_id": provider.model_id,
-            "detail": f"缺少环境变量 {provider.api_key_env}",
-        }
     return {
-        "ready": True,
-        "provider_id": provider.provider_id,
-        "model_id": provider.model_id,
-        "detail": f"{provider.provider_id} / {provider.model_id}",
+        "ready": provider["ready"],
+        "provider_id": provider["provider_id"],
+        "model_id": provider["model_id"],
+        "default_provider": default_provider,
+        "providers": providers,
+        "detail": provider["detail"],
     }
 
 
@@ -800,14 +1315,6 @@ def _bundle_for_claim(
         if any(claim.claim_id == claim_id for claim in bundle.claims):
             return bundle
     return None
-
-
-def _workspace_is_demo(repository: LocalArtifactRepository) -> bool:
-    return any(
-        snapshot.endpoint_kind is EndpointKind.MOCK
-        for bundle in repository.list_latest_bundles()
-        for snapshot in bundle.tool_snapshots
-    )
 
 
 def _generation_progress(
@@ -1109,14 +1616,6 @@ def _generation_progress(
     }
 
 
-def _base_context(request: Request, repository: LocalArtifactRepository) -> dict:
-    return {
-        "request": request,
-        "environment": "DEMO" if _workspace_is_demo(repository) else "LOCAL",
-        "workspace": str(repository.root),
-    }
-
-
 def _parse_route(value: object) -> DomainRoute | None:
     if value in (None, ""):
         return None
@@ -1139,25 +1638,6 @@ def _parse_split(value: object) -> DatasetSplit | None:
         ) from exc
 
 
-def _review_context(
-    request: Request, repository: LocalArtifactRepository, question_id: str
-) -> dict:
-    try:
-        question = repository.load_latest_question(question_id)
-        bundle = repository.load_latest_bundle(question.bundle_ids[0])
-    except (RecordNotFoundError, IndexError) as exc:
-        raise HTTPException(status_code=404) from exc
-    context = _base_context(request, repository)
-    context.update(
-        question=question,
-        bundle=bundle,
-        seed_entity=bundle.seed_entities[0],
-        question_versions=repository.list_versions("questions", question_id),
-        active_nav="review",
-    )
-    return context
-
-
 def create_app(
     workspace: str | Path,
     *,
@@ -1176,6 +1656,22 @@ def create_app(
                 structured_model, "model_config_id", "injected-model"
             ),
             "model_id": getattr(structured_model, "model_config_id", "injected-model"),
+            "default_provider": "injected-model",
+            "providers": [
+                {
+                    "provider_id": "injected-model",
+                    "model_id": getattr(
+                        structured_model,
+                        "model_config_id",
+                        "injected-model",
+                    ),
+                    "driver": "injected",
+                    "auth_mode": "none",
+                    "structured_output_mode": "injected",
+                    "ready": True,
+                    "detail": "已注入测试模型",
+                }
+            ],
             "detail": "已注入测试模型",
         }
         if structured_model is not None
@@ -1246,7 +1742,7 @@ def create_app(
             close_entity_provider()
 
     async def generation_workspace(request: Request) -> JSONResponse:
-        entity_records = build_entity_workspaces(repository)
+        entity_records = await run_in_threadpool(build_entity_workspaces, repository)
         graph_entities, _ = await run_in_threadpool(
             search_graph_entities, query="", limit=10
         )
@@ -1262,8 +1758,13 @@ def create_app(
                 reverse=True,
             ):
                 try:
-                    run_payload = _objective_run_payload(
-                        workspace, run_dir.name
+                    run_payload = (
+                        _objective_run_payload(workspace, run_dir.name)
+                        if run_dir.name == task_id
+                        else build_objective_summary(
+                            workspace,
+                            run_dir.name,
+                        )
                     )
                 except Exception:
                     continue
@@ -1281,6 +1782,62 @@ def create_app(
                 )
                 if run_dir.name == task_id:
                     objective_payload = run_payload
+        objective_entity_id = None
+        if objective_payload is not None:
+            goal = objective_payload.get("goal") or {}
+            target_name = str(goal.get("target_entity") or "").strip()
+            target_id = str(goal.get("target_entity_id") or "").strip()
+            target_matches = [
+                entity
+                for entity in seed_entities
+                if (
+                    target_name
+                    and target_name.casefold()
+                    in {
+                        entity.raw_mention.casefold(),
+                        (entity.canonical_name or "").casefold(),
+                    }
+                )
+                or (
+                    target_id
+                    and (
+                        (entity.canonical_id or "").endswith(
+                            f":{target_id}"
+                        )
+                        or entity.entity_ref_id.endswith(
+                            f":{target_id}"
+                        )
+                    )
+                )
+            ]
+            if not target_matches and target_name:
+                try:
+                    searched_entities, _ = await run_in_threadpool(
+                        search_graph_entities,
+                        query=target_name,
+                        limit=10,
+                    )
+                except Exception:
+                    searched_entities = []
+                for entity in searched_entities:
+                    if (
+                        entity.name.casefold()
+                        == target_name.casefold()
+                        or (
+                            target_id
+                            and entity.canonical_id.endswith(
+                                f":{target_id}"
+                            )
+                        )
+                    ):
+                        seed_entities.append(_seed_ref(entity))
+                        target_matches.append(seed_entities[-1])
+                        break
+            if target_matches:
+                entity = target_matches[0]
+                objective_entity_id = (
+                    entity.canonical_id or entity.entity_ref_id
+                )
         requested_task = None
         if task_id and objective_payload is None:
             try:
@@ -1291,7 +1848,10 @@ def create_app(
             (requested_task.seed_entities[0].canonical_id or
              requested_task.seed_entities[0].entity_ref_id)
             if requested_task is not None
-            else request.query_params.get("entity")
+            else (
+                objective_entity_id
+                or request.query_params.get("entity")
+            )
         )
         default_entity = (
             entity_records[0].entity
@@ -1363,6 +1923,7 @@ def create_app(
         if selected_task is not None and objective_payload is None:
             task_payload = {
                 "task_id": selected_task.task_id,
+                "engine": "legacy",
                 "status": (
                     progress.get("status") or selected_task.status.value
                 ),
@@ -1374,11 +1935,7 @@ def create_app(
                 "target_question_count": selected_task.target_question_count,
                 "question_count": question_counts.get(selected_task.task_id, 0),
                 "stop_reason": progress.get("stop_reason"),
-                "detail_url": str(
-                    request.url_for(
-                        "task_detail", task_id=selected_task.task_id
-                    )
-                ),
+                "detail_url": f"/?task={selected_task.task_id}",
                 "operations": progress.get("operations", []),
                 "planner_steps": progress.get("planner_steps", []),
             }
@@ -1408,6 +1965,7 @@ def create_app(
                     *[
                     {
                         "task_id": task.task_id,
+                        "engine": "legacy",
                         "status": task.status.value,
                         "status_label": {
                             "pending": "准备生成",
@@ -1438,19 +1996,13 @@ def create_app(
                         "style_label": row.style_label,
                         "style_score_label": row.style_score_label,
                         "validation_label": row.validation_label,
-                        "review_url": str(
-                            request.url_for(
-                                "review",
-                                question_id=row.question.question_id,
-                            )
-                        ),
+                        "review_url": None,
                     }
                     for row in question_rows
                     ]
                 ),
                 "model": {
-                    "ready": model_status["ready"],
-                    "detail": model_status["detail"],
+                    **model_status,
                     "default_mode": default_model_mode,
                 },
                 "question_styles": [
@@ -1464,74 +2016,172 @@ def create_app(
             }
         )
 
-    async def generation(request: Request) -> HTMLResponse:
-        context = _base_context(request, repository)
-        context.update(
-            active_nav="generate",
+    async def workbench_bootstrap(request: Request) -> JSONResponse:
+        """Return generation configuration without mixing run histories."""
+        entity_records = await run_in_threadpool(build_entity_workspaces, repository)
+        graph_entities, _ = await run_in_threadpool(
+            search_graph_entities,
+            query="",
+            limit=10,
         )
-        return templates.TemplateResponse(request, "generation.html", context)
+        seed_entities = _merge_seed_entities(graph_entities, entity_records)
+        requested_entity = request.query_params.get("entity")
+        selected_entity = next(
+            (
+                entity
+                for entity in seed_entities
+                if requested_entity
+                in {entity.entity_ref_id, entity.canonical_id}
+            ),
+            seed_entities[0] if seed_entities else None,
+        )
+        return JSONResponse(
+            {
+                "entities": [
+                    {
+                        "value": entity.canonical_id or entity.entity_ref_id,
+                        "entity_ref_id": entity.entity_ref_id,
+                        "canonical_id": entity.canonical_id,
+                        "name": entity.raw_mention,
+                        "canonical_name": entity.canonical_name,
+                        "entity_type": entity.entity_type,
+                    }
+                    for entity in seed_entities
+                ],
+                "selected_entity_id": (
+                    selected_entity.canonical_id
+                    or selected_entity.entity_ref_id
+                    if selected_entity is not None
+                    else None
+                ),
+                "model": model_status,
+                "question_styles": [
+                    {
+                        "skill_id": skill.skill_id,
+                        "display_name": skill.display_name,
+                    }
+                    for skill in available_question_skills()
+                ],
+                "entity_error": provider_error,
+            }
+        )
 
-    async def questions(request: Request) -> HTMLResponse:
-        rows = build_question_library_rows(repository)
-        counts = {
-            "all": len(rows),
-            "draft": sum(
-                row.question.validation_level.value == "draft" for row in rows
-            ),
-            "machine_validated": sum(
-                row.question.validation_level.value == "machine_validated"
-                for row in rows
-            ),
-            "human_confirmed": sum(
-                row.question.validation_level.value == "human_confirmed"
-                for row in rows
-            ),
-            "rejected": sum(
-                row.question.validation_level.value == "rejected" for row in rows
+    async def objective_runs(request: Request) -> JSONResponse:
+        """List objective runs only, optionally scoped to one entity."""
+        entity_id = str(request.query_params.get("entity_id") or "").strip()
+        requested_native_id = entity_id.rsplit(":", 1)[-1] if entity_id else ""
+        runs = []
+        objective_runs_root = Path(workspace) / "objective_runs"
+        run_dirs = (
+            sorted(
+                (item for item in objective_runs_root.iterdir() if item.is_dir()),
+                key=lambda item: item.stat().st_mtime,
+                reverse=True,
+            )
+            if objective_runs_root.is_dir()
+            else []
+        )
+        for run_dir in run_dirs:
+            try:
+                summary = await run_in_threadpool(
+                    build_objective_summary,
+                    repository.root,
+                    run_dir.name,
+                )
+            except (FileNotFoundError, ValueError):
+                continue
+            goal = summary.get("goal") or {}
+            target_id = str(goal.get("target_entity_id") or "")
+            if entity_id and target_id not in {entity_id, requested_native_id}:
+                continue
+            runs.append(summary)
+        return JSONResponse({"runs": runs, "run_count": len(runs)})
+
+    async def legacy_generation_retired(_: Request) -> JSONResponse:
+        return JSONResponse(
+            {
+                "error": "旧版 Web 生成链路已退役，请使用 objective 生成接口",
+                "code": "legacy_generation_retired",
+            },
+            status_code=410,
+        )
+
+    def legacy_task_row(task, *, entity=None) -> dict[str, object]:
+        progress = _generation_progress(repository, task.task_id)
+        status = str(progress.get("status") or task.status.value)
+        return {
+            "task_id": task.task_id,
+            "engine": "legacy",
+            "status": status,
+            "status_label": {
+                "pending": "旧版准备态",
+                "running": "旧版运行中断",
+                "needs_input": "旧版待人工输入",
+                "completed": "旧版已完成",
+                "partial": "旧版部分结果",
+                "failed": "旧版失败",
+                "cancelled": "旧版已取消",
+            }.get(status, status),
+            "is_terminal": status
+            in {"completed", "partial", "failed", "cancelled"},
+            "can_resume": False,
+            "target_question_count": task.target_question_count,
+            "question_count": int(progress.get("question_count") or 0),
+            "stop_reason": progress.get("stop_reason"),
+            "updated_at": task.updated_at.isoformat(),
+            "entity_id": (
+                entity.canonical_id or entity.entity_ref_id
+                if entity is not None
+                else None
             ),
         }
-        context = _base_context(request, repository)
-        context.update(
-            question_rows=rows,
-            counts=counts,
-            active_nav="questions",
-        )
-        return templates.TemplateResponse(request, "questions.html", context)
 
-    async def published_questions(request: Request) -> HTMLResponse:
-        rows = _objective_published_question_rows(repository.root)
-        context = _base_context(request, repository)
-        context.update(
-            published_rows=rows,
-            published_count=len(rows),
-            published_run_count=len({row["run_id"] for row in rows}),
-            active_nav="published",
-        )
-        return templates.TemplateResponse(
-            request,
-            "published_questions.html",
-            context,
-        )
+    async def legacy_tasks(request: Request) -> JSONResponse:
+        """List old fixed-workflow tasks without projecting objective state."""
+        entity_id = str(request.query_params.get("entity_id") or "").strip()
+        rows = []
+        seen: set[str] = set()
+        for record in build_entity_workspaces(repository):
+            record_entity_id = (
+                record.entity.canonical_id or record.entity.entity_ref_id
+            )
+            if entity_id and entity_id != record_entity_id:
+                continue
+            for task in record.tasks:
+                if task.task_id in seen:
+                    continue
+                seen.add(task.task_id)
+                rows.append(legacy_task_row(task, entity=record.entity))
+        return JSONResponse({"tasks": rows, "task_count": len(rows)})
 
-    async def entities(request: Request) -> HTMLResponse:
-        entity_records = build_entity_workspaces(repository)
-        counts = {
-            "entities": len(entity_records),
-            "questions": sum(len(record.questions) for record in entity_records),
-            "review": sum(
-                question.validation_level.value == "draft"
-                for record in entity_records
-                for question in record.questions
-            ),
-            "issues": sum(record.issue_count for record in entity_records),
-        }
-        context = _base_context(request, repository)
-        context.update(
-            entity_records=entity_records,
-            counts=counts,
-            active_nav="entities",
+    async def legacy_task_detail(request: Request) -> JSONResponse:
+        task_id = request.path_params["task_id"]
+        if not WEB_TASK_ID_PATTERN.fullmatch(task_id):
+            return JSONResponse({"error": "任务 ID 格式无效"}, status_code=400)
+        try:
+            task = repository.load_latest_task(task_id)
+        except RecordNotFoundError:
+            return JSONResponse(
+                {
+                    "error": "旧版任务不存在",
+                    "code": "legacy_task_not_found",
+                    "task_id": task_id,
+                },
+                status_code=404,
+            )
+        payload = legacy_task_row(task)
+        progress = await run_in_threadpool(
+            _generation_progress,
+            repository,
+            task_id,
         )
-        return templates.TemplateResponse(request, "entities.html", context)
+        payload.update(
+            {
+                "operations": progress.get("operations", []),
+                "planner_steps": progress.get("planner_steps", []),
+            }
+        )
+        return JSONResponse(payload)
 
     async def search_entities_api(request: Request) -> JSONResponse:
         query = request.query_params.get("q", "").strip()
@@ -1718,6 +2368,19 @@ def create_app(
         run_id = str(payload.get("run_id") or new_id("objective-web")).strip()
         if not WEB_TASK_ID_PATTERN.fullmatch(run_id):
             return JSONResponse({"error": "run_id 格式无效"}, status_code=400)
+        try:
+            repository.load_latest_task(run_id)
+        except RecordNotFoundError:
+            pass
+        else:
+            return JSONResponse(
+                {
+                    "error": "run_id 已被旧版任务占用",
+                    "code": "run_id_conflict",
+                    "run_id": run_id,
+                },
+                status_code=409,
+            )
         canonical_id = str(payload.get("entity_canonical_id") or "").strip()
         parts = canonical_id.split(":", 2)
         if len(parts) != 3 or not all(parts):
@@ -1759,6 +2422,79 @@ def create_app(
                 raise ValueError("主 Agent 最大动作数必须在 2 到 100 之间")
         except (TypeError, ValueError) as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
+        raw_difficulties = payload.get(
+            "difficulty_targets",
+            ["easy", "medium"],
+        )
+        if (
+            not isinstance(raw_difficulties, list)
+            or not raw_difficulties
+        ):
+            return JSONResponse(
+                {"error": "difficulty_targets 必须是非空数组"},
+                status_code=400,
+            )
+        difficulty_targets = [
+            str(item).strip() for item in raw_difficulties
+        ]
+        if (
+            any(
+                item not in {"easy", "medium", "hard"}
+                for item in difficulty_targets
+            )
+            or len(set(difficulty_targets)) != len(difficulty_targets)
+        ):
+            return JSONResponse(
+                {
+                    "error": (
+                        "difficulty_targets 只能包含不重复的 "
+                        "easy、medium、hard"
+                    )
+                },
+                status_code=400,
+            )
+        raw_style_ids = payload.get("question_style_ids")
+        if raw_style_ids is not None:
+            if (
+                not isinstance(raw_style_ids, list)
+                or not raw_style_ids
+            ):
+                return JSONResponse(
+                    {"error": "question_style_ids 必须是非空数组"},
+                    status_code=400,
+                )
+            question_style_ids = [
+                str(item).strip() for item in raw_style_ids
+            ]
+            if len(question_style_ids) > 3 or len(
+                set(question_style_ids)
+            ) != len(question_style_ids):
+                return JSONResponse(
+                    {
+                        "error": (
+                            "question_style_ids 必须不重复且最多包含 3 项"
+                        )
+                    },
+                    status_code=400,
+                )
+            try:
+                load_question_skills(question_style_ids)
+            except ValueError as exc:
+                return JSONResponse({"error": str(exc)}, status_code=400)
+            style_targets = question_style_ids
+        else:
+            raw_style_targets = payload.get("style_targets", ["concise"])
+            if (
+                not isinstance(raw_style_targets, list)
+                or not raw_style_targets
+            ):
+                return JSONResponse(
+                    {"error": "style_targets 必须是非空数组"},
+                    status_code=400,
+                )
+            style_targets = [
+                str(item).strip() for item in raw_style_targets
+            ]
         requested_providers = payload.get(
             "providers",
             ["hgnc", "ncbi_gene", "ensembl", "primekg", "pubmed"],
@@ -1768,6 +2504,7 @@ def create_app(
         providers = list(dict.fromkeys(str(item) for item in requested_providers))
         if not set(providers) <= {
             "primekg",
+            "ctd",
             "pubmed",
             "hgnc",
             "ncbi_gene",
@@ -1777,13 +2514,83 @@ def create_app(
                 {"error": f"不支持的材料 provider：{providers}"},
                 status_code=400,
             )
-        if not model_status["ready"] and structured_model is None:
+        raw_fact_types = payload.get("allowed_fact_types")
+        if raw_fact_types is None:
+            allowed_fact_types = default_objective_fact_types(
+                entity_type,
+                available_providers=providers,
+            )
+        else:
+            if (
+                not isinstance(raw_fact_types, list)
+                or not raw_fact_types
+            ):
+                return JSONResponse(
+                    {"error": "allowed_fact_types 必须是非空数组"},
+                    status_code=400,
+                )
+            allowed_fact_types = [
+                str(item).strip() for item in raw_fact_types
+            ]
+            if (
+                any(
+                    item not in FACT_SOURCE_ROUTES
+                    for item in allowed_fact_types
+                )
+                or len(set(allowed_fact_types))
+                != len(allowed_fact_types)
+            ):
+                return JSONResponse(
+                    {
+                        "error": (
+                            "allowed_fact_types 包含未知或重复的事实类型"
+                        )
+                    },
+                    status_code=400,
+                )
+        requested_model_provider = str(
+            payload.get("model_provider_id") or ""
+        ).strip()
+        selected_model_provider = requested_model_provider or str(
+            model_status.get("default_provider") or ""
+        )
+        if structured_model is None:
+            try:
+                registry = ProviderRegistry.from_config()
+                provider_status = next(
+                    item
+                    for item in registry.describe()
+                    if item["provider_id"] == selected_model_provider
+                )
+            except (ModelError, StopIteration) as exc:
+                detail = (
+                    exc.message
+                    if isinstance(exc, ModelError)
+                    else f"未知模型 provider：{selected_model_provider}"
+                )
+                return JSONResponse(
+                    {"error": detail, "code": "model_config_error"},
+                    status_code=422,
+                )
+            if not provider_status["ready"]:
+                return JSONResponse(
+                    {
+                        "error": (
+                            f"主 Agent 模型未就绪：{provider_status['detail']}"
+                        ),
+                        "code": "model_config_error",
+                    },
+                    status_code=422,
+                )
+        elif requested_model_provider and requested_model_provider != str(
+            model_status["default_provider"]
+        ):
             return JSONResponse(
                 {
-                    "error": f"主 Agent 模型未就绪：{model_status['detail']}",
+                    "error": "注入模型不支持切换 provider",
                     "code": "model_config_error",
                 },
-                status_code=422,
+                status_code=400,
             )
         if generation_lock.locked():
             return JSONResponse(
@@ -1795,7 +2602,7 @@ def create_app(
             if model is None:
                 from ..llm.registry import build_model_port
 
-                model = build_model_port()
+                model = build_model_port(selected_model_provider or None)
             async with generation_lock:
                 result = await run_in_threadpool(
                     _run_objective_web_generation,
@@ -1807,7 +2614,11 @@ def create_app(
                     question_count=question_count,
                     max_actions=max_actions,
                     providers=providers,
+                    allowed_fact_types=allowed_fact_types,
+                    difficulty_targets=difficulty_targets,
+                    style_targets=style_targets,
                     model=model,
+                    model_provider_id=selected_model_provider,
                     objective_providers=objective_providers,
                 )
         except FileExistsError as exc:
@@ -1819,6 +2630,122 @@ def create_app(
                     "code": str(
                         getattr(exc, "code", "objective_generation_error")
                     ),
+                },
+                status_code=500,
+            )
+        return JSONResponse(result)
+
+    async def pause_objective_generation(request: Request) -> JSONResponse:
+        run_id = request.path_params["run_id"]
+        if not WEB_TASK_ID_PATTERN.fullmatch(run_id):
+            return JSONResponse({"error": "任务 ID 格式无效"}, status_code=400)
+        runtime = ObjectiveRuntimeRepository(_objective_run_root(repository.root, run_id), run_id=run_id)
+        try:
+            await run_in_threadpool(runtime.request_pause)
+        except FileNotFoundError:
+            return JSONResponse({"error": "任务尚未创建或不存在，请稍后重试"}, status_code=404)
+        except ValueError:
+            return JSONResponse({"error": "任务已停止，无需暂停"}, status_code=409)
+        return JSONResponse({"run_id": run_id, "pause_requested": True}, status_code=202)
+
+    async def resume_objective_generation(
+        request: Request,
+    ) -> JSONResponse:
+        run_id = request.path_params["run_id"]
+        if not WEB_TASK_ID_PATTERN.fullmatch(run_id):
+            return JSONResponse(
+                {"error": "任务 ID 格式无效"},
+                status_code=400,
+            )
+        try:
+            payload = await request.json()
+        except ValueError:
+            payload = {}
+        if not isinstance(payload, dict):
+            return JSONResponse(
+                {"error": "请求内容必须是 JSON 对象"},
+                status_code=400,
+            )
+        model_provider_id = str(
+            payload.get("model_provider_id") or ""
+        ).strip()
+        try:
+            snapshot = await run_in_threadpool(
+                ObjectiveRuntimeRepository(
+                    _objective_run_root(repository.root, run_id),
+                    run_id=run_id,
+                ).load
+            )
+        except FileNotFoundError:
+            return JSONResponse(
+                {
+                    "error": "生成任务不存在",
+                    "code": "run_not_found",
+                    "run_id": run_id,
+                },
+                status_code=404,
+            )
+        recoverable = (
+            snapshot.run_state is RuntimeRunState.RECOVERY_REQUIRED
+        )
+        if not recoverable:
+            _last_commit, _age, stalled = await run_in_threadpool(
+                _objective_progress_timing,
+                _objective_run_root(repository.root, run_id),
+                terminal=False,
+            )
+            recoverable = stalled
+        if not recoverable:
+            return JSONResponse(
+                {
+                    "error": "任务当前不在可恢复或停滞状态",
+                    "code": "run_not_resumable",
+                    "run_id": run_id,
+                    "run_state": snapshot.run_state.value,
+                },
+                status_code=409,
+            )
+        if generation_lock.locked():
+            return JSONResponse(
+                {"error": "已有生成任务正在运行，请等待它完成"},
+                status_code=409,
+            )
+        try:
+            async with generation_lock:
+                result = await run_in_threadpool(
+                    _resume_objective_web_generation,
+                    workspace=repository.root,
+                    run_id=run_id,
+                    model=structured_model,
+                    model_provider_id=model_provider_id or None,
+                    objective_providers=objective_providers,
+                )
+        except FileNotFoundError:
+            return JSONResponse(
+                {
+                    "error": "生成任务不存在",
+                    "code": "run_not_found",
+                    "run_id": run_id,
+                },
+                status_code=404,
+            )
+        except ValueError as exc:
+            return JSONResponse(
+                {
+                    "error": str(exc),
+                    "code": "run_not_resumable",
+                    "run_id": run_id,
+                },
+                status_code=409,
+            )
+        except Exception as exc:
+            return JSONResponse(
+                {
+                    "error": str(exc),
+                    "code": str(
+                        getattr(exc, "code", "objective_resume_error")
+                    ),
+                    "run_id": run_id,
                 },
                 status_code=500,
             )
@@ -1837,20 +2764,81 @@ def create_app(
         except FileNotFoundError:
             return JSONResponse(
                 {
-                    "task_id": run_id,
-                    "engine": "objective",
-                    "status": "pending",
-                    "status_label": "准备启动主 Agent",
-                    "run_state": "CREATED",
-                    "published_count": 0,
-                    "artifact_counts": {},
-                    "main_agent_steps": [],
-                    "questions": [],
-                }
+                    "error": "生成任务不存在",
+                    "code": "run_not_found",
+                    "run_id": run_id,
+                },
+                status_code=404,
             )
         except Exception as exc:
             return JSONResponse(
                 {"error": str(exc), "code": "objective_progress_error"},
+                status_code=500,
+            )
+        return JSONResponse(payload)
+
+    async def objective_summary(request: Request) -> JSONResponse:
+        run_id = request.path_params["run_id"]
+        if not WEB_TASK_ID_PATTERN.fullmatch(run_id):
+            return JSONResponse({"error": "任务 ID 格式无效"}, status_code=400)
+        try:
+            payload = await run_in_threadpool(
+                build_objective_summary,
+                repository.root,
+                run_id,
+            )
+        except FileNotFoundError:
+            return JSONResponse(
+                {"error": "生成任务不存在", "code": "run_not_found"},
+                status_code=404,
+            )
+        except Exception as exc:
+            return JSONResponse(
+                {"error": str(exc), "code": "objective_summary_error"},
+                status_code=500,
+            )
+        return JSONResponse(payload)
+
+    async def objective_workbench(request: Request) -> JSONResponse:
+        run_id = request.path_params["run_id"]
+        if not WEB_TASK_ID_PATTERN.fullmatch(run_id):
+            return JSONResponse({"error": "任务 ID 格式无效"}, status_code=400)
+        try:
+            payload = await run_in_threadpool(
+                build_objective_workbench,
+                repository.root,
+                run_id,
+            )
+        except FileNotFoundError:
+            return JSONResponse(
+                {"error": "生成任务不存在", "code": "run_not_found"},
+                status_code=404,
+            )
+        except Exception as exc:
+            return JSONResponse(
+                {"error": str(exc), "code": "objective_workbench_error"},
+                status_code=500,
+            )
+        return JSONResponse(payload)
+
+    async def question_evidence(request: Request) -> JSONResponse:
+        question_id = request.path_params["question_id"]
+        if not WEB_TASK_ID_PATTERN.fullmatch(question_id):
+            return JSONResponse({"error": "题目 ID 格式无效"}, status_code=400)
+        try:
+            payload = await run_in_threadpool(
+                build_question_evidence_dossier,
+                repository.root,
+                question_id,
+            )
+        except FileNotFoundError:
+            return JSONResponse(
+                {"error": "题目不存在", "code": "question_not_found"},
+                status_code=404,
+            )
+        except Exception as exc:
+            return JSONResponse(
+                {"error": str(exc), "code": "question_evidence_error"},
                 status_code=500,
             )
         return JSONResponse(payload)
@@ -1863,115 +2851,24 @@ def create_app(
             await run_in_threadpool(_generation_progress, repository, task_id)
         )
 
-    async def entity_detail(request: Request) -> HTMLResponse:
-        entity_ref_id = request.path_params["entity_ref_id"]
-        record = next(
-            (
-                item
-                for item in build_entity_workspaces(repository)
-                if item.entity.entity_ref_id == entity_ref_id
-            ),
-            None,
-        )
-        if record is None:
-            raise HTTPException(status_code=404)
-        context = _base_context(request, repository)
-        context.update(record=record, active_nav="entities")
-        return templates.TemplateResponse(request, "entity_detail.html", context)
-
-    async def runs(request: Request) -> HTMLResponse:
-        tasks = repository.list_latest_tasks()
-        question_rows = build_question_library_rows(repository)
-        question_counts: dict[str, int] = {}
-        for row in question_rows:
-            if row.task_id is not None:
-                question_counts[row.task_id] = (
-                    question_counts.get(row.task_id, 0) + 1
-                )
-        bundles_by_task: dict[str, int] = {}
-        for bundle in repository.list_latest_bundles():
-            bundles_by_task[bundle.task_id] = (
-                bundles_by_task.get(bundle.task_id, 0) + len(bundle.kg_evidence)
-            )
-        latest_episode_by_task = {}
-        for episode in GenerationRepository(str(repository.root)).list_episodes():
-            current = latest_episode_by_task.get(episode.task_id)
-            if current is None or episode.started_at > current.started_at:
-                latest_episode_by_task[episode.task_id] = episode
-        task_rows = [
+    async def published_questions_api(_: Request) -> JSONResponse:
+        rows = _objective_published_question_rows(repository.root)
+        questions = [
             {
-                "task": task,
-                "question_count": question_counts.get(task.task_id, 0),
-                "evidence_count": bundles_by_task.get(task.task_id, 0),
-                "stop_reason": (
-                    latest_episode_by_task[task.task_id].stop_reason.value
-                    if task.task_id in latest_episode_by_task
-                    and latest_episode_by_task[task.task_id].stop_reason
-                    else None
+                **row,
+                "published_at": row["published_at"].isoformat(),
+            }
+            for row in rows
+        ]
+        return JSONResponse(
+            {
+                "questions": questions,
+                "question_count": len(questions),
+                "run_count": len(
+                    {row["run_id"] for row in questions}
                 ),
             }
-            for task in tasks
-        ]
-        counts = {
-            "all": len(tasks),
-            "running": sum(task.status.value == "running" for task in tasks),
-            "attention": sum(
-                task.status.value in {"needs_input", "partial", "failed"}
-                for task in tasks
-            ),
-            "completed": sum(task.status.value == "completed" for task in tasks),
-        }
-        context = _base_context(request, repository)
-        context.update(
-            tasks=tasks,
-            task_rows=task_rows,
-            counts=counts,
-            active_nav="tasks",
         )
-        return templates.TemplateResponse(request, "queue.html", context)
-
-    async def task_detail(request: Request) -> HTMLResponse:
-        task_id = request.path_params["task_id"]
-        try:
-            task = repository.load_latest_task(task_id)
-        except RecordNotFoundError as exc:
-            raise HTTPException(status_code=404) from exc
-
-        bundles = []
-        for artifact_id in task.artifact_ids:
-            try:
-                bundles.append(repository.load_latest_bundle(artifact_id))
-                continue
-            except RecordNotFoundError:
-                pass
-        question_rows = [
-            row
-            for row in build_question_library_rows(repository)
-            if row.task_id == task_id
-        ]
-        activity = build_generation_activity(str(repository.root), task)
-        progress = _generation_progress(repository, task_id)
-        context = _base_context(request, repository)
-        context.update(
-            task=task,
-            bundles=bundles,
-            question_rows=question_rows,
-            planner_steps=progress.get("planner_steps", []),
-            evidence_count=sum(
-                len(bundle.kg_evidence) + len(bundle.literature_evidence)
-                for bundle in bundles
-            ),
-            stop_reason=activity.stop_reason if activity is not None else None,
-            activity=activity,
-            version_count=len(repository.list_versions("tasks", task_id)),
-            active_nav="tasks",
-        )
-        return templates.TemplateResponse(request, "task_detail.html", context)
-
-    async def review(request: Request) -> HTMLResponse:
-        question_id = request.path_params["question_id"]
-        context = _review_context(request, repository, question_id)
-        return templates.TemplateResponse(request, "review.html", context)
 
     async def review_question_action(request: Request) -> JSONResponse:
         question_id = request.path_params["question_id"]
@@ -2010,33 +2907,6 @@ def create_app(
                 "change_summary": updated.changes[-1].summary,
             }
         )
-
-    async def groups(request: Request) -> HTMLResponse:
-        """The grouped review page: candidates that ask the same question."""
-        group_records = build_groups(repository)
-        counts = {
-            "groups": len(group_records),
-            "candidates": sum(record.size for record in group_records),
-            "pending_groups": sum(1 for record in group_records if record.has_pending),
-            "review": sum(
-                1
-                for record in group_records
-                for candidate in record.candidates
-                if candidate.disposition.value == "pending"
-            ),
-            "issues": sum(
-                len(candidate.failed_checks)
-                for record in group_records
-                for candidate in record.candidates
-            ),
-        }
-        context = _base_context(request, repository)
-        context.update(
-            group_records=group_records,
-            counts=counts,
-            active_nav="review",
-        )
-        return templates.TemplateResponse(request, "groups.html", context)
 
     async def group_action(request: Request) -> JSONResponse:
         """Apply one review command inside a group."""
@@ -2120,16 +2990,6 @@ def create_app(
     async def health(_: Request) -> JSONResponse:
         return JSONResponse({"status": "ok", "workspace": str(repository.root)})
 
-    async def dataset(request: Request) -> HTMLResponse:
-        plan = build_export_plan(repository)
-        context = _base_context(request, repository)
-        context.update(
-            plan=plan,
-            exportable_count=len(plan.formal_ready),
-            active_nav="dataset",
-        )
-        return templates.TemplateResponse(request, "dataset.html", context)
-
     async def export_dataset(request: Request) -> JSONResponse:
         payload = {}
         if request.method == "POST":
@@ -2146,21 +3006,24 @@ def create_app(
             return JSONResponse({"error": str(exc)}, status_code=409)
         return JSONResponse({"path": str(target), "development": development})
 
-    async def not_found(request: Request, _: Exception) -> HTMLResponse:
-        context = _base_context(request, repository)
-        context.update(active_nav="")
-        return templates.TemplateResponse(
-            request, "404.html", context, status_code=404
+    async def root(_: Request) -> JSONResponse:
+        return JSONResponse(
+            {
+                "service": "medical-qa-data-factory-api",
+                "status": "ok",
+                "frontend": "run the Vue app separately",
+            }
+        )
+
+    async def not_found(_: Request, __: Exception) -> JSONResponse:
+        return JSONResponse(
+            {"error": "Not found", "code": "not_found"},
+            status_code=404,
         )
 
     routes = [
-        Route("/", generation, name="generation"),
-        Route("/questions", questions, name="questions"),
-        Route(
-            "/published",
-            published_questions,
-            name="published_questions",
-        ),
+        Route("/api/objective/{run_id}/pause", pause_objective_generation, methods=["POST"]),
+        Route("/", root, name="api_root"),
         Route(
             "/api/entities",
             search_entities_api,
@@ -2175,15 +3038,57 @@ def create_app(
         ),
         Route(
             "/api/generate",
-            start_generation,
+            legacy_generation_retired,
             methods=["POST"],
             name="start_generation",
+        ),
+        Route(
+            "/api/workbench/bootstrap",
+            workbench_bootstrap,
+            methods=["GET"],
+            name="workbench_bootstrap",
+        ),
+        Route(
+            "/api/objective/runs",
+            objective_runs,
+            methods=["GET"],
+            name="objective_runs",
         ),
         Route(
             "/api/objective/generate",
             start_objective_generation,
             methods=["POST"],
             name="start_objective_generation",
+        ),
+        Route(
+            "/api/objective/{run_id}/summary",
+            objective_summary,
+            methods=["GET"],
+            name="objective_summary",
+        ),
+        Route(
+            "/api/objective/{run_id}/resume",
+            resume_objective_generation,
+            methods=["POST"],
+            name="resume_objective_generation",
+        ),
+        Route(
+            "/api/objective/{run_id}/workbench",
+            objective_workbench,
+            methods=["GET"],
+            name="objective_workbench",
+        ),
+        Route(
+            "/api/objective/{run_id}/trace",
+            objective_progress,
+            methods=["GET"],
+            name="objective_trace",
+        ),
+        Route(
+            "/api/questions/{question_id}/evidence",
+            question_evidence,
+            methods=["GET"],
+            name="question_evidence",
         ),
         Route(
             "/api/objective/{run_id}",
@@ -2197,17 +3102,24 @@ def create_app(
             methods=["GET"],
             name="generation_progress",
         ),
-        Route("/entities", entities, name="entities"),
         Route(
-            "/entities/{entity_ref_id:path}",
-            entity_detail,
-            name="entity_detail",
+            "/api/legacy/tasks",
+            legacy_tasks,
+            methods=["GET"],
+            name="legacy_tasks",
         ),
-        Route("/tasks", runs, name="runs"),
-        Route("/runs", runs, name="legacy_runs"),
-        Route("/tasks/{task_id}", task_detail, name="task_detail"),
-        Route("/review/{question_id}", review, name="review"),
-        Route("/groups", groups, name="groups"),
+        Route(
+            "/api/legacy/tasks/{task_id}",
+            legacy_task_detail,
+            methods=["GET"],
+            name="legacy_task_detail",
+        ),
+        Route(
+            "/api/published-questions",
+            published_questions_api,
+            methods=["GET"],
+            name="published_questions_api",
+        ),
         Route(
             "/api/groups/{review_group_key}",
             group_action,
@@ -2227,18 +3139,27 @@ def create_app(
             name="review_claim",
         ),
         Route("/health", health, name="health"),
-        Route("/dataset", dataset, name="dataset"),
         Route("/api/export", export_dataset, methods=["POST"], name="export_dataset"),
-        Mount(
-            "/static",
-            app=StaticFiles(directory=WEB_ROOT / "static"),
-            name="static",
-        ),
     ]
-    return Starlette(
+    app = Starlette(
         routes=routes,
         exception_handlers={404: not_found},
         lifespan=lifespan,
         debug=False,
     )
+    allowed_origins = [
+        item.strip()
+        for item in os.environ.get(
+            "MEDICAL_QA_CORS_ORIGINS",
+            "http://127.0.0.1:5173,http://localhost:5173",
+        ).split(",")
+        if item.strip()
+    ]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Content-Type", "Authorization"],
+    )
+    return app
 

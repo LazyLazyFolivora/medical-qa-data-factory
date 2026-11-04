@@ -9,6 +9,8 @@ from pydantic import Field, model_validator
 
 from ..domain.common import ContractModel
 from ..llm.contracts import StructuredGenerationRequest
+from ..llm.errors import ModelError
+from .verification_evidence_view import MAX_VIEW_CALLS, generate_with_evidence
 from .objective_question_contracts import (
     AnswerEvidenceAuditResult,
     AnswerResolution,
@@ -85,6 +87,9 @@ class AnswerEvidenceAuditPackage(ContractModel):
     frozen_question_contract: FrozenQuestionContract
     answer_resolution: AnswerResolution
     independent_evidence: IndependentEvidenceAuditPackage
+    design_requirements: dict[str, Any] = Field(default_factory=dict)
+    planner_environment: dict[str, Any] = Field(default_factory=dict)
+    concise_explanation: str | None = None
 
     @model_validator(mode="after")
     def answer_and_contract_are_the_same_verified_fact(self) -> "AnswerEvidenceAuditPackage":
@@ -199,6 +204,8 @@ class ReleaseReviewSubagent:
                 },
                 response_model=PublicQuestionAuditResult,
             )
+        except ModelError:
+            raise
         except Exception as exc:
             return ReleaseReviewOutcome(
                 report=self._failure_report(
@@ -258,6 +265,7 @@ class ReleaseReviewSubagent:
             allowed_fields={
                 "public_question",
                 "public_audit_result",
+                "review_context",
                 "frozen_question_contract",
                 "answer_resolution",
                 "independent_evidence",
@@ -271,6 +279,11 @@ class ReleaseReviewSubagent:
             goal={
                 "public_question": public_question.model_dump(mode="json"),
                 "public_audit_result": public_audit.model_dump(mode="json"),
+                "review_context": {
+                    "design_requirements": answer_evidence.design_requirements,
+                    "planner_environment": answer_evidence.planner_environment,
+                    "concise_explanation": answer_evidence.concise_explanation,
+                },
                 "frozen_question_contract": (
                     answer_evidence.frozen_question_contract.model_dump(
                         mode="json"
@@ -288,7 +301,7 @@ class ReleaseReviewSubagent:
                 answer_evidence.frozen_question_contract.contract_id,
                 answer_evidence.answer_resolution.resolution_id,
             ],
-            budget={"max_model_calls": 1, "max_provider_calls": 0},
+            budget={"max_model_calls": MAX_VIEW_CALLS, "max_provider_calls": 0},
         ).model_copy(
             update={
                 "parent_decision_id": f"public-audit.{public_task.subtask_id}",
@@ -304,6 +317,9 @@ class ReleaseReviewSubagent:
                 skill=skill,
                 payload={
                     "stage": "answer_evidence_audit",
+                    "design_requirements": answer_evidence.design_requirements,
+                    "planner_environment": answer_evidence.planner_environment,
+                    "concise_explanation": answer_evidence.concise_explanation,
                     "public_question": public_question.model_dump(mode="json"),
                     "public_question_audit": public_audit.model_dump(mode="json"),
                     "frozen_question_contract": (
@@ -337,6 +353,8 @@ class ReleaseReviewSubagent:
                 },
                 response_model=AnswerEvidenceAuditResult,
             )
+        except ModelError:
+            raise
         except Exception as exc:
             return ReleaseReviewOutcome(
                 report=self._failure_report(
@@ -395,19 +413,19 @@ class ReleaseReviewSubagent:
         payload: dict[str, Any],
         response_model: type[ContractModel],
     ):
-        return self.model.generate_structured(
-            StructuredGenerationRequest(
-                invocation_id=invocation_id,
-                role="objective_release_review",
-                system_prompt_version="objective-release-review-v1",
-                skill_id=skill.skill_id,
-                skill_version=skill.version,
-                skill_instruction=skill.content,
-                payload=payload,
-                idempotency_key=f"{operation_key}|{stage}",
-            ),
-            response_model,
+        request = StructuredGenerationRequest(
+            invocation_id=invocation_id,
+            role="objective_release_review",
+            system_prompt_version="objective-release-review-v1",
+            skill_id=skill.skill_id,
+            skill_version=skill.version,
+            skill_instruction=skill.content,
+            payload=payload,
+            idempotency_key=f"{operation_key}|{stage}",
         )
+        if stage == "answer_evidence_audit":
+            return generate_with_evidence(self.model, request, response_model, "independent_evidence")
+        return self.model.generate_structured(request, response_model)
 
     @staticmethod
     def _failure_report(
@@ -541,6 +559,7 @@ def merge_objective_audits(
     )
     return ObjectiveValidationReport(
         report_id=f"validation.{question_id}",
+        assessed_difficulty=answer_audit.assessed_difficulty if answer_audit else None,
         question_id=question_id,
         verdict=verdict,
         release_allowed=verdict is ObjectiveVerdict.PASS,

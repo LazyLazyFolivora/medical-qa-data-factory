@@ -9,6 +9,55 @@
       "title": "AnswerCardinality",
       "type": "string"
     },
+    "FactSelectionNote": {
+      "additionalProperties": false,
+      "properties": {
+        "additional_fact": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Additional Fact"
+        },
+        "candidate_claim_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Candidate Claim Ids",
+          "type": "array"
+        },
+        "composition": {
+          "enum": [
+            "single",
+            "connected",
+            "insufficient"
+          ],
+          "title": "Composition",
+          "type": "string"
+        },
+        "information_gain": {
+          "title": "Information Gain",
+          "type": "string"
+        },
+        "observation": {
+          "title": "Observation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "candidate_claim_ids",
+        "observation",
+        "information_gain",
+        "composition"
+      ],
+      "title": "FactSelectionNote",
+      "type": "object"
+    },
     "QuestionHypothesis": {
       "additionalProperties": false,
       "properties": {
@@ -47,6 +96,23 @@
         },
         "proposed_cardinality": {
           "$ref": "#/$defs/AnswerCardinality"
+        },
+        "proposed_difficulty": {
+          "anyOf": [
+            {
+              "enum": [
+                "easy",
+                "medium",
+                "hard"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Proposed Difficulty"
         },
         "proposed_public_scope": {
           "minLength": 1,
@@ -92,18 +158,33 @@
   },
   "additionalProperties": false,
   "properties": {
+    "fact_selections": {
+      "items": {
+        "$ref": "#/$defs/FactSelectionNote"
+      },
+      "title": "Fact Selections",
+      "type": "array"
+    },
     "hypotheses": {
       "items": {
         "$ref": "#/$defs/QuestionHypothesis"
       },
-      "minItems": 1,
       "title": "Hypotheses",
       "type": "array"
+    },
+    "insufficiency_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Insufficiency Reason"
     }
   },
-  "required": [
-    "hypotheses"
-  ],
   "title": "QuestionHypothesisBatch",
   "type": "object"
 }

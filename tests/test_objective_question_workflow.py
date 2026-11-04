@@ -257,6 +257,6 @@ def test_agent_loop_stops_after_three_retrievals_without_new_material(
         max_actions=8,
     ).run()
 
-    assert result.run_state.value == "COMPLETED_WITH_ZERO_QUESTIONS"
+    assert result.run_state.value == "RECOVERY_REQUIRED"
     assert result.stop_reason == "no_new_evidence"
     assert len(result.runtime.decisions) == 3

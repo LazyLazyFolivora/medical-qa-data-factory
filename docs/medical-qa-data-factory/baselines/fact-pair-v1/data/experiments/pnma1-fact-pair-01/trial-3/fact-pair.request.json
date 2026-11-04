@@ -1,0 +1,534 @@
+{
+  "invocation_id": "graph-pilot.fact-pair.5390c6830b225d24",
+  "role": "question_method_pilot",
+  "system_prompt_version": "question-method-pilot-v1",
+  "skill_id": "pilot-fact-pair",
+  "skill_version": "2a928a9adb234bfc715af51224eeb9e0f2eb02279afe7d961f1ae77dec408bd9",
+  "skill_instruction": "---\nname: pilot-fact-pair\ndescription: 从原始资料选出一条角色清楚的观察和一项有信息增量的相关事实，判断是否值得组合为检索问题。\n---\n\n# 选择值得提问的事实组合\n\n先理解事实，再决定是否组合。当前任务是为一个给定的信息需求准备候选，不写最终题目。用中文说明，引用保留原文。\n\n第一项 observation 是一条完整的观察句，必须明确谁接受了什么操作、改变了什么、发生在什么条件下。不要分拆成含义模糊的 entity 等标签。主语应是实施操作的对象，效应中写出另一个对象的作用背景。依原文保留“抑制”“促进”“可能”等语义，不交换角色或加强结论。\n\n第二项 added_fact 要带来第一项没有提供的新知识，且服务于同一个信息需求。先问自己：读者已经知道第一项后，第二项具体增加了什么？例如“某操作抑制了某过程”之后再说“对象具有抑制该过程的作用”，增量很弱；若材料说明该对象通常调节哪个环节，就更值得了解。新信息不能只是无关的编号、长度或位置。\n\n两项事实都给出 fact、source、quote。quote 为来源中连续的原文，不自行翻译或拼接。具体实验与人类数据库的一般功能分开，不能把一般功能解释成该实验已证实的机制。实验物种未说明就不添加；不要把摘要没交代的内容说成整项研究不存在。\n\n选择 proposal：pair 表示两项值得共同提问；single 表示只保留一项自然的简单需求；insufficient 表示第一项本身也不足以支持。added_fact 可以为 null，不强制凑两项。用 information_gain 解释新增知识，用 reader_need 说明读者会自然想问什么。不要评价难度，不列与需求无关的机制缺口。\n\n教学例子（虚构事实）：\n观察是“过表达 R 抑制 A 诱导的神经元死亡”。资料还说 R 一般调控细胞器膜通透性。\n两者可服务于“哪些干预对象有这种效应，它通常调控细胞死亡的哪个环节”的需求。\n只说“R 抗细胞死亡”则基本重复已知效应，应考虑只问干预对象。",
+  "payload": {
+    "stage": "fact-pair",
+    "information_need": "找出一种通过过表达可抑制 PNMA1 诱导的神经元凋亡的蛋白，并了解对应人类蛋白的一般凋亡调控作用。",
+    "relation_source": {
+      "pmid": "20936693",
+      "title": "Induction of neuronal cell death by paraneoplastic Ma1 antigen.",
+      "abstract": "Paraneoplastic Ma1 (PNMA1) is a member of a family of proteins involved in an autoimmune disorder called paraneoplastic neurological syndrome. Although it is widely expressed in brain, nothing is known about the function of PNMA1 in neurons. We find that PNMA1 expression is highest in the perinatal brain, a period during which developmentally regulated neuronal death occurs. PNMA1 expression increases in cerebellar granule neurons (CGNs) induced to die by low potassium (LK) and in cortical neurons following homocysteic acid (HCA) treament. Elevated PNMA1 expression is also observed in the degenerating striatum in two separate mouse models of Huntington's disease, the R6/2 transgenic model and the 3-nitropropionic acid-induced chemical model. Suppression of endogenous PNMA1 expression inhibits LK-induced neuronal apoptosis. Ectopic expression of PNMA1 promotes apoptosis even in medium containing high potassium, a condition that normally ensures survival of CGNs. Deletion of the N-terminal half of the PNMA1 protein abrogates its apoptotic activity, whereas deletion of the C-terminal half renders the protein more toxic. Within the N-terminal half, the ability to induce neuronal death depends on the presence of a BH3-like domain. In addition to being necessary for apoptosis, the BH3-like domain is necessary for self-association of PNMA1. Apoptosis by PNMA1 expression is inhibited by overexpression of Bcl2, suggesting that PNMA1-induced neuronal death may depend on the binding of a proapoptotic member of the Bcl2 family to the BH3 domain. Taken together, our results suggest that PNMA1 is a proapoptotic protein in neurons, elevated expression of which may contribute to neurodegenerative disorders.",
+      "doi": "10.1002/jnr.22506",
+      "snapshot_id": "pubmed:2026-11-02",
+      "content_hash": "ee8e33b8e5ecf53c4685e1e9a957a97bb2797b74018c6a395fdd6af332e9a570",
+      "retrieved_at": "2026-11-02T08:38:14.674139Z"
+    },
+    "targeted_lookup": {
+      "entity": "BCL2",
+      "retrieved_at": "2026-11-02T09:27:50.285951+00:00",
+      "request_url": "https://rest.uniprot.org/uniprotkb/search?query=gene_exact%3ABCL2+AND+organism_id%3A9606+AND+reviewed%3Atrue&format=json&size=2",
+      "source_url": "https://www.uniprot.org/uniprotkb/P10415",
+      "record": {
+        "primaryAccession": "P10415",
+        "proteinDescription": {
+          "recommendedName": {
+            "fullName": {
+              "value": "Apoptosis regulator Bcl-2"
+            }
+          }
+        },
+        "genes": [
+          {
+            "geneName": {
+              "value": "BCL2"
+            }
+          }
+        ],
+        "organism": "Homo sapiens",
+        "comments": [
+          {
+            "texts": [
+              {
+                "evidences": [
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "1508712"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "17418785"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "18570871"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "20889974"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "21358617"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "8183370"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000303",
+                    "source": "PubMed",
+                    "id": "11368354"
+                  }
+                ],
+                "value": "Suppresses apoptosis in a variety of cell systems including factor-dependent lymphohematopoietic and neural cells (PubMed:1508712, PubMed:8183370). Regulates cell death by controlling the mitochondrial membrane permeability (PubMed:11368354). Appears to function in a feedback loop system with caspases (PubMed:11368354). Inhibits caspase activity either by preventing the release of cytochrome c from the mitochondria and/or by binding to the apoptosis-activating factor (APAF-1) (PubMed:11368354). Also acts as an inhibitor of autophagy: interacts with BECN1 and AMBRA1 during non-starvation conditions and inhibits their autophagy function (PubMed:18570871, PubMed:20889974, PubMed:21358617). May attenuate inflammation by impairing NLRP1-inflammasome activation, hence CASP1 activation and IL1B release (PubMed:17418785)"
+              }
+            ],
+            "commentType": "FUNCTION"
+          },
+          {
+            "texts": [
+              {
+                "evidences": [
+                  {
+                    "evidenceCode": "ECO:0000250",
+                    "source": "UniProtKB",
+                    "id": "P10417"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "11463391"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "12901880"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "15547950"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "15733859"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "15849194"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "17090549"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "17418785"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "18570871"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "19228691"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "19706769"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "20849813"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "21358617"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "23055042"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "23431138"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "23822101"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "25609812"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "29020630"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "31206022"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "8183370"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "8668206"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "9305631"
+                  }
+                ],
+                "value": "Forms homodimers, and heterodimers with BAX, BAD, BAK and Bcl-X(L). Heterodimerization with BAX requires intact BH1 and BH2 motifs, and is necessary for anti-apoptotic activity (PubMed:25609812, PubMed:8183370). Part of a complex composed of SEPTIN4 isoform ARTS, XIAP and BCL2, within the complex interacts (via BH3 domain) with SEPTIN4 isoform ARTS and XIAP, SEPTIN4 isoform ARTS acts as a scaffold protein and stabilizes the complex (PubMed:29020630). Component of the complex, at least composed of LRPPRC, BECN1 and BCL2; the interactions prevent BECN1 from forming an autophagy-inducing complex with PIK3C3 (PubMed:23822101). Interacts with EI24 (By similarity). Also interacts with APAF1, BBC3, BCL2L1, BNIPL, MRPL41 and TP53BP2. Binding to FKBP8 seems to target BCL2 to the mitochondria and probably interferes with the binding of BCL2 to its targets. Interacts with BAG1 in an ATP-dependent manner. Interacts with RAF1 (the 'Ser-338' and 'Ser-339' phosphorylated form). Interacts (via the BH4 domain) with EGLN3; the interaction prevents the formation of the BAX-BCL2 complex and inhibits the anti-apoptotic activity of BCL2. Interacts with G0S2; this interaction also prevents the formation of the anti-apoptotic BAX-BCL2 complex. Interacts with RTL10/BOP. Interacts with the SCF(FBXO10) complex. Interacts (via the loop between motifs BH4 and BH3) with NLRP1 (via LRR repeats), but not with NLRP2, NLRP3, NLRP4, PYCARD, nor MEFV (PubMed:17418785). Interacts with GIMAP3/IAN4, GIMAP4/IAN1 and GIMAP5/IAN5 (By similarity). Interacts with BCAP31 (PubMed:31206022). Interacts with IRF3; the interaction is inhibited by Sendai virus infection (PubMed:25609812). Interacts with BECN1; thereby inhibiting autophagy in non-starvation conditions (PubMed:18570871, PubMed:21358617). Interacts with AMBRA1; thereby inhibiting autophagy (PubMed:21358617)"
+              }
+            ],
+            "commentType": "SUBUNIT"
+          },
+          {
+            "texts": [
+              {
+                "evidences": [
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "34180401"
+                  }
+                ],
+                "value": "(Microbial infection) Interacts with Toxoplasma gondii ROP17; the interaction probably promotes BCL2 phosphorylation and degradation"
+              }
+            ],
+            "commentType": "SUBUNIT"
+          },
+          {
+            "commentType": "SUBCELLULAR LOCATION",
+            "subcellularLocations": [
+              {
+                "location": {
+                  "evidences": [
+                    {
+                      "evidenceCode": "ECO:0000269",
+                      "source": "PubMed",
+                      "id": "21358617"
+                    },
+                    {
+                      "evidenceCode": "ECO:0000269",
+                      "source": "PubMed",
+                      "id": "2250705"
+                    }
+                  ],
+                  "value": "Mitochondrion outer membrane",
+                  "id": "SL-0172"
+                },
+                "topology": {
+                  "evidences": [
+                    {
+                      "evidenceCode": "ECO:0000255"
+                    }
+                  ],
+                  "value": "Single-pass membrane protein",
+                  "id": "SL-9904"
+                }
+              },
+              {
+                "location": {
+                  "evidences": [
+                    {
+                      "evidenceCode": "ECO:0000269",
+                      "source": "PubMed",
+                      "id": "2250705"
+                    }
+                  ],
+                  "value": "Nucleus membrane",
+                  "id": "SL-0182"
+                },
+                "topology": {
+                  "evidences": [
+                    {
+                      "evidenceCode": "ECO:0000255"
+                    }
+                  ],
+                  "value": "Single-pass membrane protein",
+                  "id": "SL-9904"
+                }
+              },
+              {
+                "location": {
+                  "evidences": [
+                    {
+                      "evidenceCode": "ECO:0000269",
+                      "source": "PubMed",
+                      "id": "21358617"
+                    },
+                    {
+                      "evidenceCode": "ECO:0000269",
+                      "source": "PubMed",
+                      "id": "2250705"
+                    }
+                  ],
+                  "value": "Endoplasmic reticulum membrane",
+                  "id": "SL-0097"
+                },
+                "topology": {
+                  "evidences": [
+                    {
+                      "evidenceCode": "ECO:0000255"
+                    }
+                  ],
+                  "value": "Single-pass membrane protein",
+                  "id": "SL-9904"
+                }
+              },
+              {
+                "location": {
+                  "evidences": [
+                    {
+                      "evidenceCode": "ECO:0000250",
+                      "source": "UniProtKB",
+                      "id": "P10417"
+                    }
+                  ],
+                  "value": "Cytoplasm",
+                  "id": "SL-0086"
+                }
+              }
+            ]
+          },
+          {
+            "commentType": "ALTERNATIVE PRODUCTS",
+            "events": [
+              "Alternative splicing"
+            ],
+            "isoforms": [
+              {
+                "name": {
+                  "value": "Alpha"
+                },
+                "isoformIds": [
+                  "P10415-1"
+                ],
+                "isoformSequenceStatus": "Displayed"
+              },
+              {
+                "name": {
+                  "value": "Beta"
+                },
+                "isoformIds": [
+                  "P10415-2"
+                ],
+                "sequenceIds": [
+                  "VSP_000512"
+                ],
+                "isoformSequenceStatus": "Described"
+              }
+            ]
+          },
+          {
+            "texts": [
+              {
+                "value": "Expressed in a variety of tissues"
+              }
+            ],
+            "commentType": "TISSUE SPECIFICITY"
+          },
+          {
+            "texts": [
+              {
+                "evidences": [
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "8183370"
+                  }
+                ],
+                "value": "BH1 and BH2 domains are required for the interaction with BAX and for anti-apoptotic activity"
+              }
+            ],
+            "commentType": "DOMAIN"
+          },
+          {
+            "texts": [
+              {
+                "value": "The BH4 motif is required for anti-apoptotic activity and for interaction with RAF1 and EGLN3"
+              }
+            ],
+            "commentType": "DOMAIN"
+          },
+          {
+            "texts": [
+              {
+                "evidences": [
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "17418785"
+                  }
+                ],
+                "value": "The loop between motifs BH4 and BH3 is required for the interaction with NLRP1"
+              }
+            ],
+            "commentType": "DOMAIN"
+          },
+          {
+            "texts": [
+              {
+                "evidences": [
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "29020630"
+                  }
+                ],
+                "value": "The BH3 domain is required for interaction with SEPTIN4 isoform ARTS and thereby for XIAP-mediated ubiquitination and subsequent induction of apoptosis"
+              }
+            ],
+            "commentType": "DOMAIN"
+          },
+          {
+            "texts": [
+              {
+                "evidences": [
+                  {
+                    "evidenceCode": "ECO:0000250",
+                    "source": "UniProtKB",
+                    "id": "P10417"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "10567572"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "18570871"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000303",
+                    "source": "PubMed",
+                    "id": "11368354"
+                  }
+                ],
+                "value": "Phosphorylation/dephosphorylation on Ser-70 regulates anti-apoptotic activity (PubMed:11368354). Growth factor-stimulated phosphorylation on Ser-70 by PKC is required for the anti-apoptosis activity and occurs during the G2/M phase of the cell cycle (PubMed:11368354). In the absence of growth factors, BCL2 appears to be phosphorylated by other protein kinases such as ERKs and stress-activated kinases (PubMed:11368354). Phosphorylated by MAPK8/JNK1 at Thr-69, Ser-70 and Ser-87, which stimulates starvation-induced autophagy (PubMed:10567572, PubMed:18570871). Dephosphorylated by protein phosphatase 2A (PP2A) (By similarity)"
+              }
+            ],
+            "commentType": "PTM"
+          },
+          {
+            "texts": [
+              {
+                "evidences": [
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "9395403"
+                  }
+                ],
+                "value": "Proteolytically cleaved by caspases during apoptosis. The cleaved protein, lacking the BH4 motif, has pro-apoptotic activity, causes the release of cytochrome c into the cytosol promoting further caspase activity"
+              }
+            ],
+            "commentType": "PTM"
+          },
+          {
+            "texts": [
+              {
+                "evidences": [
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "20889974"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "23431138"
+                  },
+                  {
+                    "evidenceCode": "ECO:0000269",
+                    "source": "PubMed",
+                    "id": "29020630"
+                  }
+                ],
+                "value": "Monoubiquitinated by PRKN, leading to an increase in its stability (PubMed:20889974). Ubiquitinated by SCF(FBXO10), leading to its degradation by the proteasome (PubMed:23431138). Ubiquitinated by XIAP, leading to its degradation by the proteasome (PubMed:29020630)"
+              }
+            ],
+            "commentType": "PTM"
+          },
+          {
+            "commentType": "DISEASE",
+            "note": {
+              "texts": [
+                {
+                  "evidences": [
+                    {
+                      "evidenceCode": "ECO:0000269",
+                      "source": "PubMed",
+                      "id": "2875799"
+                    },
+                    {
+                      "evidenceCode": "ECO:0000269",
+                      "source": "PubMed",
+                      "id": "3285301"
+                    }
+                  ],
+                  "value": "A chromosomal aberration involving BCL2 has been found in chronic lymphatic leukemia. Translocation t(14;18)(q32;q21) with immunoglobulin gene regions. BCL2 mutations found in non-Hodgkin lymphomas carrying the chromosomal translocation could be attributed to the Ig somatic hypermutation mechanism resulting in nucleotide transitions"
+                }
+              ]
+            }
+          },
+          {
+            "texts": [
+              {
+                "evidences": [
+                  {
+                    "evidenceCode": "ECO:0000305"
+                  }
+                ],
+                "value": "Belongs to the Bcl-2 family"
+              }
+            ],
+            "commentType": "SIMILARITY"
+          },
+          {
+            "commentType": "WEB RESOURCE",
+            "resourceName": "Atlas of Genetics and Cytogenetics in Oncology and Haematology",
+            "resourceUrl": "https://atlasgeneticsoncology.org/gene/49/BCL2",
+            "ftp": false
+          },
+          {
+            "commentType": "WEB RESOURCE",
+            "resourceName": "Wikipedia",
+            "resourceUrl": "https://en.wikipedia.org/wiki/Bcl-2",
+            "ftp": false,
+            "note": "Bcl-2 entry"
+          }
+        ],
+        "omitted_sections": [
+          "INTERACTION",
+          "references"
+        ]
+      }
+    }
+  },
+  "idempotency_key": "graph-pilot|fact-pair|2a928a9adb234bfc715af51224eeb9e0f2eb02279afe7d961f1ae77dec408bd9|5390c6830b225d245d67b9bda5b01462b9717935d787d3cb2cad55f6b342209d"
+}

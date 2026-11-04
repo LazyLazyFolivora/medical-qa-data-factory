@@ -56,23 +56,44 @@ class ProviderRegistry:
 
     def describe(self) -> list[dict[str, Any]]:
         """A secret-free summary for the CLI and the workbench."""
-        return [
-            {
-                "provider_id": provider.provider_id,
-                "driver": provider.driver,
-                "base_url": provider.base_url,
-                "model_id": provider.model_id,
-                "api_key_env": provider.api_key_env,
-                "api_key_present": provider.has_api_key(),
-                "supports_strict_json_schema": (
-                    provider.supports_strict_json_schema
-                ),
-                "config_hash": provider.config_hash(),
-            }
-            for provider in sorted(
-                self.config.providers.values(), key=lambda item: item.provider_id
+        descriptions = []
+        for provider in sorted(
+            self.config.providers.values(), key=lambda item: item.provider_id
+        ):
+            credentials_ready = provider.has_api_key()
+            capability_ready = (
+                provider.driver == "openai_compatible"
+                and (
+                    provider.structured_output_mode != "json_schema"
+                    or provider.supports_strict_json_schema
+                )
             )
-        ]
+            ready = credentials_ready and capability_ready
+            descriptions.append(
+                {
+                    "provider_id": provider.provider_id,
+                    "driver": provider.driver,
+                    "base_url": provider.base_url,
+                    "model_id": provider.model_id,
+                    "api_key_env": provider.api_key_env,
+                    "auth_mode": provider.auth_mode,
+                    "api_key_present": credentials_ready,
+                    "structured_output_mode": provider.structured_output_mode,
+                    "supports_strict_json_schema": (
+                        provider.supports_strict_json_schema
+                    ),
+                    "ready": ready,
+                    "detail": (
+                        f"{provider.provider_id} / {provider.model_id}"
+                        if ready
+                        else f"缺少环境变量 {provider.api_key_env}"
+                        if not credentials_ready
+                        else "模型协议能力与结构化输出配置不兼容"
+                    ),
+                    "config_hash": provider.config_hash(),
+                }
+            )
+        return descriptions
 
 
 def build_model_port(

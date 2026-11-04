@@ -15,6 +15,23 @@
       "title": "Difficulty Targets",
       "type": "array"
     },
+    "language": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Language"
+    },
+    "planner_environment": {
+      "additionalProperties": true,
+      "title": "Planner Environment",
+      "type": "object"
+    },
     "question_count_upper_bound": {
       "minimum": 0,
       "title": "Question Count Upper Bound",

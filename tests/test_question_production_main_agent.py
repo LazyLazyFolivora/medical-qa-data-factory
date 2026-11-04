@@ -1,6 +1,8 @@
 """Main-agent decisions are bounded by the deterministic dispatcher."""
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from medical_qa_data_factory.generation.main_agent import (
@@ -8,6 +10,7 @@ from medical_qa_data_factory.generation.main_agent import (
     MainAgentDecisionProposal,
     MainAgentAction,
     StructuredMainAgent,
+    _allowed_actions,
     validate_main_agent_decision,
 )
 from medical_qa_data_factory.generation.objective_question_contracts import (
@@ -16,6 +19,7 @@ from medical_qa_data_factory.generation.objective_question_contracts import (
     GenerationGoal,
     HypothesisState,
     MainAgentDecision,
+    RunState,
     RunManifest,
     SubagentResult,
     VerificationVerdict,
@@ -77,6 +81,150 @@ def _decision(
         requested_budget={"provider_calls": 1},
         expected_information_gain=0.5,
     )
+
+
+def _claims_ready_snapshot(tmp_path, *, has_claim=True):
+    snapshot = _repo(tmp_path).load()
+    artifacts = {
+        "material.1": ArtifactEnvelope(artifact_id="material.1", artifact_type="evidence_material",
+                                       payload={"material_id": "material.1"}),
+        "anchor.1": ArtifactEnvelope(artifact_id="anchor.1", artifact_type="evidence_anchor",
+                                     payload={"material_id": "material.1"}),
+        "batch.1": ArtifactEnvelope(artifact_id="batch.1", artifact_type="fact_understanding_batch",
+                                    payload={"material_ids": ["material.1"]}),
+    }
+    if has_claim:
+        artifacts["claim.1"] = ArtifactEnvelope(artifact_id="claim.1", artifact_type="candidate_claim",
+                                                 payload={"claim_id": "claim.1"})
+    goal = GenerationGoal(
+        run_id=snapshot.run_id, target_entity="PNMA1", target_entity_id="9240",
+        target_entity_type="gene", question_count_upper_bound=1,
+        difficulty_targets=["easy"], style_targets=["concise"], allowed_fact_types=["classification"],
+        run_budget={"max_actions": 8}, run_manifest_id="manifest-run-main",
+        runtime_bundle_id="runtime-bundle-v1",
+    )
+    return snapshot.model_copy(update={"goal": goal, "run_state": RunState.CLAIMS_PROPOSED,
+                                       "artifacts": artifacts})
+
+
+def _repeated_understanding_proposal():
+    return MainAgentDecisionProposal(action="understand_facts", target_subagent_role="fact_understanding",
+        input_artifact_ids=["material.1"], requested_budget={}, expected_information_gain=0.5,
+        action_parameters={"stale_parameter": "must not survive recovery"})
+
+
+def test_repeated_understanding_advances_processed_claims_to_design(tmp_path):
+    snapshot = _claims_ready_snapshot(tmp_path)
+    model = FakeStructuredModel(responses={"objective_main_agent": _repeated_understanding_proposal()})
+    decision = StructuredMainAgent(model, provider_ids=["pubmed"]).decide(snapshot)
+    assert decision.action == "design_questions"
+    assert decision.target_subagent_role == "objective_question_design"
+    assert decision.input_artifact_ids == ["claim.1"]
+    assert "stale_parameter" not in decision.action_parameters
+    assert decision.action_parameters["decision_recovery"]["original_action"] == "understand_facts"
+    assert len(model.invocations) == 3
+    validate_main_agent_decision(snapshot, decision)
+    assert model.invocations[0].payload["fact_processing"]["unprocessed_material_ids"] == []
+
+
+def test_main_agent_accepts_a_valid_third_attempt(tmp_path):
+    snapshot = _claims_ready_snapshot(tmp_path)
+    proposals = iter([_repeated_understanding_proposal(), _repeated_understanding_proposal(),
+        MainAgentDecisionProposal(action="design_questions", expected_information_gain=0.5)])
+    model = FakeStructuredModel(responses={"objective_main_agent": lambda request: next(proposals)})
+    decision = StructuredMainAgent(model, provider_ids=["pubmed"]).decide(snapshot)
+    assert decision.action == "design_questions"
+    assert "decision_recovery" not in decision.action_parameters
+    assert len(model.invocations) == 3
+
+
+def test_repeated_understanding_cannot_design_without_claims(tmp_path):
+    snapshot = _claims_ready_snapshot(tmp_path, has_claim=False)
+    model = FakeStructuredModel(responses={"objective_main_agent": _repeated_understanding_proposal()})
+    with pytest.raises(IllegalMainAgentAction, match="UNDERSTAND_FACTS"):
+        StructuredMainAgent(model, provider_ids=["pubmed"]).decide(snapshot)
+    assert len(model.invocations) == 3
+
+
+def test_new_material_in_claims_proposed_still_runs_understanding(tmp_path):
+    snapshot = _claims_ready_snapshot(tmp_path)
+    snapshot = snapshot.model_copy(update={"artifacts": {
+        **snapshot.artifacts,
+        "material.new": ArtifactEnvelope(artifact_id="material.new", artifact_type="evidence_material",
+                                         payload={"material_id": "material.new"}),
+        "anchor.new": ArtifactEnvelope(artifact_id="anchor.new", artifact_type="evidence_anchor",
+                                       payload={"material_id": "material.new"}),
+    }})
+    model = FakeStructuredModel(responses={"objective_main_agent": _repeated_understanding_proposal()})
+    decision = StructuredMainAgent(model, provider_ids=["pubmed"]).decide(snapshot)
+    assert decision.action == "understand_facts"
+    assert "decision_recovery" not in decision.action_parameters
+    assert len(model.invocations) == 1
+    assert model.invocations[0].payload["fact_processing"]["unprocessed_material_ids"] == ["material.new"]
+
+
+@pytest.mark.parametrize("phase,expected", [
+    ("needs_evidence", "request_more_evidence"),
+    ("can_verify", "verify_answer"),
+    ("verified", "realize_question"),
+    ("drafted", "review_release"),
+    ("published", "stop"),
+])
+def test_processed_facts_recovery_continues_active_candidate(tmp_path, phase, expected):
+    snapshot = _claims_ready_snapshot(tmp_path)
+    artifacts = dict(snapshot.artifacts)
+    artifacts["hypothesis.active"] = ArtifactEnvelope(
+        artifact_id="hypothesis.active", artifact_type="question_hypothesis",
+        payload={"hypothesis_id": "hypothesis.active", "question_intent": "PNMA1 属于哪个家族？",
+                 "proposed_answer_values": ["hidden-answer-must-not-be-a-query"]})
+    state = HypothesisState.PROPOSED
+    if phase == "can_verify":
+        artifacts["provider_result.1"] = ArtifactEnvelope(
+            artifact_id="provider_result.1", artifact_type="provider_result",
+            payload={"terminal_status": "SUCCEEDED"}, metadata={"purpose": "verification"})
+    if phase in {"verified", "drafted"}:
+        state = HypothesisState.ANSWER_VERIFIED
+        artifacts["resolution.active"] = ArtifactEnvelope(
+            artifact_id="resolution.active", artifact_type="answer_resolution",
+            payload={"resolution_id": "resolution.active", "hypothesis_id": "hypothesis.active"})
+        artifacts["contract.active"] = ArtifactEnvelope(
+            artifact_id="contract.active", artifact_type="frozen_question_contract",
+            payload={"contract_id": "contract.active", "resolution_id": "resolution.active"})
+    if phase == "drafted":
+        state = HypothesisState.QUESTION_REALIZED
+        artifacts["draft.active"] = ArtifactEnvelope(
+            artifact_id="draft.active", artifact_type="objective_question_draft",
+            payload={"draft_id": "draft.active", "contract_id": "contract.active"})
+    if phase == "published":
+        state = HypothesisState.PUBLISHED
+    snapshot = snapshot.model_copy(update={"run_state": RunState.CANDIDATES_PROCESSING,
+        "artifacts": artifacts, "hypotheses": {"hypothesis.active": state}})
+    model = FakeStructuredModel(responses={"objective_main_agent": _repeated_understanding_proposal()})
+    decision = StructuredMainAgent(model, provider_ids=["pubmed"]).decide(snapshot)
+    assert decision.action == expected
+    assert decision.action_parameters["decision_recovery"]["original_action"] == "understand_facts"
+    assert "stale_parameter" not in decision.action_parameters
+    validate_main_agent_decision(snapshot, decision)
+    if phase == "needs_evidence":
+        assert decision.action_parameters["purpose"] == "verification"
+        assert decision.action_parameters["verification_focus"] == "comprehensive"
+        assert decision.action_parameters["hypothesis_id"] == "hypothesis.active"
+        assert decision.action_parameters["provider_id"] == "pubmed"
+        assert decision.action_parameters["query"] == {"term": "PNMA1"}
+        assert "hidden-answer" not in json.dumps(decision.model_dump())
+
+
+def test_main_agent_response_schema_lists_only_available_actions(tmp_path):
+    snapshot = _claims_ready_snapshot(tmp_path)
+    class InspectingModel(FakeStructuredModel):
+        def generate_structured(self, request, response_model):
+            choices = response_model.model_json_schema()["properties"]["action"]["enum"]
+            assert set(choices) == {item["action"] for item in request.payload["available_actions"]}
+            assert "understand_facts" not in choices
+            return super().generate_structured(request, response_model)
+    model = InspectingModel(responses={"objective_main_agent":
+        MainAgentDecisionProposal(action="design_questions", expected_information_gain=0.5)})
+    assert StructuredMainAgent(model, provider_ids=["pubmed"]).decide(snapshot).action == "design_questions"
 
 
 def test_created_run_can_only_start_material_retrieval_or_stop(tmp_path) -> None:
@@ -224,6 +372,216 @@ def test_structured_agent_fills_a_concise_pubmed_query(tmp_path) -> None:
 
     assert decision.action_parameters["provider_id"] == "pubmed"
     assert decision.action_parameters["query"] == {"term": "BRCA1"}
+
+
+def test_structured_agent_owns_the_subagent_role_mapping(tmp_path) -> None:
+    repo = ObjectiveRuntimeRepository.create(
+        tmp_path,
+        manifest=_manifest(),
+        budget=RuntimeBudget(max_cost=10, max_model_calls=10),
+        goal=GenerationGoal(
+            run_id="run-main",
+            target_entity="BRCA1",
+            target_entity_id="672",
+            target_entity_type="gene",
+            question_count_upper_bound=1,
+            difficulty_targets=["easy"],
+            style_targets=["concise"],
+            allowed_fact_types=["gene_location"],
+            run_budget={"max_actions": 8},
+            run_manifest_id="manifest-run-main",
+            runtime_bundle_id="runtime-bundle-v1",
+        ),
+    )
+    model = FakeStructuredModel(
+        responses={
+            "objective_main_agent": MainAgentDecisionProposal(
+                action="request_more_evidence",
+                target_subagent_role="objective_question_design",
+                input_artifact_ids=[],
+                requested_budget={},
+                expected_information_gain=0.5,
+                action_parameters={
+                    "provider_id": "pubmed",
+                    "purpose": "verification",
+                    "query": {"term": "BRCA1"},
+                },
+            )
+        }
+    )
+
+    decision = StructuredMainAgent(
+        model,
+        provider_ids=["pubmed"],
+    ).decide(repo.load())
+
+    assert decision.target_subagent_role == "material_retrieval"
+    assert len(model.payloads_for("objective_main_agent")) == 1
+
+
+def test_main_agent_receives_bounded_material_content_summary(
+    tmp_path,
+) -> None:
+    repo = ObjectiveRuntimeRepository.create(
+        tmp_path / "content-summary",
+        manifest=_manifest(),
+        budget=RuntimeBudget(max_cost=10, max_model_calls=10),
+        goal=GenerationGoal(
+            run_id="run-main",
+            target_entity="ZRSR2",
+            target_entity_id="8233",
+            target_entity_type="gene",
+            question_count_upper_bound=1,
+            difficulty_targets=["easy"],
+            style_targets=["concise"],
+            allowed_fact_types=["observation_association"],
+            run_budget={"max_actions": 8},
+            run_manifest_id="manifest-run-main",
+            runtime_bundle_id="runtime-bundle-v1",
+        ),
+    )
+    snapshot = repo.load().model_copy(
+        update={
+            "artifacts": {
+                "provider.pubmed": ArtifactEnvelope(
+                    artifact_id="provider.pubmed",
+                    artifact_type="provider_result",
+                    payload={
+                        "terminal_status": "SUCCEEDED",
+                        "request": {"query": {"term": "ZRSR2 splicing"}},
+                        "material_ids": ["material.pubmed.123"],
+                        "materials": [
+                            {
+                                "material_id": "material.pubmed.123",
+                                "provider_id": "pubmed",
+                                "material_type": "literature_abstract",
+                                "source_record_id": "pmid:123",
+                            }
+                        ],
+                        "raw_content_by_material_id": {
+                            "material.pubmed.123": (
+                                "ZRSR2 loss impaired minor intron splicing."
+                            )
+                        },
+                        "usage": {
+                            "search_rationale": "direct mechanism evidence"
+                        },
+                    },
+                )
+            },
+        }
+    )
+    model = FakeStructuredModel(
+        responses={
+            "objective_main_agent": MainAgentDecisionProposal(
+                action="retrieve_materials",
+                target_subagent_role="material_retrieval",
+                input_artifact_ids=[],
+                requested_budget={},
+                expected_information_gain=0.5,
+                action_parameters={
+                    "provider_id": "pubmed",
+                    "purpose": "discovery",
+                    "query": {"term": "ZRSR2 splicing"},
+                },
+            )
+        }
+    )
+
+    StructuredMainAgent(
+        model,
+        provider_ids=["pubmed"],
+    ).decide(snapshot)
+
+    payload = model.payloads_for("objective_main_agent")[0]
+    summary = payload["artifact_summaries"][0]["content_summary"]
+    assert summary["material_previews"][0]["material_id"] == (
+        "material.pubmed.123"
+    )
+    assert "minor intron splicing" in (
+        summary["material_previews"][0]["preview"]
+    )
+
+
+def test_fact_understanding_remains_available_for_new_materials(
+    tmp_path,
+) -> None:
+    snapshot = _repo(tmp_path).load().model_copy(
+        update={
+            "artifacts": {
+                "material.old": ArtifactEnvelope(
+                    artifact_id="material.old",
+                    artifact_type="evidence_material",
+                    payload={"material_id": "material.old"},
+                ),
+                "anchor.old": ArtifactEnvelope(
+                    artifact_id="anchor.old",
+                    artifact_type="evidence_anchor",
+                    payload={"anchor_id": "anchor.old"},
+                ),
+                "claim.old": ArtifactEnvelope(
+                    artifact_id="claim.old",
+                    artifact_type="candidate_claim",
+                    payload={"claim_id": "claim.old"},
+                ),
+                "fact-batch.old": ArtifactEnvelope(
+                    artifact_id="fact-batch.old",
+                    artifact_type="fact_understanding_batch",
+                    payload={"material_ids": ["material.old"]},
+                ),
+                "material.new": ArtifactEnvelope(
+                    artifact_id="material.new",
+                    artifact_type="evidence_material",
+                    payload={"material_id": "material.new"},
+                ),
+                "anchor.new": ArtifactEnvelope(
+                    artifact_id="anchor.new",
+                    artifact_type="evidence_anchor",
+                    payload={"anchor_id": "anchor.new"},
+                ),
+            },
+        }
+    )
+
+    assert MainAgentAction.UNDERSTAND_FACTS in _allowed_actions(snapshot)
+    assert MainAgentAction.DESIGN_QUESTIONS not in _allowed_actions(snapshot)
+
+
+def test_duplicate_material_preserves_discovery_and_verification_purpose(
+    tmp_path,
+) -> None:
+    repo = _repo(tmp_path)
+    payload = {
+        "material_id": "material.gene",
+        "provider_id": "ncbi_gene",
+        "source_record_id": "gene:1",
+        "content_hash": "a" * 64,
+    }
+    discovery = ArtifactEnvelope(
+        artifact_id="material.gene",
+        artifact_type="evidence_material",
+        payload=payload,
+        metadata={"purpose": "discovery"},
+    )
+    verification = ArtifactEnvelope(
+        artifact_id="material.gene",
+        artifact_type="evidence_material",
+        payload=payload,
+        metadata={"purpose": "verification"},
+    )
+    snapshot = repo.load().model_copy(
+        update={"artifacts": {"material.gene": discovery}}
+    )
+
+    merged = ObjectiveRuntimeRepository._merge_artifacts(
+        snapshot,
+        [verification],
+    )
+
+    assert merged["material.gene"].metadata["purposes"] == [
+        "discovery",
+        "verification",
+    ]
 
 
 def test_gene_location_route_prefers_hgnc_then_ncbi_gene(tmp_path) -> None:
@@ -583,7 +941,7 @@ def test_realization_selects_the_active_contract_with_historical_drafts(
     )
     with pytest.raises(
         IllegalMainAgentAction,
-        match="unfinished pipeline actions remain",
+        match="required target",
     ):
         validate_main_agent_decision(snapshot, stop)
 
@@ -749,3 +1107,170 @@ def test_published_question_does_not_block_designing_unused_claims(
     validate_main_agent_decision(snapshot, design)
     with pytest.raises(IllegalMainAgentAction, match="STOP is premature"):
         validate_main_agent_decision(snapshot, stop)
+
+
+def test_target_count_blocks_stop_after_rejected_design_retries(
+    tmp_path,
+) -> None:
+    snapshot = _repo(tmp_path).load().model_copy(
+        update={
+            "goal": GenerationGoal(
+                run_id="run-main",
+                target_entity="PHYHIP",
+                target_entity_id="9796",
+                target_entity_type="gene",
+                question_count_upper_bound=3,
+                difficulty_targets=["easy"],
+                style_targets=["concise"],
+                allowed_fact_types=["entity_identity"],
+                run_budget={"max_actions": 100},
+                run_manifest_id="manifest-run-main",
+                runtime_bundle_id="runtime-bundle-v1",
+            ),
+            "hypotheses": {
+                "hypothesis.one": HypothesisState.PUBLISHED,
+                "hypothesis.two": HypothesisState.PUBLISHED,
+                "hypothesis.rejected": HypothesisState.REJECTED,
+            },
+            "artifacts": {
+                "claim.identity": ArtifactEnvelope(
+                    artifact_id="claim.identity",
+                    artifact_type="candidate_claim",
+                    payload={"claim_id": "claim.identity"},
+                ),
+                "hypothesis.rejected": ArtifactEnvelope(
+                    artifact_id="hypothesis.rejected",
+                    artifact_type="question_hypothesis",
+                    payload={
+                        "hypothesis_id": "hypothesis.rejected",
+                        "candidate_claim_ids": ["claim.identity"],
+                    },
+                ),
+            },
+            "decisions": {
+                f"decision.design.{index}": MainAgentDecision(
+                    decision_id=f"decision.design.{index}",
+                    action="design_questions",
+                    target_subagent_role="objective_question_design",
+                    state_digest=str(index) * 64,
+                    requested_budget={},
+                    expected_information_gain=0.5,
+                )
+                for index in range(1, 4)
+            },
+        }
+    )
+    design = MainAgentDecision(
+        decision_id="decision.design.replacement",
+        action="design_questions",
+        target_subagent_role="objective_question_design",
+        input_artifact_ids=["claim.identity"],
+        state_digest=canonical_digest(snapshot.model_dump(mode="json")),
+        requested_budget={},
+        expected_information_gain=0.5,
+    )
+    stop = MainAgentDecision(
+        decision_id="decision.stop.short",
+        action="stop",
+        target_subagent_role=None,
+        state_digest=canonical_digest(snapshot.model_dump(mode="json")),
+        requested_budget={},
+        expected_information_gain=0.0,
+        stop_reason="no objective candidate remains",
+    )
+
+    assert MainAgentAction.DESIGN_QUESTIONS in _allowed_actions(snapshot)
+    validate_main_agent_decision(snapshot, design)
+    with pytest.raises(IllegalMainAgentAction, match="required target"):
+        validate_main_agent_decision(snapshot, stop)
+
+
+def test_main_agent_payload_is_bounded_for_large_runs(tmp_path) -> None:
+    artifacts = {}
+    for index in range(35):
+        material_id = f"material.pubmed.{index}"
+        artifacts[f"provider.{index}"] = ArtifactEnvelope(
+            artifact_id=f"provider.{index}",
+            artifact_type="provider_result",
+            payload={
+                "terminal_status": "SUCCEEDED",
+                "request": {"query": {"term": f"PHYHIP query {index}"}},
+                "material_ids": [material_id],
+                "materials": [
+                    {
+                        "material_id": material_id,
+                        "provider_id": "pubmed",
+                        "material_type": "literature_abstract",
+                        "source_record_id": f"pmid:{index}",
+                    }
+                ],
+                "raw_content_by_material_id": {
+                    material_id: "long evidence " * 800
+                },
+                "usage": {
+                    "search_rationale": "long search rationale " * 800,
+                    "search_trace": [
+                        {
+                            "query": {"term": f"query {round_no}"},
+                            "terminal_status": "SUCCEEDED",
+                            "material_count": 1,
+                        }
+                        for round_no in range(8)
+                    ],
+                },
+            },
+        )
+    snapshot = _repo(tmp_path).load().model_copy(
+        update={
+            "artifacts": artifacts,
+            "goal": GenerationGoal(
+                run_id="run-main",
+                target_entity="PHYHIP",
+                target_entity_id="9796",
+                target_entity_type="gene",
+                question_count_upper_bound=3,
+                difficulty_targets=["easy"],
+                style_targets=["concise"],
+                allowed_fact_types=["entity_identity"],
+                run_budget={"max_actions": 20},
+                run_manifest_id="manifest-run-main",
+                runtime_bundle_id="runtime-bundle-v1",
+            ),
+        }
+    )
+    model = FakeStructuredModel(
+        responses={
+            "objective_main_agent": MainAgentDecisionProposal(
+                action="retrieve_materials",
+                target_subagent_role="material_retrieval",
+                input_artifact_ids=[],
+                requested_budget={},
+                expected_information_gain=0.5,
+                action_parameters={
+                    "provider_id": "pubmed",
+                    "purpose": "discovery",
+                    "query": {"term": "PHYHIP"},
+                },
+            )
+        }
+    )
+
+    StructuredMainAgent(model, provider_ids=["pubmed"]).decide(snapshot)
+    payload = model.payloads_for("objective_main_agent")[0]
+
+    assert len(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        )
+    ) < 80_000
+    assert len(payload["retrieval_history"]) <= 12
+    assert (
+        sum(
+            item["artifact_type"] == "provider_result"
+            for item in payload["artifact_summaries"]
+        )
+        <= 20
+    )

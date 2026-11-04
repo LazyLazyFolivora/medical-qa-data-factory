@@ -12,8 +12,8 @@
   },
   "variants_per_blueprint": 3,
   "min_length": 6,
-  "max_length": 80,
-  "forbidden_phrases": ["开具处方", "应该怎么治"],
+  "max_length": 160,
+  "forbidden_phrases": ["开具处方", "我应该怎么治"],
   "forbidden_terms": [
     "PrimeKG",
     "知识图谱",

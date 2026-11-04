@@ -275,11 +275,33 @@
     "answer_resolution": {
       "$ref": "#/$defs/AnswerResolution"
     },
+    "concise_explanation": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Concise Explanation"
+    },
+    "design_requirements": {
+      "additionalProperties": true,
+      "title": "Design Requirements",
+      "type": "object"
+    },
     "frozen_question_contract": {
       "$ref": "#/$defs/FrozenQuestionContract"
     },
     "independent_evidence": {
       "$ref": "#/$defs/IndependentEvidenceAuditPackage"
+    },
+    "planner_environment": {
+      "additionalProperties": true,
+      "title": "Planner Environment",
+      "type": "object"
     },
     "question": {
       "$ref": "#/$defs/PublicQuestionPackage"

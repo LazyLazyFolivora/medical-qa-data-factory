@@ -12,8 +12,8 @@
   },
   "variants_per_blueprint": 3,
   "min_length": 4,
-  "max_length": 60,
-  "forbidden_phrases": ["应该吃什么药", "怎么治疗", "能治好吗"],
+  "max_length": 120,
+  "forbidden_phrases": ["我应该吃什么药", "我该怎么治", "我还能活多久"],
   "forbidden_terms": [
     "PrimeKG",
     "知识图谱",

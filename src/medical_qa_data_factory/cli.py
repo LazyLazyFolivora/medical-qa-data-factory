@@ -1198,7 +1198,7 @@ def _run_generate_command(args: argparse.Namespace) -> int:
             "model_capability": model_capability_label(args.model_mode),
             "note": (
                 "候选答案未经人工确认，不能作为正式 gold 导出；"
-                "请在 web serve 打开工作台审核。"
+                "请通过审核 API 完成人工确认后再导出。"
             ),
         }
     )

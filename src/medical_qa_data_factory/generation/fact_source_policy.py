@@ -100,3 +100,48 @@ def objective_fact_source_routes(
         fact_type: objective_fact_source_route(fact_type)
         for fact_type in fact_types
     }
+
+
+def default_objective_fact_types(
+    entity_type: str | None,
+    *,
+    available_providers: list[str] | tuple[str, ...] = (),
+) -> list[str]:
+    """Choose broad, source-backed defaults instead of gene-only metadata."""
+    normalized = (entity_type or "").strip().casefold()
+    if normalized in {"gene", "gene/protein", "protein"}:
+        candidates = [
+            "entity_identity",
+            "gene_location",
+            "classification",
+            "observation_association",
+        ]
+    elif normalized in {"disease", "phenotype"}:
+        candidates = [
+            "entity_identity",
+            "disease_association",
+            "observation_association",
+        ]
+    elif normalized in {"drug", "chemical", "compound"}:
+        candidates = [
+            "entity_identity",
+            "disease_association",
+            "observation_association",
+        ]
+    else:
+        candidates = ["entity_identity", "observation_association"]
+
+    providers = set(available_providers)
+    if providers:
+        supported = []
+        for fact_type in candidates:
+            route = objective_fact_source_route(fact_type)
+            if (
+                providers.intersection(route.primary_providers)
+                or providers.intersection(route.verification_providers)
+                or providers.intersection(route.supporting_providers)
+            ):
+                supported.append(fact_type)
+        if supported:
+            candidates = supported
+    return list(dict.fromkeys(candidates))

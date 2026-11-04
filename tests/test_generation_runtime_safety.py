@@ -12,8 +12,12 @@ from medical_qa_data_factory.generation.objective_question_contracts import (
     MainAgentDecision,
     OperationRecord,
     RunManifest,
+    RunState,
     VerificationVerdict,
     canonical_digest,
+)
+from medical_qa_data_factory.generation.agent_loop import (
+    ObjectiveQuestionAgentLoop,
 )
 from medical_qa_data_factory.generation.objective_question_runtime import (
     CheckpointIntegrityError,
@@ -25,6 +29,7 @@ from medical_qa_data_factory.generation.objective_question_runtime import (
     SubagentLoopGuard,
     assess_runtime_bundle,
 )
+from medical_qa_data_factory.llm.errors import ModelError, ModelErrorCode
 
 
 NOW = datetime(2026, 10, 29, tzinfo=timezone.utc)
@@ -164,6 +169,71 @@ def test_checkpoint_tampering_is_detected(tmp_path) -> None:
         repo.verify_integrity()
 
 
+def test_legacy_snapshot_without_recovery_fields_still_loads(
+    tmp_path,
+) -> None:
+    repo = _repo(tmp_path)
+    commit_path = tmp_path / "objective_runtime" / "commits" / "00000001.json"
+    payload = json.loads(commit_path.read_text(encoding="utf-8"))
+    for field in (
+        "recovery_state",
+        "resume_after_step",
+        "resume_count",
+        "recovery_events",
+    ):
+        payload["snapshot"].pop(field, None)
+    payload["snapshot_digest"] = canonical_digest(payload["snapshot"])
+    commit_path.write_text(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    snapshot = repo.load()
+
+    assert snapshot.run_state is RunState.CREATED
+    assert snapshot.recovery_state is None
+    assert snapshot.resume_after_step is None
+    assert snapshot.resume_count == 0
+    assert snapshot.recovery_events == []
+    assert repo.verify_integrity() is True
+
+
+def test_legacy_recovery_infers_the_previous_run_state(tmp_path) -> None:
+    repo = _repo(tmp_path)
+    snapshot = repo.load()
+    repo.set_run_state(
+        expected_state_revision=snapshot.state_revision,
+        target=RunState.MATERIALS_COLLECTED,
+    )
+    snapshot = repo.load()
+    repo.set_run_state(
+        expected_state_revision=snapshot.state_revision,
+        target=RunState.RECOVERY_REQUIRED,
+        stop_reason="legacy recovery",
+    )
+    commit_path = max(
+        (tmp_path / "objective_runtime" / "commits").glob("*.json"),
+        key=lambda item: int(item.stem),
+    )
+    payload = json.loads(commit_path.read_text(encoding="utf-8"))
+    for field in (
+        "recovery_state",
+        "resume_after_step",
+        "resume_count",
+        "recovery_events",
+    ):
+        payload["snapshot"].pop(field, None)
+    payload["snapshot_digest"] = canonical_digest(payload["snapshot"])
+    commit_path.write_text(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    resumed = repo.resume_from_recovery()
+
+    assert resumed.run_state is RunState.MATERIALS_COLLECTED
+
+
 def test_runtime_bundle_must_be_loadable_and_match_its_digest() -> None:
     manifest = _manifest()
     with pytest.raises(RuntimeVersionIncompatible):
@@ -177,6 +247,93 @@ def test_runtime_bundle_must_be_loadable_and_match_its_digest() -> None:
         manifest,
         available_bundles={"runtime-bundle-v1": "a" * 64},
     )
+
+
+def test_subagent_model_failure_becomes_a_recoverable_artifact(
+    tmp_path,
+) -> None:
+    repo = _repo(tmp_path)
+    snapshot = repo.load()
+    decision = MainAgentDecision(
+        decision_id="decision-search-failure",
+        action="retrieve_materials",
+        target_subagent_role="material_retrieval",
+        input_artifact_ids=[],
+        state_digest=canonical_digest(snapshot.model_dump(mode="json")),
+        requested_budget={},
+        expected_information_gain=0.5,
+        action_parameters={},
+    )
+    loop = object.__new__(ObjectiveQuestionAgentLoop)
+    loop.runtime = repo
+
+    loop._record_recoverable_failure(
+        decision,
+        "retrieve_materials",
+        ModelError(
+            ModelErrorCode.SCHEMA_ERROR,
+            "model returned invalid JSON",
+        ),
+    )
+
+    artifacts = repo.load().artifacts
+    failure = artifacts["failure.decision-search-failure"]
+    assert failure.artifact_type == "subagent_failure"
+    assert failure.payload["action"] == "retrieve_materials"
+    assert failure.payload["error_code"] == "model_schema_error"
+
+
+def test_repeated_model_failures_keep_attempt_details(
+    tmp_path,
+) -> None:
+    repo = _repo(tmp_path)
+    snapshot = repo.load()
+    decision = MainAgentDecision(
+        decision_id="decision-repeated-failure",
+        action="review_release",
+        target_subagent_role="release_review",
+        input_artifact_ids=[],
+        state_digest=canonical_digest(snapshot.model_dump(mode="json")),
+        requested_budget={},
+        expected_information_gain=0.5,
+        action_parameters={},
+    )
+    loop = object.__new__(ObjectiveQuestionAgentLoop)
+    loop.runtime = repo
+
+    loop._record_recoverable_failure(
+        decision,
+        "review_release",
+        ModelError(
+            ModelErrorCode.BAD_REQUEST,
+            "first HTTP 400",
+            status_code=400,
+            provider_response='{"error":"schema"}',
+            attempts=2,
+        ),
+    )
+    loop._record_recoverable_failure(
+        decision,
+        "review_release",
+        ModelError(
+            ModelErrorCode.BAD_REQUEST,
+            "second HTTP 400",
+            status_code=400,
+            provider_response='{"error":"context"}',
+            attempts=4,
+        ),
+    )
+
+    failures = [
+        artifact
+        for artifact in repo.load().artifacts.values()
+        if artifact.artifact_type == "subagent_failure"
+    ]
+    assert len(failures) == 2
+    assert {item.payload["attempts"] for item in failures} == {2, 4}
+    assert {
+        item.payload["provider_response"] for item in failures
+    } == {'{"error":"schema"}', '{"error":"context"}'}
 
 
 def test_loop_guard_stops_repeated_decision_at_unchanged_state() -> None:
@@ -215,4 +372,111 @@ def test_decision_fingerprint_ignores_only_decision_id() -> None:
         left.model_dump(mode="json", exclude={"decision_id"})
     ) != canonical_digest(
         right.model_dump(mode="json", exclude={"decision_id"})
+    )
+
+
+def test_recovery_checkpoint_records_the_state_and_next_step(
+    tmp_path,
+) -> None:
+    repo = _repo(tmp_path)
+    snapshot = repo.load()
+    repo.set_run_state(
+        expected_state_revision=snapshot.state_revision,
+        target=RunState.MATERIALS_COLLECTED,
+    )
+    snapshot = repo.load()
+    recovered = repo.set_run_state(
+        expected_state_revision=snapshot.state_revision,
+        target=RunState.RECOVERY_REQUIRED,
+        stop_reason="ModelError: model provider returned HTTP 400",
+        recovery_error={
+            "code": "model_bad_request",
+            "message": "model provider rejected the request (HTTP 400)",
+            "provider_response": "{\"error\":\"unsupported schema\"}",
+            "attempts": 4,
+        },
+    )
+
+    assert recovered.recovery_state is RunState.MATERIALS_COLLECTED
+    assert recovered.resume_after_step == 1
+    assert recovered.resume_count == 0
+    assert recovered.recovery_events[-1]["code"] == "model_bad_request"
+    assert recovered.recovery_events[-1]["attempts"] == 4
+
+
+def test_resume_recovery_keeps_the_run_and_returns_to_the_previous_state(
+    tmp_path,
+) -> None:
+    repo = _repo(tmp_path)
+    snapshot = repo.load()
+    repo.set_run_state(
+        expected_state_revision=snapshot.state_revision,
+        target=RunState.MATERIALS_COLLECTED,
+    )
+    snapshot = repo.load()
+    repo.set_run_state(
+        expected_state_revision=snapshot.state_revision,
+        target=RunState.RECOVERY_REQUIRED,
+        stop_reason="ModelError: model provider returned HTTP 400",
+        recovery_error={"code": "model_bad_request", "attempts": 4},
+    )
+
+    resumed = repo.resume_from_recovery()
+
+    assert resumed.run_id == "run-1"
+    assert resumed.run_state is RunState.MATERIALS_COLLECTED
+    assert resumed.stop_reason is None
+    assert resumed.recovery_state is None
+    assert resumed.resume_after_step is None
+    assert resumed.resume_count == 1
+    assert len(resumed.recovery_events) == 1
+
+
+def test_resume_recovery_rejects_a_non_recovery_run(tmp_path) -> None:
+    repo = _repo(tmp_path)
+
+    with pytest.raises(ValueError, match="not waiting for recovery"):
+        repo.resume_from_recovery()
+
+
+def test_pending_decision_is_the_latest_uncommitted_action(tmp_path) -> None:
+    repo = _repo(tmp_path)
+    snapshot = repo.load()
+    decision = MainAgentDecision(
+        decision_id="decision.pending",
+        action="retrieve_materials",
+        target_subagent_role="material_retrieval",
+        input_artifact_ids=[],
+        state_digest=canonical_digest(snapshot.model_dump(mode="json")),
+        requested_budget={},
+        expected_information_gain=0.5,
+        action_parameters={"provider_id": "pubmed"},
+    )
+    repo.record_decision(
+        expected_state_revision=snapshot.state_revision,
+        decision=decision,
+    )
+
+    pending = repo.pending_decision()
+
+    assert pending is not None
+    assert pending.decision_id == "decision.pending"
+
+
+def test_resume_stalled_keeps_the_current_state_and_records_audit(
+    tmp_path,
+) -> None:
+    repo = _repo(tmp_path)
+    snapshot = repo.load()
+    repo.set_run_state(
+        expected_state_revision=snapshot.state_revision,
+        target=RunState.MATERIALS_COLLECTED,
+    )
+
+    resumed = repo.resume_stalled(reason="no progress for ten minutes")
+
+    assert resumed.run_state is RunState.MATERIALS_COLLECTED
+    assert resumed.resume_count == 1
+    assert resumed.resume_events[-1]["reason"] == (
+        "no progress for ten minutes"
     )

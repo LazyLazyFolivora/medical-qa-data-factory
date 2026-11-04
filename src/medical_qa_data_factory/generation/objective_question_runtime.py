@@ -105,6 +105,11 @@ class ObjectiveRuntimeSnapshot(ContractModel):
     artifacts: dict[str, ArtifactEnvelope] = Field(default_factory=dict)
     budget: RuntimeBudget
     stop_reason: str | None = None
+    recovery_state: RunState | None = None
+    resume_after_step: int | None = Field(default=None, ge=1)
+    resume_count: int = Field(default=0, ge=0)
+    recovery_events: list[dict[str, Any]] = Field(default_factory=list)
+    resume_events: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class RuntimeCommitEnvelope(ContractModel):
@@ -174,6 +179,34 @@ class ObjectiveRuntimeRepository:
         with self._lock:
             return self._load_latest()
 
+    @property
+    def pause_requested(self) -> bool:
+        return (self.root / "objective_runtime" / "pause.requested").exists()
+
+    def request_pause(self) -> None:
+        with self._lock:
+            snapshot = self._load_latest()
+            if snapshot.run_state in {
+                RunState.COMPLETED, RunState.COMPLETED_WITH_ZERO_QUESTIONS,
+                RunState.PROVIDER_FAILED, RunState.VERSION_INCOMPATIBLE,
+                RunState.CANCELLED, RunState.RECOVERY_REQUIRED,
+            }:
+                raise ValueError("run is not running")
+            (self.root / "objective_runtime" / "pause.requested").touch()
+
+    def pause_at_boundary(self) -> bool:
+        with self._lock:
+            if not self.pause_requested:
+                return False
+            snapshot = self._load_latest()
+            self.set_run_state(
+                expected_state_revision=snapshot.state_revision,
+                target=RunState.RECOVERY_REQUIRED,
+                stop_reason="user_paused",
+            )
+            (self.root / "objective_runtime" / "pause.requested").unlink(missing_ok=True)
+            return True
+
     def checkpoint(self) -> Checkpoint:
         snapshot = self.load()
         return Checkpoint(
@@ -186,6 +219,51 @@ class ObjectiveRuntimeRepository:
             open_operation_ids=[],
             created_at=utc_now(),
         )
+
+    def ordered_decisions(self) -> list[MainAgentDecision]:
+        snapshot = self.load()
+        seen: set[str] = set()
+        ordered: list[MainAgentDecision] = []
+        for path in self._commit_files:
+            payload = self._read_commit(path).model_dump(mode="json")
+            decisions = payload.get("snapshot", {}).get("decisions", {})
+            if not isinstance(decisions, dict):
+                continue
+            for decision_id in decisions:
+                if decision_id in seen:
+                    continue
+                decision = snapshot.decisions.get(decision_id)
+                if decision is None:
+                    continue
+                seen.add(decision_id)
+                ordered.append(decision)
+        for decision_id, decision in snapshot.decisions.items():
+            if decision_id not in seen:
+                ordered.append(decision)
+        return ordered
+
+    def pending_decision(self) -> MainAgentDecision | None:
+        snapshot = self.load()
+        if snapshot.run_state in {
+            RunState.COMPLETED,
+            RunState.COMPLETED_WITH_ZERO_QUESTIONS,
+            RunState.PROVIDER_FAILED,
+            RunState.VERSION_INCOMPATIBLE,
+            RunState.CANCELLED,
+        }:
+            return None
+        decisions = self.ordered_decisions()
+        if not decisions:
+            return None
+        latest = decisions[-1]
+        slots = [
+            slot
+            for slot in snapshot.child_slots.values()
+            if slot.parent_decision_id == latest.decision_id
+        ]
+        if not slots or any(slot.state == "OPEN" for slot in slots):
+            return latest
+        return None
 
     def set_hypothesis_state(
         self,
@@ -249,12 +327,99 @@ class ObjectiveRuntimeRepository:
         expected_state_revision: int,
         target: RunState,
         stop_reason: str | None = None,
+        recovery_error: dict[str, Any] | None = None,
     ) -> ObjectiveRuntimeSnapshot:
         with self._lock:
             snapshot = self._load_latest()
             self._require_revision(snapshot, expected_state_revision)
+            updates: dict[str, Any] = {
+                "run_state": target,
+                "stop_reason": stop_reason,
+            }
+            if (
+                target is RunState.RECOVERY_REQUIRED
+                and snapshot.run_state is not RunState.RECOVERY_REQUIRED
+            ):
+                updates["recovery_state"] = snapshot.run_state
+                updates["resume_after_step"] = len(snapshot.decisions) + 1
+                updates["recovery_events"] = [
+                    *snapshot.recovery_events,
+                    {
+                        "at": utc_now().isoformat(),
+                        "run_state": snapshot.run_state.value,
+                        "resume_after_step": len(snapshot.decisions) + 1,
+                        "stop_reason": stop_reason,
+                        **(recovery_error or {}),
+                    },
+                ]
+            elif target is not RunState.RECOVERY_REQUIRED:
+                updates["recovery_state"] = None
+                updates["resume_after_step"] = None
+            updated = snapshot.model_copy(update=updates)
+            return self._commit_next(snapshot, updated)
+
+    def resume_from_recovery(self) -> ObjectiveRuntimeSnapshot:
+        """Return a paused run to the state where its next decision can run."""
+        with self._lock:
+            snapshot = self._load_latest()
+            if snapshot.run_state is not RunState.RECOVERY_REQUIRED:
+                raise ValueError("run is not waiting for recovery")
+            resumed_state = snapshot.recovery_state
+            if resumed_state is None:
+                files = self._commit_files
+                if len(files) >= 2:
+                    previous = self._read_commit(files[-2]).snapshot
+                    if previous.run_state not in {
+                        RunState.COMPLETED,
+                        RunState.COMPLETED_WITH_ZERO_QUESTIONS,
+                        RunState.PROVIDER_FAILED,
+                        RunState.RECOVERY_REQUIRED,
+                        RunState.VERSION_INCOMPATIBLE,
+                        RunState.CANCELLED,
+                    }:
+                        resumed_state = previous.run_state
+            resumed_state = (
+                resumed_state or RunState.CANDIDATES_PROCESSING
+            )
             updated = snapshot.model_copy(
-                update={"run_state": target, "stop_reason": stop_reason}
+                update={
+                    "run_state": resumed_state,
+                    "stop_reason": None,
+                    "recovery_state": None,
+                    "resume_after_step": None,
+                    "resume_count": snapshot.resume_count + 1,
+                }
+            )
+            return self._commit_next(snapshot, updated)
+
+    def resume_stalled(
+        self,
+        *,
+        reason: str,
+    ) -> ObjectiveRuntimeSnapshot:
+        with self._lock:
+            snapshot = self._load_latest()
+            if snapshot.run_state in {
+                RunState.COMPLETED,
+                RunState.COMPLETED_WITH_ZERO_QUESTIONS,
+                RunState.PROVIDER_FAILED,
+                RunState.RECOVERY_REQUIRED,
+                RunState.VERSION_INCOMPATIBLE,
+                RunState.CANCELLED,
+            }:
+                raise ValueError("run cannot resume from a stalled state")
+            updated = snapshot.model_copy(
+                update={
+                    "resume_count": snapshot.resume_count + 1,
+                    "resume_events": [
+                        *snapshot.resume_events,
+                        {
+                            "at": utc_now().isoformat(),
+                            "reason": reason,
+                            "run_state": snapshot.run_state.value,
+                        },
+                    ],
+                }
             )
             return self._commit_next(snapshot, updated)
 
@@ -317,6 +482,7 @@ class ObjectiveRuntimeRepository:
         expected_subtask_revision: int,
         result: SubagentResult,
         artifacts: list[ArtifactEnvelope] | None = None,
+        hypothesis_transition: tuple[str, list[HypothesisState]] | None = None,
     ) -> ObjectiveRuntimeSnapshot:
         with self._lock:
             snapshot = self._load_latest()
@@ -333,6 +499,11 @@ class ObjectiveRuntimeRepository:
                 raise StaleChildRevision(
                     f"slot {slot_id} is at revision {slot.subtask_revision}"
                 )
+            hypotheses = dict(snapshot.hypotheses)
+            if hypothesis_transition:
+                hid, states = hypothesis_transition
+                for target in states:
+                    hypotheses[hid] = transition_hypothesis(hypotheses[hid], target)
             artifact_map = self._merge_artifacts(snapshot, artifacts or [])
             committed = slot.model_copy(
                 update={
@@ -350,6 +521,7 @@ class ObjectiveRuntimeRepository:
                     update={
                         "child_slots": slots,
                         "artifacts": artifact_map,
+                        "hypotheses": hypotheses,
                     }
                 ),
             )
@@ -466,10 +638,10 @@ class ObjectiveRuntimeRepository:
             previous_sequence = 0
             for path in files:
                 try:
-                    envelope = RuntimeCommitEnvelope.model_validate_json(
-                        path.read_text(encoding="utf-8")
-                    )
+                    envelope = self._read_commit(path)
                 except Exception as exc:
+                    if isinstance(exc, CheckpointIntegrityError):
+                        raise
                     raise CheckpointIntegrityError(
                         f"invalid runtime commit {path.name}: {exc}"
                     ) from exc
@@ -479,9 +651,6 @@ class ObjectiveRuntimeRepository:
                     raise CheckpointIntegrityError("snapshot commit sequence differs")
                 if envelope.previous_snapshot_digest != previous_digest:
                     raise CheckpointIntegrityError("previous commit digest differs")
-                actual = canonical_digest(envelope.snapshot.model_dump(mode="json"))
-                if actual != envelope.snapshot_digest:
-                    raise CheckpointIntegrityError("runtime snapshot digest differs")
                 previous_digest = envelope.snapshot_digest
                 previous_sequence = envelope.commit_sequence
             return True
@@ -491,15 +660,44 @@ class ObjectiveRuntimeRepository:
         if not files:
             raise FileNotFoundError("objective runtime has no commits")
         path = files[-1]
-        envelope = RuntimeCommitEnvelope.model_validate_json(
-            path.read_text(encoding="utf-8")
-        )
-        actual = canonical_digest(envelope.snapshot.model_dump(mode="json"))
-        if actual != envelope.snapshot_digest:
-            raise CheckpointIntegrityError("latest runtime snapshot digest differs")
+        envelope = self._read_commit(path)
         if envelope.snapshot.run_id != self.run_id:
             raise CheckpointIntegrityError("runtime belongs to another run")
         return envelope.snapshot
+
+    @staticmethod
+    def _read_commit(path: Path) -> RuntimeCommitEnvelope:
+        """Validate the stored raw snapshot before applying current defaults."""
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise CheckpointIntegrityError(
+                f"invalid runtime commit {path.name}: {exc}"
+            ) from exc
+        if not isinstance(payload, dict):
+            raise CheckpointIntegrityError(
+                f"invalid runtime commit {path.name}: root is not an object"
+            )
+        raw_snapshot = payload.get("snapshot")
+        stored_digest = payload.get("snapshot_digest")
+        if not isinstance(raw_snapshot, dict) or not isinstance(
+            stored_digest,
+            str,
+        ):
+            raise CheckpointIntegrityError(
+                f"invalid runtime commit {path.name}: digest envelope is missing"
+            )
+        actual = canonical_digest(raw_snapshot)
+        if actual != stored_digest:
+            raise CheckpointIntegrityError(
+                f"runtime snapshot digest differs in {path.name}"
+            )
+        try:
+            return RuntimeCommitEnvelope.model_validate(payload)
+        except Exception as exc:
+            raise CheckpointIntegrityError(
+                f"invalid runtime commit {path.name}: {exc}"
+            ) from exc
 
     def _commit_next(
         self,
@@ -513,8 +711,10 @@ class ObjectiveRuntimeRepository:
                 "commit_sequence": next_sequence,
             }
         )
-        previous = self._load_latest()
-        previous_digest = canonical_digest(previous.model_dump(mode="json"))
+        self._load_latest()
+        previous_digest = self._read_commit(
+            self._commit_files[-1]
+        ).snapshot_digest
         self._write_commit(snapshot=updated, previous_digest=previous_digest)
         return updated
 
@@ -567,6 +767,24 @@ class ObjectiveRuntimeRepository:
             existing = merged.get(artifact.artifact_id)
             if existing is not None:
                 if _same_immutable_artifact(existing, artifact):
+                    purpose = artifact.metadata.get("purpose")
+                    if purpose:
+                        purposes = set(
+                            existing.metadata.get("purposes", [])
+                        )
+                        if existing.metadata.get("purpose"):
+                            purposes.add(
+                                str(existing.metadata["purpose"])
+                            )
+                        purposes.add(str(purpose))
+                        merged[artifact.artifact_id] = existing.model_copy(
+                            update={
+                                "metadata": {
+                                    **existing.metadata,
+                                    "purposes": sorted(purposes),
+                                }
+                            }
+                        )
                     continue
                 raise OperationConflict(
                     f"artifact {artifact.artifact_id} has different content"

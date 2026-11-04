@@ -84,59 +84,6 @@ def _seed_question(
     return question
 
 
-def test_the_groups_page_renders(client: TestClient, tmp_path: Path) -> None:
-    _seed_question(tmp_path / "ws", group=_group_key())
-    response = client.get("/groups")
-    assert response.status_code == 200
-    body = response.text
-    assert "同实体—关系组" in body
-    assert "Which disease does aspirin treat?" in body
-
-
-def test_a_question_without_a_group_is_not_shown(
-    client: TestClient, tmp_path: Path
-) -> None:
-    _seed_question(tmp_path / "ws", group=None)
-    response = client.get("/groups")
-    assert response.status_code == 200
-    assert "还没有带分组的候选" in response.text
-
-
-def test_the_page_shows_the_candidates_side_by_side(
-    client: TestClient, tmp_path: Path
-) -> None:
-    group = _group_key()
-    _seed_question(tmp_path / "ws", question_id="q1", group=group)
-    _seed_question(tmp_path / "ws", question_id="q2", group=group)
-    body = client.get("/groups").text
-    assert body.count('class="candidate') >= 2
-    assert "2 个候选" in body
-
-
-def test_the_page_shows_the_disposition(
-    client: TestClient, tmp_path: Path
-) -> None:
-    _seed_question(
-        tmp_path / "ws",
-        group=_group_key(),
-        disposition=ReviewDisposition.KEEP_INDEPENDENT,
-    )
-    body = client.get("/groups").text
-    assert "keep_independent" in body
-
-
-def test_the_page_never_says_the_system_judged_a_duplicate(
-    client: TestClient, tmp_path: Path
-) -> None:
-    """The wording must not present a group as a verdict."""
-    group = _group_key()
-    _seed_question(tmp_path / "ws", question_id="q1", group=group)
-    _seed_question(tmp_path / "ws", question_id="q2", group=group)
-    body = client.get("/groups").text
-    assert "系统已判定重复" not in body
-    assert "是否重复由人工判断" in body
-
-
 def test_a_keep_independent_action_is_applied(
     client: TestClient, tmp_path: Path
 ) -> None:
@@ -221,38 +168,3 @@ def test_a_missing_question_is_a_404(client: TestClient, tmp_path: Path) -> None
         json={"action": "keep_independent", "question_id": "absent"},
     )
     assert response.status_code == 404
-
-
-def test_the_page_shows_the_ranking_factors(
-    client: TestClient, tmp_path: Path
-) -> None:
-    from medical_qa_data_factory.domain.common import utc_now
-    from medical_qa_data_factory.domain.questions import RankingAssessment, RankingFactor
-    from medical_qa_data_factory.repository import LocalArtifactRepository
-
-    workspace = tmp_path / "ws"
-    question = _seed_question(workspace, group=_group_key())
-    repository = LocalArtifactRepository(workspace)
-    updated = question.model_copy(
-        update={
-            "ranking_assessment": RankingAssessment(
-                ranking_version="ranking.v1",
-                total_score=85.0,
-                factors=[
-                    RankingFactor(
-                        code="verifier_accepted",
-                        value=1.0,
-                        weight=30.0,
-                        contribution=30.0,
-                        explanation="the independent verifier accepted the question",
-                    )
-                ],
-                computed_at=utc_now(),
-            ),
-            "question_version": f"{question.question_id}.v2",
-        }
-    )
-    repository.save_question(updated)
-    body = client.get("/groups").text
-    assert "排序因素" in body
-    assert "verifier_accepted" in body

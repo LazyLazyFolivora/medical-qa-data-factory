@@ -22,18 +22,19 @@ class ModelErrorCode(str, Enum):
     SCHEMA_ERROR = "model_schema_error"
     UNSUPPORTED_PROVIDER = "model_unsupported_provider"
     USAGE_MISSING = "model_usage_missing"
+    BAD_REQUEST = "model_bad_request"
     INTERNAL_ERROR = "model_internal_error"
 
 
-#: Whether a failure may be retried automatically. A schema error is retried
-#: exactly once with a repair prompt; everything else needs a different
-#: decision from the caller.
+#: Whether a failure may be retried automatically. Schema repairs and
+#: structured-output fallbacks are separately bounded by the adapter.
 RETRYABLE_CODES: frozenset[str] = frozenset(
     {
         ModelErrorCode.RATE_LIMITED.value,
         ModelErrorCode.PROVIDER_UNAVAILABLE.value,
         ModelErrorCode.TIMEOUT.value,
         ModelErrorCode.NETWORK_ERROR.value,
+        ModelErrorCode.BAD_REQUEST.value,
     }
 )
 
@@ -49,6 +50,8 @@ class ModelError(RuntimeError):
         retryable: bool | None = None,
         status_code: int | None = None,
         provider_request_id: str | None = None,
+        provider_response: str | None = None,
+        attempts: int = 1,
     ) -> None:
         super().__init__(message)
         self.code = code
@@ -58,6 +61,8 @@ class ModelError(RuntimeError):
         )
         self.status_code = status_code
         self.provider_request_id = provider_request_id
+        self.provider_response = provider_response
+        self.attempts = attempts
 
     @property
     def outcome(self):
@@ -72,6 +77,7 @@ class ModelError(RuntimeError):
             ModelErrorCode.PARSE_ERROR: AttemptOutcome.PARSE_ERROR,
             ModelErrorCode.SCHEMA_ERROR: AttemptOutcome.PARSE_ERROR,
             ModelErrorCode.NETWORK_ERROR: AttemptOutcome.PROVIDER_ERROR,
+            ModelErrorCode.BAD_REQUEST: AttemptOutcome.PROVIDER_ERROR,
             ModelErrorCode.INTERNAL_ERROR: AttemptOutcome.PROVIDER_ERROR,
             ModelErrorCode.CONFIG_ERROR: AttemptOutcome.POLICY_REJECTED,
             ModelErrorCode.UNSUPPORTED_PROVIDER: AttemptOutcome.POLICY_REJECTED,
@@ -85,6 +91,8 @@ class ModelError(RuntimeError):
             "message": self.message,
             "retryable": self.retryable,
             "status_code": self.status_code,
+            "provider_response": self.provider_response,
+            "attempts": self.attempts,
         }
 
 

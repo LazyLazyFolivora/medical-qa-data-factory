@@ -121,18 +121,6 @@ def test_invalid_route_value_is_rejected(tmp_path):
     assert response.status_code == 400
 
 
-def test_review_page_shows_check_status_and_change_log(tmp_path):
-    client, result = client_for(tmp_path)
-    question = result.questions[0]
-
-    page = client.get(f"/review/{question.question_id}").text
-
-    assert "机器校验状态" in page
-    assert "question_leakage" in page
-    assert "data-original=" in page
-    assert "修改记录" in page
-
-
 def test_invalid_variant_payload_is_rejected(tmp_path):
     question = build_result(tmp_path).questions[0]
 

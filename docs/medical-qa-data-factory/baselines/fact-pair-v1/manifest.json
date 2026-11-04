@@ -1,0 +1,114 @@
+{
+  "baseline": "fact-pair-v1",
+  "frozen_date": "2026-11-02",
+  "status": "frozen_experimental_baseline",
+  "model_reported": "qwen-self-hosted:Qwen3.6-FP8",
+  "scope": "Skill text and PNMA1 experiment artifacts; not a production release or complete runtime environment snapshot.",
+  "files": [
+    {
+      "source_path": "skills/pilot-fact-pair/SKILL.md",
+      "snapshot_path": "skills/pilot-fact-pair/SKILL.md",
+      "sha256": "2a928a9adb234bfc715af51224eeb9e0f2eb02279afe7d961f1ae77dec408bd9"
+    },
+    {
+      "source_path": "skills/pilot-focused-composition/SKILL.md",
+      "snapshot_path": "skills/pilot-focused-composition/SKILL.md",
+      "sha256": "651a3ff027ca1c57b7a1e557c0e30a37edd1e2597557f072964b786e9b8e19e9"
+    },
+    {
+      "source_path": "data/experiments/pnma1-fact-pair-01/input.json",
+      "snapshot_path": "data/experiments/pnma1-fact-pair-01/input.json",
+      "sha256": "42a52cb558f4be9a6a2b8bda34ada768791dff721e363a71a93ac441a750daba"
+    },
+    {
+      "source_path": "data/experiments/pnma1-fact-pair-01/origin.json",
+      "snapshot_path": "data/experiments/pnma1-fact-pair-01/origin.json",
+      "sha256": "171a1aa829fd7cd058415d9bf916af3441e72310d8b38666a019eb3578f2c2bb"
+    },
+    {
+      "source_path": "data/experiments/pnma1-fact-pair-01/review.md",
+      "snapshot_path": "data/experiments/pnma1-fact-pair-01/review.md",
+      "sha256": "a0c4b758dad0afa3afa07cfa54bc1e9da22f50e5d3fc0fe3a7aaeab417df4fa2"
+    },
+    {
+      "source_path": "data/experiments/pnma1-fact-pair-01/trial-1/delivery.request.json",
+      "snapshot_path": "data/experiments/pnma1-fact-pair-01/trial-1/delivery.request.json",
+      "sha256": "757e10548cd6e0f1d8337951108eae3ebd82a3983d64f4cbb08dd9370bb0bcac"
+    },
+    {
+      "source_path": "data/experiments/pnma1-fact-pair-01/trial-1/delivery.result.json",
+      "snapshot_path": "data/experiments/pnma1-fact-pair-01/trial-1/delivery.result.json",
+      "sha256": "57b063d2fa78f86f9e2a98847e20c6748cbc643696eb4e2ec7c2fd6a66a2d221"
+    },
+    {
+      "source_path": "data/experiments/pnma1-fact-pair-01/trial-1/fact-pair.request.json",
+      "snapshot_path": "data/experiments/pnma1-fact-pair-01/trial-1/fact-pair.request.json",
+      "sha256": "4a50187ff81330c99a66276e6d98c7a7e92a2284398e94877d8ef44ee85cd645"
+    },
+    {
+      "source_path": "data/experiments/pnma1-fact-pair-01/trial-1/fact-pair.result.json",
+      "snapshot_path": "data/experiments/pnma1-fact-pair-01/trial-1/fact-pair.result.json",
+      "sha256": "a7cf71d85a07f001ded06d350efb6b0a24f48adcd2739252f3e8fc9c2bb5fef7"
+    },
+    {
+      "source_path": "data/experiments/pnma1-fact-pair-01/trial-1/writing-materials.json",
+      "snapshot_path": "data/experiments/pnma1-fact-pair-01/trial-1/writing-materials.json",
+      "sha256": "7aba4f8eed065bc78df40f1aa6fe8ed20ad5008a2847a78266788d62167427cc"
+    },
+    {
+      "source_path": "data/experiments/pnma1-fact-pair-01/trial-2/delivery.request.json",
+      "snapshot_path": "data/experiments/pnma1-fact-pair-01/trial-2/delivery.request.json",
+      "sha256": "de3b88c6a225e5898887c75a29150e7a60fc6b1327c57372be84c92789668ac5"
+    },
+    {
+      "source_path": "data/experiments/pnma1-fact-pair-01/trial-2/delivery.result.json",
+      "snapshot_path": "data/experiments/pnma1-fact-pair-01/trial-2/delivery.result.json",
+      "sha256": "a172bf7c50152ceb6be0df573cfb80d24d218b0674d1eed42ff1957bab9d31e0"
+    },
+    {
+      "source_path": "data/experiments/pnma1-fact-pair-01/trial-2/fact-pair.request.json",
+      "snapshot_path": "data/experiments/pnma1-fact-pair-01/trial-2/fact-pair.request.json",
+      "sha256": "4a50187ff81330c99a66276e6d98c7a7e92a2284398e94877d8ef44ee85cd645"
+    },
+    {
+      "source_path": "data/experiments/pnma1-fact-pair-01/trial-2/fact-pair.result.json",
+      "snapshot_path": "data/experiments/pnma1-fact-pair-01/trial-2/fact-pair.result.json",
+      "sha256": "a4754f57ad80ebd1129a0b9e5be9047110f1a6c73962d22e470e4a48291a2f7b"
+    },
+    {
+      "source_path": "data/experiments/pnma1-fact-pair-01/trial-2/writing-materials.json",
+      "snapshot_path": "data/experiments/pnma1-fact-pair-01/trial-2/writing-materials.json",
+      "sha256": "9a67e5d4ea4176e44bd4afd71f53ab9bffc5a951543e2cd7da0431eb43ced96a"
+    },
+    {
+      "source_path": "data/experiments/pnma1-fact-pair-01/trial-3/delivery.request.json",
+      "snapshot_path": "data/experiments/pnma1-fact-pair-01/trial-3/delivery.request.json",
+      "sha256": "e3373487c150498547f303db805b529564cfbe180d3a8293580767456f2aab55"
+    },
+    {
+      "source_path": "data/experiments/pnma1-fact-pair-01/trial-3/delivery.result.json",
+      "snapshot_path": "data/experiments/pnma1-fact-pair-01/trial-3/delivery.result.json",
+      "sha256": "8699e44e20062ada8a5199013666b0fb17441249777e11ee9d09fc7759ae3f56"
+    },
+    {
+      "source_path": "data/experiments/pnma1-fact-pair-01/trial-3/fact-pair.request.json",
+      "snapshot_path": "data/experiments/pnma1-fact-pair-01/trial-3/fact-pair.request.json",
+      "sha256": "4a50187ff81330c99a66276e6d98c7a7e92a2284398e94877d8ef44ee85cd645"
+    },
+    {
+      "source_path": "data/experiments/pnma1-fact-pair-01/trial-3/fact-pair.result.json",
+      "snapshot_path": "data/experiments/pnma1-fact-pair-01/trial-3/fact-pair.result.json",
+      "sha256": "e631572454a68b0b3ce1b878cb9ce9c566b53d2b1118f2b583d6693a2f88cb3e"
+    },
+    {
+      "source_path": "data/experiments/pnma1-fact-pair-01/trial-3/writing-materials.json",
+      "snapshot_path": "data/experiments/pnma1-fact-pair-01/trial-3/writing-materials.json",
+      "sha256": "e69026557b2d8891c6a2b9a91994a7cc7ece0bf43868e78cc1d6a08a34a1216d"
+    },
+    {
+      "source_path": "data/experiments/pnma1-fact-pair-01/writing-review.md",
+      "snapshot_path": "data/experiments/pnma1-fact-pair-01/writing-review.md",
+      "sha256": "a156e608dd5c0283a7da8ef3dce19e7460f92e67b86559ce970a39740616745d"
+    }
+  ]
+}

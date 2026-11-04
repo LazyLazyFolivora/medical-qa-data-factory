@@ -1,12 +1,20 @@
 ---
 name: objective-question-validator
-description: Validate a proposed medical QA item before release, rejecting questions whose truth depends on hidden context, a particular knowledge graph or evidence collection, meta-evidence wording, unstable claims, or answers that cannot be independently established as objectively correct.
+description: Audit final biomedical questions for query-planner suitability, objective correctness, self-contained public scope, answer support and closure, semantic fidelity, and requested difficulty before release.
 ---
 
 # Objective Question Validator
 
 Validate whether a proposed question and answer can be published as an
 objective medical QA item.
+
+The intended consumer is query-planner. Check both whether the question is an
+appropriate retrieval and evidence-integration task and whether its answer is
+objectively supported under the public meaning. Neither condition substitutes
+for the other. This skill is already loaded by the release-review runtime;
+updating it changes review instructions, but does not add missing runtime inputs
+or schema fields. See [references/runtime-integration.md](references/runtime-integration.md)
+when integrating or diagnosing the staged review.
 
 This is a release gate, not a writing skill. Do not improve a failing question
 and then validate the improved version. Judge the submitted public question and
@@ -29,6 +37,10 @@ Apply these invariants:
 - Hidden generation context cannot repair an incomplete public question.
 - Absence from a source is not evidence that a fact is false.
 - One supporting record is not proof that an answer set is complete.
+- The question defines the task; retrieval supplies answer evidence.
+  Self-contained wording does not require putting the evidence into the question.
+- A successful graph query is not proof of real-world correctness; factual
+  correctness is not proof that the configured Planner can obtain the evidence.
 - Uncertainty must block release; it must not be converted into a confident
   answer.
 - Adding phrases such as "现有研究是否支持", "根据当前证据", or "在某知识图谱中"
@@ -46,9 +58,18 @@ Use all available fields, but keep their roles separate:
 - `provenance`: optional source, snapshot, retrieval, graph, or generation data;
 - `intended_claim`: optional internal statement of the fact the item is meant to
   test.
+- `frozen_question_contract`: verified semantics to compare with the final text,
+  available only after the isolated public audit;
+- `planner_environment`: available tools, knowledge sources and access evidence,
+  used to assess practical solvability, not to define truth;
+- `design_requirements`: requested difficulty and retrieval/integration demands,
+  when specified by the task.
 
-If the question or proposed answer is missing, return `INDETERMINATE` and block
-release. If independent verification material is unavailable or insufficient,
+For a full review, if the question or proposed answer is missing, return
+`INDETERMINATE` and block release. An isolated public-question stage intentionally
+does not receive answers or evidence: audit only its assigned scope, and never
+treat a public-stage PASS as full release approval.
+If independent verification material is unavailable or insufficient,
 do not infer correctness from provenance metadata; return `INDETERMINATE`.
 
 ## Validation procedure
@@ -56,6 +77,12 @@ do not infer correctness from provenance metadata; return `INDETERMINATE`.
 ### 1. Audit the public question in isolation
 
 First inspect only `question`. Do not look at hidden evidence yet.
+
+When invoked as `public_question_audit`, perform only checks possible from that
+text: task clarity, public context, source dependence, entity and answer-demand
+clarity. Do not attempt answer normalization, evidence verification, contract
+comparison, environment verification or target-difficulty matching in this stage.
+Those checks belong to the subsequent full-context stage.
 
 Recover, if possible:
 
@@ -132,7 +159,8 @@ The item must have:
   another reliable source using the same public meaning.
 
 Reject value judgments, open-ended opinions, underspecified comparisons, and
-claims with material unresolved scientific disagreement. If the claim may be
+claims established to lack a stable answer. If material scientific disagreement
+cannot be resolved, or the claim may be
 true but the available material cannot establish a stable answer, return
 `INDETERMINATE`, not `PASS`.
 
@@ -141,7 +169,8 @@ true but the available material cannot establish a stable answer, return
 Only after the public-question audit, inspect the evidence and provenance.
 
 Verify the normalized claim against evidence independent of the source or
-record that generated the candidate whenever possible. Prefer direct,
+record that generated the candidate. If independence cannot be established,
+record the gap instead of claiming independent verification. Prefer direct,
 authoritative, and current sources appropriate to the fact type. For research
 claims, check whether the evidence directly studies the stated entities,
 population, relation, and direction.
@@ -150,7 +179,14 @@ Look for disconfirming evidence and incompatible definitions, not only support.
 Do not treat repeated copies of the same upstream record as independent
 confirmation.
 
-The proposed answer fails when:
+The current release reviewer has no retrieval tools. Inspect the supplied
+materials and actual search records; request targeted follow-up through the host
+when they are inadequate. Do not describe a new search as performed unless a
+permitted tool was actually used. A previous VERIFIED status is not evidence that
+all necessary checks were completed.
+
+The following issues prevent a full PASS; distinguish established defects from
+missing evidence rather than automatically assigning REJECT to every case:
 
 - it is not directly entailed by the evidence;
 - the evidence supports only a weaker claim;
@@ -162,8 +198,10 @@ The proposed answer fails when:
 
 ### 6. Check answer uniqueness and closure
 
-For single-answer questions, search for other answers satisfying the same public
-conditions. Reject if multiple answers qualify and the question neither allows
+For single-answer questions, inspect the available evidence and records of
+searches for other answers satisfying the same public conditions. If these
+checks are missing and cannot be performed with permitted tools, report the gap.
+Reject if multiple answers qualify and the question neither allows
 multiple answers nor distinguishes one of them.
 
 For questions asking for all, only, primary, most common, first, highest, or
@@ -174,7 +212,59 @@ neighborhood cannot establish closure.
 A finite option set written in the public question may provide a valid closed
 comparison set. A hidden candidate list may not.
 
-### 7. Produce a fail-closed verdict
+For an explicitly example-seeking question, other valid examples do not invalidate
+the proposed example. Check every supplied answer and do not treat the stored
+list as exhaustive. Distinguish equivalent names from genuinely different answers.
+
+### 7. Check final wording against verified semantics
+
+After the isolated public audit is recorded, compare the actual question with
+the frozen intent, scope, answer type, cardinality, conditions and relation
+strength. Do not trust a writer's copied semantic_readback as proof of equivalence.
+Reject omitted conditions, invented premises, changed comparison sets or stronger
+relations. If the contract itself is defective, return to design or verification;
+do not repair it during the audit.
+
+Check answer hints in context. A direct-answer question must not state its answer
+through a parenthesis, synonym or category label. Choice questions may contain
+the correct option and boolean questions may contain the proposition being judged;
+they must not signal the result. A matching substring alone does not prove leakage.
+If an answer explanation is supplied, reject unsupported additions or contradictions;
+if it is absent, do not claim to have audited it.
+
+### 8. Check query-planner suitability and difficulty
+
+When independent sources fail to link the target to the asked property, return INSUFFICIENT_VALIDATION_EVIDENCE with evidence_need describing the missing subject, relation and public conditions. Keep it neutral: omit expected values and competing guesses so another search can test the same draft independently.
+
+In the answer-evidence audit, report assessed_difficulty (easy, medium or hard) from the shortest sound solution. For a medium-only request, an objectively valid easy question passes difficulty review as supplementary output. Do not reject or rewrite it solely for DIFFICULTY_MISMATCH. Only actual medium questions count toward the requested number. All other release criteria still apply. This exception takes precedence over the general mismatch guidance and examples below.
+
+First judge the public query: can the reader identify what to retrieve and the
+scope of a satisfactory answer? Prefer natural factual queries about attributes,
+relations, mechanisms or explicit conditions. Open advice, vague requests for
+"everything" and instructions exposing internal graph paths are not substitutes
+for a well-defined biomedical task.
+
+Then assess whether the available Planner environment can retrieve the necessary
+evidence and support the required integration. Do not assume that materials seen
+by the generator are available to the Planner. Known tool or source incompatibility
+blocks release for this consumer without proving the fact false. Missing environment
+information or unresolved access is INDETERMINATE for this check, not automatic PASS.
+
+When a difficulty is requested, judge the actual task:
+
+- Easy: a clear target and direct evidence can answer the question.
+- Medium: meaningful relation linking, condition matching or evidence combination.
+- Hard: substantive multi-step retrieval, intersecting conditions or competing
+  candidate comparison with sufficient grounds to decide completion.
+
+Do not grade by hop count, wording length or rare terminology alone. Accept valid
+short routes and reassess difficulty instead of forcing unnecessary tool calls.
+Distinguish legitimate public conditions from hints that reveal the intermediate
+results the design intended the Planner to discover. A demonstrated mismatch
+blocks the requested difficulty assignment; uncertain calibration is reported as
+unresolved. If no difficulty was requested, do not invent a difficulty gate.
+
+### 9. Produce a fail-closed verdict
 
 Return `PASS` only if every hard gate passes. Use `REJECT` when a concrete defect
 is established. Use `INDETERMINATE` when correctness cannot be established from
@@ -183,6 +273,13 @@ release.
 
 Do not average failures into a score. Do not let fluent wording, source count,
 or apparent medical plausibility compensate for a failed hard gate.
+
+Record the affected stage and the concrete corrective action when the output
+contract allows findings: wording-only defects go to realization; invalid scope,
+cardinality or difficulty design goes to question design; missing support,
+independence or closure goes to retrieval and verification. Known environment
+incompatibility goes to task/environment selection. A revision is a new item for
+review and does not retroactively change this verdict.
 
 ## Reason codes
 
@@ -215,10 +312,26 @@ Use one primary reason and any number of secondary reasons:
   evidence is inconsistent.
 - `INSUFFICIENT_VALIDATION_EVIDENCE`: the validator lacks enough independent
   material to establish correctness.
+- `SEMANTIC_DRIFT`: the final question changes the frozen task semantics.
+- `ANSWER_LEAKAGE`: wording reveals the answer or improperly resolves the task.
+- `UNSUPPORTED_EXPLANATION`: a supplied explanation adds unsupported claims.
+- `PLANNER_TASK_MISMATCH`: the question lacks a defined factual retrieval task.
+- `PLANNER_ENVIRONMENT_MISMATCH`: known tool/source limits prevent the intended
+  Planner from obtaining the necessary evidence.
+- `PLANNER_SOLVABILITY_UNESTABLISHED`: available information cannot establish
+  practical solvability in the intended Planner environment.
+- `DIFFICULTY_MISMATCH`: the actual task does not meet a requested difficulty.
+- `DIFFICULTY_UNESTABLISHED`: evidence is insufficient to assess a requested difficulty.
 
 ## Output contract
 
-Return one JSON object and no prose outside it:
+The caller's stage-specific structured response schema takes precedence over the
+standalone example below. Never add undeclared fields or return the full report
+when asked for a public-only or answer-evidence stage. Use the allowed verdict
+and reason fields to report blockers within the assigned scope. Only the host
+merges stages and authorizes release in the application.
+
+For a standalone full review, return one JSON object and no prose outside it:
 
 ```json
 {
@@ -245,6 +358,12 @@ Return one JSON object and no prose outside it:
     "unique_or_closed": false,
     "contradiction_checked": false,
     "relation_strength_preserved": false
+  },
+  "planner_audit": {
+    "retrieval_task_clear": false,
+    "completion_scope_clear": false,
+    "environment_solvability": "PASS | REJECT | INDETERMINATE",
+    "difficulty_alignment": "PASS | REJECT | INDETERMINATE | NOT_REQUESTED"
   },
   "blocking_findings": [],
   "evidence_used": [],
@@ -291,3 +410,16 @@ Potentially pass after independent verification:
 
 These examples illustrate question form only. Do not pass them from wording
 alone; the proposed answer still requires independent factual verification.
+
+Additional calibration:
+
+- Correct facts but unspecified Planner tools/sources: factual checks may pass,
+  but full consumer-specific release remains INDETERMINATE until solvability is
+  established. A public-only audit can still pass its narrower scope.
+- A requested hard question directly reveals its bridge entity and leaves only
+  a simple lookup: report DIFFICULTY_MISMATCH when the actual task supports that
+  conclusion; do not reject a correct answer as factually false.
+- An example-seeking question with several valid answers: do not reject merely
+  because alternatives exist; ensure the proposed example satisfies the question.
+- A question that omits a required species while the hidden contract specifies
+  it: reject the submitted text; the contract cannot supply missing public context.

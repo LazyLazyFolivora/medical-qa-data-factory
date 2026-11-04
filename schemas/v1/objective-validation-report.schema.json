@@ -17,6 +17,23 @@
       "title": "Answer Audit Id",
       "type": "string"
     },
+    "assessed_difficulty": {
+      "anyOf": [
+        {
+          "enum": [
+            "easy",
+            "medium",
+            "hard"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Assessed Difficulty"
+    },
     "blocking_findings": {
       "items": {
         "type": "string"

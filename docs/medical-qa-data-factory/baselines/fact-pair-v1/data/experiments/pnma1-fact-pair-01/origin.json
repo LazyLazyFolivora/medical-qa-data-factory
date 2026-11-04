@@ -1,0 +1,5 @@
+{
+  "input": "E:\\Cursor\\assumption\\projects\\medical-qa-data-factory\\data\\experiments\\pnma1-fixed-writing-01\\writing-materials.json",
+  "scope": "Fixed reviewed need, full saved evidence, no new retrieval; selection only.",
+  "trials": 3
+}

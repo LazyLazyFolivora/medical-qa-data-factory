@@ -48,6 +48,23 @@
     "proposed_cardinality": {
       "$ref": "#/$defs/AnswerCardinality"
     },
+    "proposed_difficulty": {
+      "anyOf": [
+        {
+          "enum": [
+            "easy",
+            "medium",
+            "hard"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Proposed Difficulty"
+    },
     "proposed_public_scope": {
       "minLength": 1,
       "title": "Proposed Public Scope",

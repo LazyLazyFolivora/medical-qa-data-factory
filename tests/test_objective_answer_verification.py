@@ -145,7 +145,6 @@ def _bundle(
     *,
     attempts: list[VerificationAttempt],
     coverage: VerificationCoverageReport,
-    supporting_anchor_ids: list[str] | None = None,
     contradiction_anchor_ids: list[str] | None = None,
     completeness_basis: CompletenessBasis = CompletenessBasis.CANONICAL_IDENTITY,
 ) -> VerificationEvidenceBundle:
@@ -158,11 +157,6 @@ def _bundle(
             _anchor("anchor-verification", "BRCA1 maps to chromosome 17."),
             _anchor("anchor-contradiction", "BRCA1 maps elsewhere."),
         ],
-        supporting_anchor_ids=(
-            supporting_anchor_ids
-            if supporting_anchor_ids is not None
-            else ["anchor-verification"]
-        ),
         contradicting_anchor_ids=contradiction_anchor_ids or [],
         completeness_basis=completeness_basis,
     )
@@ -199,7 +193,9 @@ def _model() -> FakeStructuredModel:
         if stage == "counterexample_review":
             return CounterexampleReview(
                 conflict_found=False,
+                directly_supporting_anchor_ids=["anchor-verification"],
                 contradicting_anchor_ids=[],
+                support_directly_entails_answer=True,
             )
         raise AssertionError(stage)
 
@@ -236,6 +232,36 @@ def test_blind_stage_cannot_see_proposed_answer_or_discovery_anchor() -> None:
     assert "anchor-discovery" not in serialized
     later_payloads = model.payloads_for("objective_answer_verification")[1:]
     assert any("proposed_answer_values" in json.dumps(item) for item in later_payloads)
+
+
+@pytest.mark.parametrize(("change", "expected"), [
+    ({}, AnswerStatus.VERIFIED),
+    ({"question_is_self_contained": False}, AnswerStatus.REJECTED),
+    ({"directly_supporting_anchor_ids": [], "evidence_need": "Check gene identity."}, AnswerStatus.INDETERMINATE),
+    ({"answer_scope_complete": False}, AnswerStatus.INDETERMINATE),
+    ({"answer_matches_blind": False}, AnswerStatus.REJECTED),
+])
+def test_final_wording_one_review_with_a_failed_secondary_lookup(change, expected):
+    attempts = [_attempt("good", provider_id="authority-b", anchor_id="anchor-verification"),
+                _attempt("empty", provider_id="authority-c", anchor_id="anchor-discovery",
+                         status=ProviderTerminalStatus.EMPTY)]
+    coverage = _complete_coverage("good", "empty").model_copy(update={
+        "successful_attempt_ids": ["good"], "coverage_status": CoverageStatus.INCOMPLETE})
+    def respond(request):
+        assert "Homo sapiens reference genome" not in json.dumps(request.payload)
+        if request.payload["stage"] == "final_blind":
+            assert "proposed_answer_values" not in request.payload
+            return {"query_id": request.payload["blind_answer_query"]["query_id"], "answer_values": ["chr17"]}
+        return {"conflict_found": False, "directly_supporting_anchor_ids": ["anchor-verification"],
+                "support_directly_entails_answer": True, "question_is_self_contained": True,
+                "answer_scope_complete": True, "answer_matches_blind": True, "assessed_difficulty": "easy",
+                "explanation": "The independent record identifies chromosome 17.", **change}
+    model = FakeStructuredModel(responses={"objective_answer_verification": respond})
+    outcome = AnswerVerificationSubagent(model).run(_task(), hypothesis=_hypothesis(), claims=[_claim()],
+        evidence=_bundle(attempts=attempts, coverage=coverage), final_wording=True)
+    assert outcome.resolution.status is expected
+    assert outcome.result.usage["model_calls"] == 2
+    assert [r.payload["stage"] for r in model.invocations] == ["final_blind", "final_review"]
 
 
 def test_consistent_independent_answer_is_verified_and_frozen() -> None:
@@ -283,7 +309,9 @@ def test_blind_answer_disagreement_rejects_the_hypothesis() -> None:
             )
         return CounterexampleReview(
             conflict_found=False,
+            directly_supporting_anchor_ids=["anchor-verification"],
             contradicting_anchor_ids=[],
+            support_directly_entails_answer=True,
         )
 
     attempts = [
@@ -345,6 +373,26 @@ def test_empty_provider_result_is_indeterminate_not_a_negative_answer() -> None:
 
 
 def test_discovery_only_evidence_cannot_verify_the_answer() -> None:
+    def response(request):
+        if request.payload["stage"] == "blind_solve":
+            return BlindSolveResult(
+                query_id=request.payload["blind_answer_query"]["query_id"],
+                answer_values=["chromosome 17"],
+                uncertain=False,
+            )
+        if request.payload["stage"] == "compare":
+            return VerificationComparisonResult(
+                answer_matches_blind=True,
+                competing_answers=[],
+                conflict_found=False,
+            )
+        return CounterexampleReview(
+            conflict_found=False,
+            directly_supporting_anchor_ids=["anchor-discovery"],
+            contradicting_anchor_ids=[],
+            support_directly_entails_answer=True,
+        )
+
     attempts = [
         _attempt(
             "verification-1",
@@ -352,14 +400,63 @@ def test_discovery_only_evidence_cannot_verify_the_answer() -> None:
             anchor_id="anchor-verification",
         )
     ]
-    outcome = AnswerVerificationSubagent(_model()).run(
+    outcome = AnswerVerificationSubagent(
+        FakeStructuredModel(
+            responses={"objective_answer_verification": response}
+        )
+    ).run(
         _task(),
         hypothesis=_hypothesis(),
         claims=[_claim()],
         evidence=_bundle(
             attempts=attempts,
             coverage=_complete_coverage("verification-1"),
-            supporting_anchor_ids=["anchor-discovery"],
+        ),
+    )
+
+    assert outcome.resolution.status is AnswerStatus.INDETERMINATE
+    assert outcome.result.stop_reason == "INSUFFICIENT_VALIDATION_EVIDENCE"
+
+
+def test_retrieved_anchor_is_not_support_without_direct_entailment() -> None:
+    def response(request):
+        if request.payload["stage"] == "blind_solve":
+            return BlindSolveResult(
+                query_id=request.payload["blind_answer_query"]["query_id"],
+                answer_values=["chromosome 17"],
+                uncertain=False,
+            )
+        if request.payload["stage"] == "compare":
+            return VerificationComparisonResult(
+                answer_matches_blind=True,
+                competing_answers=[],
+                conflict_found=False,
+            )
+        return CounterexampleReview(
+            conflict_found=False,
+            directly_supporting_anchor_ids=["anchor-verification"],
+            contradicting_anchor_ids=[],
+            support_directly_entails_answer=False,
+        )
+
+    attempts = [
+        _attempt(
+            "verification-1",
+            provider_id="authority-b",
+            anchor_id="anchor-verification",
+        )
+    ]
+    outcome = AnswerVerificationSubagent(
+        FakeStructuredModel(
+            responses={"objective_answer_verification": response}
+        )
+    ).run(
+        _task(),
+        hypothesis=_hypothesis(),
+        claims=[_claim()],
+        evidence=_bundle(
+            attempts=attempts,
+            coverage=_complete_coverage("verification-1"),
         ),
     )
 
@@ -378,7 +475,9 @@ def test_discovery_only_evidence_cannot_verify_the_answer() -> None:
             ),
             CounterexampleReview(
                 conflict_found=False,
+                directly_supporting_anchor_ids=["anchor-verification"],
                 contradicting_anchor_ids=[],
+                support_directly_entails_answer=True,
             ),
             "ANSWER_NOT_UNIQUE",
         ),
@@ -390,7 +489,9 @@ def test_discovery_only_evidence_cannot_verify_the_answer() -> None:
             ),
             CounterexampleReview(
                 conflict_found=True,
+                directly_supporting_anchor_ids=["anchor-verification"],
                 contradicting_anchor_ids=["anchor-contradiction"],
+                support_directly_entails_answer=True,
             ),
             "CONFLICTING_EVIDENCE",
         ),

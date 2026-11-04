@@ -1,6 +1,13 @@
 {
   "additionalProperties": false,
   "properties": {
+    "competing_answers": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Competing Answers",
+      "type": "array"
+    },
     "conflict_found": {
       "title": "Conflict Found",
       "type": "boolean"
@@ -11,6 +18,18 @@
       },
       "title": "Contradicting Anchor Ids",
       "type": "array"
+    },
+    "directly_supporting_anchor_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Directly Supporting Anchor Ids",
+      "type": "array"
+    },
+    "support_directly_entails_answer": {
+      "default": false,
+      "title": "Support Directly Entails Answer",
+      "type": "boolean"
     }
   },
   "required": [

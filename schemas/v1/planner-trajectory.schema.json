@@ -45,6 +45,18 @@
           "default": null,
           "title": "Rejection Code"
         },
+        "rejection_message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rejection Message"
+        },
         "sealed_action_id": {
           "anyOf": [
             {
@@ -161,6 +173,18 @@
           "additionalProperties": true,
           "title": "Parameters",
           "type": "object"
+        },
+        "skill_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Skill Id"
         }
       },
       "required": [
@@ -179,6 +203,14 @@
             "type": "string"
           },
           "title": "Available Actions",
+          "type": "array"
+        },
+        "available_skills": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Available Skills",
           "type": "array"
         },
         "evidence_gaps": {

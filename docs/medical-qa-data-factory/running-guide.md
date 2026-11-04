@@ -308,18 +308,20 @@ python -m medical_qa_data_factory literature preflight
 python -m medical_qa_data_factory web serve --workspace data/runs/aspirin-v1 --host 127.0.0.1 --port 8765
 ```
 
-浏览器打开 `http://127.0.0.1:8765`。按 `Ctrl+C` 停止。
+后端只启动 API。另开终端运行 `cd frontend && npm run dev`，然后浏览器打开
+`http://127.0.0.1:5173`。两个进程分别按 `Ctrl+C` 停止。
 
 首页始终提供从 PrimeKG 读取的 10 个默认种子实体，工作区中已有的实体仍会保留在下拉框中。
 搜索框覆盖 PrimeKG 全表，支持按实体名称和原生 ID 查询，最多返回 10 个结果。首次全库搜索会
 从边的 `head`、`tail` 两端派生实体索引到 `data/cache/primekg-entities.sqlite`；该索引不修改
 PrimeKG 原始数据库。之后只有快照变化时才会重建。
 
-首页“生成引擎”提供 `Agent（LLM）` 和 `规则基线`。Agent 使用 structured ReAct 探索、
-结构化 Writer 和独立 Verifier；规则基线不调用模型。复制
-`config/models.example.json` 为 `config/models.json`，填入模型 endpoint 和模型名，并设置
-其中 `api_key_env` 指向的环境变量。配置和密钥可用时 Agent 自动成为默认模式；否则选项禁用
-并显示缺失原因，服务不会把规则结果伪装成 Agent 输出。
+首页只提供 Objective 主 Agent 生成链路。复制 `config/models.example.json` 为
+`config/models.json` 后可以配置多个 OpenAI-compatible provider，页面会列出就绪模型供每次
+运行选择。自部署且无需鉴权的 endpoint 设置 `"auth_mode": "none"`；需要 Bearer token 时
+设置 `"auth_mode": "bearer"`，并让 `api_key_env` 指向环境变量。根据服务能力选择
+`json_schema`、`json_object` 或 `prompt_only`；未就绪 provider 会在页面中禁用，服务不会
+静默切换到其他模型。
 
 “提问风格”可选择普通用户搜索、患者/家属、医学学习者或三种混合。每个逻辑题生成 3 个
 候选变体；Writer 从对应 Skill 的 `SKILL.md` 获取风格约束，Style Judge 在不知道答案的

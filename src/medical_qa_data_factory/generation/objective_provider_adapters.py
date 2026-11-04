@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
+from urllib.parse import quote
 
 from ..evidence_enrichment.pubmed import (
     PubMedClient,
@@ -21,6 +23,56 @@ from .evidence_provider import (
 )
 from .objective_question_contracts import text_digest
 from .objective_question_persistence import immutable_blob_ref
+
+
+JsonGetTransport = Callable[[str], Any]
+
+
+def _requests_pubtator_json(url: str) -> Any:
+    import requests
+
+    last_error: Exception | None = None
+    for attempt in range(1, 4):
+        try:
+            response = requests.get(
+                url,
+                headers={
+                    "Accept": "application/json",
+                    "User-Agent": "medical-qa-data-factory/0.1",
+                },
+                timeout=40,
+            )
+            if response.status_code == 429 or response.status_code >= 500:
+                raise requests.HTTPError(
+                    f"temporary PubTator response: HTTP {response.status_code}",
+                    response=response,
+                )
+            response.raise_for_status()
+            return response.json()
+        except (
+            requests.Timeout,
+            requests.ConnectionError,
+        ) as exc:
+            last_error = exc
+            if attempt < 3:
+                time.sleep(0.25 * attempt)
+        except requests.HTTPError as exc:
+            status = (
+                exc.response.status_code
+                if getattr(exc, "response", None) is not None
+                else None
+            )
+            if status not in {429} and (status or 0) < 500:
+                raise
+            last_error = exc
+            if attempt < 3:
+                time.sleep(0.25 * attempt)
+        except ValueError as exc:
+            last_error = exc
+            if attempt < 3:
+                time.sleep(0.25 * attempt)
+    assert last_error is not None
+    raise last_error
 
 
 class PrimeKgMaterialProvider:
@@ -51,10 +103,13 @@ class PrimeKgMaterialProvider:
             )
             if resolution.selected is None:
                 return _empty_result(request)
+            direction = str(query.get("direction") or "both")
+            if direction not in {"both", "incoming", "outgoing"}:
+                direction = "both"
             edges = self.provider.neighbors(
                 NeighborQuery(
                     entity=resolution.selected,
-                    direction="both",
+                    direction=direction,
                     target_types=list(query.get("target_types") or []),
                     relations=list(query.get("relations") or []),
                     limit=request.material_limit,
@@ -130,8 +185,18 @@ class PrimeKgMaterialProvider:
 
 
 class PubMedMaterialProvider:
-    def __init__(self, client: PubMedClient | None = None) -> None:
+    def __init__(
+        self,
+        client: PubMedClient | None = None,
+        *,
+        fulltext_transport: JsonGetTransport | None = None,
+        max_fulltext_chars: int = 16000,
+    ) -> None:
         self.client = client or PubMedClient()
+        self.fulltext_transport = (
+            fulltext_transport or _requests_pubtator_json
+        )
+        self.max_fulltext_chars = max(1000, max_fulltext_chars)
         self.capability = EvidenceProviderCapability(
             provider_id="pubmed",
             provider_version="pubmed-eutils-v1",
@@ -149,10 +214,13 @@ class PubMedMaterialProvider:
             queries.extend(
                 [
                     " ".join(words[:6]),
-                    " ".join(words[:2]),
-                    words[0],
+                    " ".join(words[:3]),
                 ]
             )
+        if len(words) > 6:
+            # Only relax instruction-like queries to the leading term. Normal
+            # short biomedical queries keep their full meaning.
+            queries.append(words[0])
         queries = list(dict.fromkeys(query for query in queries if query))
         search = None
         for query in queries:
@@ -239,6 +307,220 @@ class PubMedMaterialProvider:
     def lookup_status(self, operation_key: str):
         return None
 
+    def retrieve_details(
+        self,
+        request: EvidenceProviderRequest,
+        *,
+        material_ids: list[str],
+    ) -> EvidenceProviderResult:
+        pmids = [
+            material_id.removeprefix("material.pubmed.")
+            for material_id in material_ids
+            if material_id.startswith("material.pubmed.")
+        ]
+        if not pmids:
+            return _empty_result(request)
+        url = (
+            "https://www.ncbi.nlm.nih.gov/research/pubtator3-api/"
+            "publications/export/biocjson?pmids="
+            + quote(",".join(pmids), safe=",")
+        )
+        try:
+            payload = self.fulltext_transport(url)
+            documents = _pubtator_documents(payload)
+        except Exception as exc:
+            return _failure_result(
+                request,
+                category="PUBMED_FULLTEXT_ERROR",
+                message=str(exc),
+            )
+        materials: list[dict[str, Any]] = []
+        anchors: list[dict[str, Any]] = []
+        raw_contents: dict[str, str] = {}
+        fallback_errors: list[dict[str, str]] = []
+        for pmid in pmids:
+            document = documents.get(pmid)
+            sections = _pubtator_sections(document or {})
+            if not _has_substantive_sections(sections):
+                try:
+                    pmc_payload = self.fulltext_transport(
+                        "https://www.ncbi.nlm.nih.gov/research/bionlp/"
+                        "RESTful/pmcoa.cgi/BioC_json/"
+                        f"{quote(pmid)}/unicode"
+                    )
+                    pmc_documents = _pubtator_documents(pmc_payload)
+                    pmc_document = (
+                        pmc_documents.get(pmid)
+                        or next(iter(pmc_documents.values()), {})
+                    )
+                    sections = _pubtator_sections(pmc_document)
+                except Exception as exc:
+                    fallback_errors.append(
+                        {
+                            "pmid": pmid,
+                            "error_category": type(exc).__name__,
+                            "error_message": str(exc),
+                        }
+                    )
+            if not _has_substantive_sections(sections):
+                continue
+            content = "\n\n".join(
+                f"[{section_name}]\n{text}"
+                for section_name, text in sections.items()
+            )
+            if len(content) > self.max_fulltext_chars:
+                content = content[: self.max_fulltext_chars].rstrip()
+            material_id = f"material.pubmed.{pmid}"
+            digest = text_digest(content)
+            materials.append(
+                {
+                    "material_id": material_id,
+                    "provider_id": "pubmed",
+                    "provider_version": self.capability.provider_version,
+                    "source_record_id": f"pmid:{pmid}",
+                    "retrieved_at": datetime.now(timezone.utc).isoformat(),
+                    "content_hash": digest,
+                    "raw_content_ref": immutable_blob_ref(digest),
+                    "material_type": "literature_full_text",
+                    "retrieval_request_id": request.request_id,
+                    "terminal_status": "SUCCEEDED",
+                }
+            )
+            raw_contents[material_id] = content
+            cursor = 0
+            for section_name, text in sections.items():
+                quoted = text
+                if cursor + len(quoted) > len(content):
+                    quoted = quoted[: max(0, len(content) - cursor)]
+                if not quoted:
+                    break
+                start = content.find(quoted, cursor)
+                if start < 0:
+                    start = cursor
+                end = start + len(quoted)
+                anchor_text = content[start:end]
+                anchor_id = (
+                    f"anchor.pubmed.{pmid}."
+                    f"{_safe_anchor_field(section_name)}"
+                )
+                anchors.append(
+                    {
+                        "anchor_id": anchor_id,
+                        "material_id": material_id,
+                        "document_id": f"pubmed:{pmid}",
+                        "section_or_field": section_name,
+                        "start_offset": start,
+                        "end_offset": end,
+                        "quoted_text": anchor_text,
+                        "quote_hash": text_digest(anchor_text),
+                    }
+                )
+                cursor = end
+        if not materials:
+            return _empty_result(request)
+        return EvidenceProviderResult(
+            request=request,
+            terminal_status=ProviderTerminalStatus.SUCCEEDED,
+            material_ids=[item["material_id"] for item in materials],
+            anchor_ids=[item["anchor_id"] for item in anchors],
+            materials=materials,
+            anchors=anchors,
+            raw_content_by_material_id=raw_contents,
+            snapshot_id=f"pubtator:{datetime.now(timezone.utc).date()}",
+            usage={
+                "provider_calls": 1,
+                "full_text_documents": len(materials),
+                "fallback_errors": fallback_errors,
+            },
+        )
+
+
+def _pubtator_documents(payload: Any) -> dict[str, dict[str, Any]]:
+    if isinstance(payload, dict):
+        if isinstance(payload.get("PubTator3"), list):
+            candidates = payload["PubTator3"]
+        elif isinstance(payload.get("documents"), list):
+            candidates = payload["documents"]
+        else:
+            candidates = [payload]
+    elif isinstance(payload, list):
+        candidates = payload
+    else:
+        return {}
+    documents: dict[str, dict[str, Any]] = {}
+    pending = list(candidates)
+    while pending:
+        item = pending.pop(0)
+        if not isinstance(item, dict):
+            continue
+        nested = item.get("documents")
+        if isinstance(nested, list):
+            pending.extend(nested)
+        pmid = _pubtator_pmid(item)
+        if pmid:
+            documents[pmid] = item
+    return documents
+
+
+def _pubtator_pmid(document: dict[str, Any]) -> str:
+    for value in (
+        document.get("pmid"),
+        document.get("PMID"),
+        (document.get("infons") or {}).get("article-id_pmid"),
+        document.get("id"),
+    ):
+        normalized = str(value or "").strip()
+        if normalized.upper().startswith("PMID:"):
+            normalized = normalized.split(":", 1)[1]
+        if normalized.isdigit():
+            return normalized
+    return ""
+
+
+def _pubtator_sections(document: dict[str, Any]) -> dict[str, str]:
+    sections: dict[str, str] = {}
+    passages = document.get("passages")
+    if not isinstance(passages, list):
+        return sections
+    for passage in passages:
+        if not isinstance(passage, dict):
+            continue
+        infons = passage.get("infons") or {}
+        section = str(
+            infons.get("section_type")
+            or infons.get("type")
+            or "text"
+        ).strip()
+        text = str(passage.get("text") or "").strip()
+        if not text:
+            continue
+        if section in sections:
+            sections[section] = f"{sections[section]}\n{text}"
+        else:
+            sections[section] = text
+    return sections
+
+
+def _has_substantive_sections(sections: dict[str, str]) -> bool:
+    return any(
+        section.casefold()
+        not in {
+            "title",
+            "abstract",
+            "front",
+            "abstract_title_1",
+        }
+        for section in sections
+    )
+
+
+def _safe_anchor_field(value: str) -> str:
+    cleaned = "".join(
+        character if character.isalnum() else "_"
+        for character in value.casefold()
+    ).strip("_")
+    return cleaned or "text"
+
 
 class CtdMaterialProvider:
     def __init__(self, index: CtdEvidenceIndex | None = None) -> None:
@@ -276,7 +558,18 @@ class CtdMaterialProvider:
         try:
             records = self.index.enumerate_diseases(
                 chemical_id=chemical_id
-            )[: request.material_limit]
+            )
+            disease_filter = str(
+                query.get("disease_name") or ""
+            ).strip().casefold()
+            if disease_filter:
+                records = [
+                    record
+                    for record in records
+                    if disease_filter in record.disease_name.casefold()
+                    or disease_filter in str(record.disease_id or "").casefold()
+                ]
+            records = records[: request.material_limit]
         except Exception as exc:
             return _failure_result(
                 request,

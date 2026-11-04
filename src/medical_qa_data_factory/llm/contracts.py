@@ -13,6 +13,7 @@ from ..domain.common import ContractModel
 
 
 ModelRole = Literal[
+    "question_method_pilot",
     "exploration_planner",
     "entity_question_exploration_planner",
     "evidence_curator",
@@ -25,10 +26,13 @@ ModelRole = Literal[
     "material_retrieval",
     "fact_understanding",
     "objective_question_design",
+    "objective_candidate_review",
     "objective_question_realization",
     "objective_answer_verification",
     "objective_release_review",
     "objective_main_agent",
+    "objective_workflow_planner",
+    "objective_history_summary",
 ]
 
 
@@ -62,6 +66,13 @@ class StructuredGenerationRequest(ContractModel):
                 raise ValueError(
                     "skill_id, skill_version and skill_instruction must appear together"
                 )
+        else:
+            from .objective_skills import load_objective_skill
+
+            bundle = load_objective_skill(self.role, self.payload)
+            if bundle is not None:
+                self.skill_id, self.skill_version, self.skill_instruction = bundle
+                self.idempotency_key += f"|skill:{self.skill_version}"
         return self
 
 

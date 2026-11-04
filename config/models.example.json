@@ -1,14 +1,36 @@
 {
-  "default_provider": "local",
+  "default_provider": "local-no-auth",
   "providers": {
-    "local": {
+    "local-no-auth": {
       "driver": "openai_compatible",
       "base_url": "http://127.0.0.1:8000/v1/chat/completions",
+      "model_id": "your-local-model",
+      "auth_mode": "none",
+      "structured_output_mode": "json_object",
+      "supports_strict_json_schema": false,
+      "timeout_seconds": 120,
+      "max_retries": 3,
+      "context_window_tokens": 32768,
+      "output_reserve_tokens": 4096,
+      "context_safety_tokens": 1024,
+      "compact_trigger_ratio": 0.85,
+      "compact_target_ratio": 0.75
+    },
+    "strict-with-key": {
+      "driver": "openai_compatible",
+      "base_url": "https://your-endpoint.example/v1/chat/completions",
       "model_id": "your-structured-model",
+      "auth_mode": "bearer",
       "api_key_env": "MEDICAL_QA_MODEL_API_KEY",
+      "structured_output_mode": "json_schema",
       "supports_strict_json_schema": true,
       "timeout_seconds": 120,
-      "max_retries": 1
+      "max_retries": 3,
+      "context_window_tokens": 32768,
+      "output_reserve_tokens": 4096,
+      "context_safety_tokens": 1024,
+      "compact_trigger_ratio": 0.85,
+      "compact_target_ratio": 0.75
     }
   }
 }

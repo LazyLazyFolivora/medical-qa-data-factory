@@ -10,10 +10,21 @@ const props = defineProps({
 
 const emit = defineEmits(["submit"]);
 
+const providerOptions = [
+  ["pubmed", "PubMed"],
+  ["primekg", "PrimeKG"],
+  ["hgnc", "HGNC"],
+  ["ncbi_gene", "NCBI Gene"],
+  ["ensembl", "Ensembl"],
+  ["ctd", "CTD"],
+];
+
 const form = reactive({
   questionCount: 3,
   difficulties: ["easy", "medium"],
   styleId: "",
+  modelProviderId: "",
+  providers: ["hgnc", "ncbi_gene", "ensembl", "primekg", "pubmed"],
 });
 
 watch(
@@ -22,6 +33,35 @@ watch(
     if (!form.styleId && styles.length) form.styleId = styles[0].skill_id;
   },
   { immediate: true },
+);
+
+watch(
+  () => [props.model.default_provider, props.model.providers],
+  () => {
+    const options = props.model.providers || [];
+    const selected = options.find(
+      (item) => item.provider_id === form.modelProviderId && item.ready,
+    );
+    if (!selected) {
+      form.modelProviderId =
+        options.find(
+          (item) =>
+            item.provider_id === props.model.default_provider && item.ready,
+        )?.provider_id ||
+        options.find((item) => item.ready)?.provider_id ||
+        "";
+    }
+  },
+  { immediate: true, deep: true },
+);
+
+const selectedModel = computed(() =>
+  (props.model.providers || []).find(
+    (item) => item.provider_id === form.modelProviderId,
+  ),
+);
+const selectedModelReady = computed(
+  () => selectedModel.value?.ready ?? props.model.ready,
 );
 
 const difficultyLabel = computed(() => {
@@ -45,29 +85,45 @@ const toggleDifficulty = (value) => {
   }
 };
 
+const toggleProvider = (value) => {
+  const existing = form.providers.indexOf(value);
+  if (existing >= 0) {
+    if (form.providers.length === 1) return;
+    form.providers.splice(existing, 1);
+  } else {
+    form.providers.push(value);
+  }
+};
+
 const submit = () => {
-  if (!props.selectedEntity || props.running || !props.model.ready) return;
+  if (
+    !props.selectedEntity ||
+    props.running ||
+    !selectedModelReady.value ||
+    !form.providers.length
+  ) {
+    return;
+  }
   emit("submit", {
     entity: props.selectedEntity,
     questionCount: Number(form.questionCount),
     difficulties: [...form.difficulties],
     styleId: form.styleId,
+    modelProviderId: form.modelProviderId,
+    providers: [...form.providers],
   });
 };
 </script>
 
 <template>
   <form class="composer" @submit.prevent="submit">
-    <header class="section-heading">
+    <header class="composer-heading">
       <div>
-        <span class="step-index">01</span>
-        <div>
-          <p class="field-kicker">生成配置</p>
-          <h2>定义这一组问题的范围</h2>
-        </div>
+        <p class="field-kicker">生成配置</p>
+        <h3>定义这一组问题的范围</h3>
       </div>
       <span class="composer-summary">
-        {{ styleLabel }} · 最多 {{ form.questionCount }} 题 · {{ difficultyLabel }}
+        {{ styleLabel }} · 目标 {{ form.questionCount }} 题 · {{ difficultyLabel }}
       </span>
     </header>
 
@@ -81,7 +137,7 @@ const submit = () => {
           max="20"
           :disabled="running"
         />
-        <small>这是上限，不会为了凑数放宽校验</small>
+        <small>这是发布目标；不会为了凑数放宽质量门禁</small>
       </label>
 
       <fieldset class="config-field difficulty-field" :disabled="running">
@@ -104,7 +160,7 @@ const submit = () => {
         </div>
       </fieldset>
 
-      <label class="config-field">
+      <label class="config-field style-field">
         <span>提问风格</span>
         <select v-model="form.styleId" :disabled="running">
           <option
@@ -117,28 +173,59 @@ const submit = () => {
         </select>
       </label>
 
-      <div class="config-field engine-field">
-        <span>生成引擎</span>
-        <div class="engine-switch">
-          <div class="engine-option selected">
-            <strong>主 Agent 循环</strong>
-            <small>
-              {{ model.ready ? "自主检索、验证与发布复核" : model.detail }}
-            </small>
-          </div>
+      <label class="config-field model-field">
+        <span>主 Agent 模型</span>
+        <select
+          v-model="form.modelProviderId"
+          data-model-provider
+          :disabled="running"
+        >
+          <option
+            v-for="provider in model.providers || []"
+            :key="provider.provider_id"
+            :value="provider.provider_id"
+            :disabled="!provider.ready"
+          >
+            {{ provider.provider_id }} · {{ provider.model_id }}{{
+              provider.ready ? "" : "（未就绪）"
+            }}
+          </option>
+        </select>
+        <small v-if="selectedModel">{{ selectedModel.detail }}</small>
+      </label>
+
+      <fieldset class="config-field provider-field" :disabled="running">
+        <legend>材料来源</legend>
+        <div class="choice-row">
+          <button
+            v-for="[value, label] in providerOptions"
+            :key="value"
+            type="button"
+            class="choice-chip"
+            :class="{ active: form.providers.includes(value) }"
+            @click="toggleProvider(value)"
+          >
+            {{ label }}
+          </button>
         </div>
-      </div>
+      </fieldset>
     </div>
 
     <footer class="composer-actions">
       <p>
         <span class="ready-dot"></span>
-        {{ selectedEntity ? "实体已验证" : "请先选择实体" }}
+        {{
+          !selectedEntity
+            ? "请先选择实体"
+            : selectedModelReady
+              ? "实体与主 Agent 循环已就绪"
+              : selectedModel?.detail || model.detail
+        }}
       </p>
       <button
         class="primary-action"
         type="submit"
-        :disabled="running || !selectedEntity || !model.ready"
+        :disabled="running || !selectedEntity || !selectedModelReady"
       >
         <span>{{ running ? "正在生成" : "开始生成" }}</span>
         <span aria-hidden="true">{{ running ? "···" : "→" }}</span>

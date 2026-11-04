@@ -34,6 +34,7 @@ from medical_qa_data_factory.generation.task_release import (
     ObjectiveQuestionReleaseDenied,
     ObjectiveQuestionReleaseGate,
 )
+from medical_qa_data_factory.llm.errors import ModelError, ModelErrorCode
 from medical_qa_data_factory.llm.fake import FakeStructuredModel
 
 
@@ -211,6 +212,26 @@ def test_second_stage_is_created_only_after_public_audit_is_frozen(
     )
 
 
+def test_review_context_reaches_only_answer_stage(tmp_path: Path) -> None:
+    skill = tmp_path / "SKILL.md"
+    skill.write_text("# Validator", encoding="utf-8")
+    model = _model()
+    package = _answer_package().model_copy(update={
+        "planner_environment": {"tools": ["configured-tool"]},
+        "design_requirements": {"difficulty_targets": ["hard"], "language": "zh"},
+        "concise_explanation": "Hidden answer explanation",
+    })
+    ReleaseReviewSubagent(model).run(
+        public_question=_public_package(), answer_evidence=package, skill_path=skill,
+    )
+    public, answer = model.payloads_for("objective_release_review")
+    assert "planner_environment" not in public
+    assert "concise_explanation" not in public
+    assert answer["planner_environment"] == package.planner_environment
+    assert answer["design_requirements"] == package.design_requirements
+    assert answer["concise_explanation"] == package.concise_explanation
+
+
 def test_release_review_host_stamps_package_identity_digests(
     tmp_path: Path,
 ) -> None:
@@ -300,6 +321,29 @@ def test_invalid_structured_output_is_indeterminate(tmp_path: Path) -> None:
     assert report.verdict is ObjectiveVerdict.INDETERMINATE
     assert report.release_allowed is False
     assert report.primary_reason == "MODEL_OUTPUT_INVALID"
+
+
+def test_provider_failure_remains_retryable(tmp_path: Path) -> None:
+    skill = tmp_path / "SKILL.md"
+    skill.write_text("# Validator", encoding="utf-8")
+
+    def fail(request):
+        raise ModelError(
+            ModelErrorCode.BAD_REQUEST,
+            "model provider rejected the request (HTTP 400)",
+            retryable=True,
+        )
+
+    model = FakeStructuredModel(
+        responses={"objective_release_review": fail}
+    )
+
+    with pytest.raises(ModelError, match="HTTP 400"):
+        ReleaseReviewSubagent(model).run(
+            public_question=_public_package(),
+            answer_evidence=_answer_package(),
+            skill_path=skill,
+        )
 
 
 def test_merge_detects_stale_skill_or_input_digest() -> None:

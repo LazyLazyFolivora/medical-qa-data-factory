@@ -90,6 +90,11 @@
         "evidence_constraints": {
           "$ref": "#/$defs/EvidenceConstraints"
         },
+        "evidence_enrichment": {
+          "default": false,
+          "title": "Evidence Enrichment",
+          "type": "boolean"
+        },
         "label_policy_version": {
           "default": "planner-label-v1",
           "title": "Label Policy Version",
@@ -101,12 +106,28 @@
           "title": "Language",
           "type": "string"
         },
+        "minimum_style_score": {
+          "default": 0.65,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Minimum Style Score",
+          "type": "number"
+        },
         "question_count": {
           "default": 3,
           "maximum": 20,
           "minimum": 1,
           "title": "Question Count",
           "type": "integer"
+        },
+        "question_style_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 3,
+          "minItems": 1,
+          "title": "Question Style Ids",
+          "type": "array"
         },
         "reasoning_constraints": {
           "$ref": "#/$defs/ReasoningConstraints"
@@ -120,6 +141,13 @@
           "default": "generation-spec-v1",
           "title": "Spec Version",
           "type": "string"
+        },
+        "variants_per_blueprint": {
+          "default": 1,
+          "maximum": 3,
+          "minimum": 1,
+          "title": "Variants Per Blueprint",
+          "type": "integer"
         }
       },
       "title": "GenerationSpec",

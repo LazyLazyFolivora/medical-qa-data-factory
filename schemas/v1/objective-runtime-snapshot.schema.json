@@ -188,6 +188,23 @@
           "title": "Difficulty Targets",
           "type": "array"
         },
+        "language": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Language"
+        },
+        "planner_environment": {
+          "additionalProperties": true,
+          "title": "Planner Environment",
+          "type": "object"
+        },
         "question_count_upper_bound": {
           "minimum": 0,
           "title": "Question Count Upper Bound",
@@ -804,6 +821,52 @@
       },
       "title": "Operations",
       "type": "object"
+    },
+    "recovery_events": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Recovery Events",
+      "type": "array"
+    },
+    "recovery_state": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RunState"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "resume_after_step": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Resume After Step"
+    },
+    "resume_count": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Resume Count",
+      "type": "integer"
+    },
+    "resume_events": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Resume Events",
+      "type": "array"
     },
     "run_id": {
       "minLength": 1,

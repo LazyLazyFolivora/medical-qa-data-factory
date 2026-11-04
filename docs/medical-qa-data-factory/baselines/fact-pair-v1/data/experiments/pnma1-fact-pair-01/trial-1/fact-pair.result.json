@@ -1,0 +1,27 @@
+{
+  "invocation_id": "graph-pilot.fact-pair.5390c6830b225d24",
+  "role": "question_method_pilot",
+  "parsed": {
+    "observation": {
+      "fact": "Bcl2的过表达抑制了PNMA1诱导的神经元凋亡",
+      "source": "pubmed:20936693",
+      "quote": "Apoptosis by PNMA1 expression is inhibited by overexpression of Bcl2"
+    },
+    "added_fact": {
+      "fact": "BCL2通常通过控制线粒体膜通透性来调节细胞死亡",
+      "source": "uniprot:P10415",
+      "quote": "Regulates cell death by controlling the mitochondrial membrane permeability"
+    },
+    "information_gain": "第一项事实仅指出了Bcl2在特定实验模型中对PNMA1诱导凋亡的抑制效应。第二项事实提供了BCL2的一般生物学功能背景，即它通过控制线粒体膜通透性来调控细胞死亡。这一信息解释了Bcl2为何能作为抗凋亡因子，将其从单纯的实验观察结果提升为对其一般凋亡调控机制的理解。",
+    "reader_need": "需要找到一种能过表达抑制PNMA1诱导凋亡的蛋白，并了解该蛋白在一般生理条件下如何调控细胞凋亡（具体机制或环节）。",
+    "proposal": "pair"
+  },
+  "usage": {
+    "input_tokens": 5667,
+    "output_tokens": 277,
+    "model_config_id": "qwen-self-hosted:Qwen3.6-FP8",
+    "attempts": 1,
+    "structured_output_fallback": false
+  },
+  "model_config_id": "qwen-self-hosted:Qwen3.6-FP8"
+}

@@ -1522,3 +1522,14 @@
     transition: none;
   }
 }
+
+
+.run-control-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 20px;
+}
+.run-control-bar button { padding: 8px 16px; cursor: pointer; }
+.run-control-bar button:disabled { cursor: wait; }

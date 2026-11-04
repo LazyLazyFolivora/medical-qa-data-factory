@@ -7,6 +7,7 @@ import pytest
 
 from medical_qa_data_factory.generation.objective_question_contracts import (
     AnswerCardinality,
+    ExecutionStatus,
     FrozenQuestionContract,
     SubagentTask,
 )
@@ -181,13 +182,9 @@ def test_writer_cannot_change_answer_scope_or_strength(
             "Does current research support that BRCA1 is on chromosome 17?",
             "META_EVIDENCE_WORDING",
         ),
-        (
-            "Which chromosome does BRCA1 cause disease on?",
-            "SEMANTIC_UPGRADE",
-        ),
     ],
 )
-def test_writer_rejects_source_relative_meta_evidence_and_causal_wording(
+def test_writer_rejects_source_relative_and_meta_evidence_wording(
     question_text: str,
     reason: str,
 ) -> None:
@@ -202,3 +199,47 @@ def test_writer_rejects_source_relative_meta_evidence_and_causal_wording(
             _task(),
             contract=_contract(),
         )
+
+
+def test_causal_wording_is_deferred_to_independent_release_review() -> None:
+    question = "Which disease does BRCA1 cause?"
+    model = FakeStructuredModel(
+        responses={
+            "objective_question_realization": _draft(question)
+        }
+    )
+
+    outcome = ObjectiveQuestionRealizationSubagent(model).run(
+        _task(),
+        contract=_contract(),
+    )
+
+    assert outcome.draft.question_text == question
+    assert outcome.result.execution_status is ExecutionStatus.SUCCEEDED
+
+
+def test_writer_repairs_invalid_wording_without_changing_contract() -> None:
+    responses = iter(
+        [
+            _draft("According to PrimeKG, on which chromosome is BRCA1?"),
+            _draft(),
+        ]
+    )
+    model = FakeStructuredModel(
+        responses={
+            "objective_question_realization": lambda request: next(responses)
+        }
+    )
+
+    outcome = ObjectiveQuestionRealizationSubagent(model).run(
+        _task(),
+        contract=_contract(),
+    )
+
+    assert outcome.draft.question_text == _draft().question_text
+    payloads = model.payloads_for("objective_question_realization")
+    assert len(payloads) == 2
+    assert payloads[1]["validation_error"] == "SOURCE_RELATIVE_WORDING"
+    assert payloads[1]["previous_invalid_draft"]["contract_id"] == (
+        _contract().contract_id
+    )

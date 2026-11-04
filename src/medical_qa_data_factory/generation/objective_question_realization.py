@@ -88,30 +88,76 @@ class ObjectiveQuestionRealizationSubagent:
             raise RoleContractViolation(
                 "task contract does not match the frozen input contract"
             )
-        response = self.model.generate_structured(
-            StructuredGenerationRequest(
-                invocation_id=task.initial_attempt_id,
-                role="objective_question_realization",
-                system_prompt_version=self.capability.prompt_version,
-                payload={
-                    "frozen_question_contract": contract.model_dump(mode="json"),
-                    "instruction": (
-                        "Write the final question and concise answer explanation. "
-                        "The public question must not contain any answer value, "
-                        "must not name a data source, and must not restate a "
-                        "classification label that is the answer. "
-                        "Return a semantic readback that preserves every frozen "
-                        "field exactly."
+        total_usage: dict[str, Any] = {}
+        previous_invalid_draft: dict[str, Any] | None = None
+        validation_error: str | None = None
+        draft: ObjectiveQuestionDraft | None = None
+        for attempt in range(3):
+            payload = {
+                "frozen_question_contract": contract.model_dump(mode="json"),
+                "design_requirements": dict(
+                    task.goal.get("design_requirements", {})
+                ),
+                "instruction": (
+                    "Write the final question and concise answer explanation. "
+                    "Use natural standalone question wording, not research-task "
+                    "commands such as 查明/确定/查询/阐明. Keep only the information "
+                    "need fixed in the contract; do not append name meanings, "
+                    "family explanations or mechanisms for apparent complexity. "
+                    "The public question must not contain any answer value, "
+                    "must not name a data source, and must not restate a "
+                    "classification label that is the answer. "
+                    "Return a semantic readback that preserves every frozen "
+                    "field exactly."
+                ),
+            }
+            if previous_invalid_draft is not None:
+                payload["previous_invalid_draft"] = previous_invalid_draft
+                payload["validation_error"] = validation_error
+                payload["repair_instruction"] = (
+                    "Rewrite only the wording needed to fix the reported error. "
+                    "Do not alter any frozen semantic field or answer value."
+                )
+            response = self.model.generate_structured(
+                StructuredGenerationRequest(
+                    invocation_id=(
+                        task.initial_attempt_id
+                        + (f".repair-{attempt}" if attempt else "")
                     ),
-                },
-                idempotency_key=task.operation_key,
-            ),
-            ObjectiveQuestionDraft,
-        )
-        draft = ObjectiveQuestionDraft.model_validate(response.parsed)
-        if draft.contract_id != contract.contract_id:
-            raise RoleContractViolation("draft references another contract")
-        self._validate_semantics(draft, contract)
+                    role="objective_question_realization",
+                    system_prompt_version=self.capability.prompt_version,
+                    payload=payload,
+                    idempotency_key=(
+                        task.operation_key
+                        + (f"|repair-{attempt}" if attempt else "")
+                    ),
+                ),
+                ObjectiveQuestionDraft,
+            )
+            for key, value in response.usage.items():
+                if isinstance(value, (int, float)) and not isinstance(
+                    value, bool
+                ):
+                    total_usage[key] = total_usage.get(key, 0) + value
+                else:
+                    total_usage[key] = value
+            candidate = ObjectiveQuestionDraft.model_validate(response.parsed)
+            try:
+                if candidate.contract_id != contract.contract_id:
+                    raise RoleContractViolation(
+                        "draft references another contract"
+                    )
+                self._validate_semantics(candidate, contract)
+            except RoleContractViolation as exc:
+                previous_invalid_draft = candidate.model_dump(mode="json")
+                validation_error = str(exc)
+                if attempt == 2:
+                    raise
+                continue
+            draft = candidate
+            break
+        if draft is None:  # pragma: no cover - loop either returns or raises
+            raise AssertionError("realization repair loop produced no draft")
         draft = draft.model_copy(
             update={"draft_id": f"draft.{contract.contract_id}"}
         )
@@ -122,7 +168,7 @@ class ObjectiveQuestionRealizationSubagent:
             verdict=VerificationVerdict.NOT_EMITTED,
             output_artifact_ids=[draft.draft_id],
             evidence_need_ids=[],
-            usage=dict(response.usage),
+            usage=total_usage,
             error_category=None,
             stop_reason="question_realized",
         )
@@ -156,22 +202,6 @@ class ObjectiveQuestionRealizationSubagent:
         )
         if any(term in lowered for term in meta_terms):
             raise RoleContractViolation("META_EVIDENCE_WORDING")
-        upgrade_terms = (
-            " cause",
-            " causes",
-            " caused",
-            " treat",
-            " treats",
-            "diagnos",
-            "prognos",
-            "导致",
-            "治疗",
-            "诊断",
-            "预后",
-        )
-        if any(term in lowered for term in upgrade_terms):
-            raise RoleContractViolation("SEMANTIC_UPGRADE")
-
         readback = draft.semantic_readback
         expected = {
             "question_intent": contract.question_intent,

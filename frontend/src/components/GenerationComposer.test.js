@@ -12,7 +12,24 @@ describe("GenerationComposer", () => {
     const wrapper = mount(GenerationComposer, {
       props: {
         selectedEntity: entity,
-        model: { ready: true, detail: "ready", default_mode: "structured" },
+        model: {
+          ready: true,
+          detail: "ready",
+          default_mode: "structured",
+          default_provider: "local-a",
+          providers: [
+            {
+              provider_id: "local-a",
+              model_id: "model-a",
+              ready: true,
+            },
+            {
+              provider_id: "local-b",
+              model_id: "model-b",
+              ready: true,
+            },
+          ],
+        },
         styles: [
           {
             skill_id: "layperson-search-v1",
@@ -24,6 +41,7 @@ describe("GenerationComposer", () => {
     });
 
     expect(wrapper.get(".primary-action").text()).toContain("开始生成");
+    expect(wrapper.get(".composer-summary").text()).toContain("目标 3 题");
     await wrapper.get("form").trigger("submit");
 
     expect(wrapper.emitted("submit")?.[0]?.[0]).toMatchObject({
@@ -31,7 +49,44 @@ describe("GenerationComposer", () => {
       questionCount: 3,
       difficulties: ["easy", "medium"],
       styleId: "layperson-search-v1",
+      providers: [
+        "hgnc",
+        "ncbi_gene",
+        "ensembl",
+        "primekg",
+        "pubmed",
+      ],
+      modelProviderId: "local-a",
     });
+  });
+
+  it("can select another configured self-hosted model", async () => {
+    const wrapper = mount(GenerationComposer, {
+      props: {
+        selectedEntity: {
+          value: "primekg:gene:672",
+          canonical_id: "primekg:gene:672",
+          name: "BRCA1",
+        },
+        model: {
+          ready: true,
+          detail: "ready",
+          default_provider: "local-a",
+          providers: [
+            { provider_id: "local-a", model_id: "model-a", ready: true },
+            { provider_id: "local-b", model_id: "model-b", ready: true },
+          ],
+        },
+        styles: [],
+      },
+    });
+
+    await wrapper.get("[data-model-provider]").setValue("local-b");
+    await wrapper.get("form").trigger("submit");
+
+    expect(wrapper.emitted("submit")?.[0]?.[0].modelProviderId).toBe(
+      "local-b",
+    );
   });
 
   it("uses the evidence-first main-agent loop as the only engine", async () => {

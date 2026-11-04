@@ -1,0 +1,22 @@
+{
+  "assignment": {
+    "information_need": "找出一种通过过表达可抑制 PNMA1 诱导的神经元凋亡的蛋白，并了解对应人类蛋白的一般凋亡调控作用。"
+  },
+  "evidence_packet": {
+    "relation_evidence": [
+      {
+        "fact": "Bcl2的过表达抑制了PNMA1诱导的神经元凋亡",
+        "source": "pubmed:20936693",
+        "quote": "Apoptosis by PNMA1 expression is inhibited by overexpression of Bcl2"
+      }
+    ],
+    "property_evidence": [
+      {
+        "fact": "BCL2通常通过控制线粒体膜通透性来调节细胞死亡",
+        "source": "uniprot:P10415",
+        "quote": "Regulates cell death by controlling the mitochondrial membrane permeability"
+      }
+    ],
+    "property_source_species": "Homo sapiens"
+  }
+}

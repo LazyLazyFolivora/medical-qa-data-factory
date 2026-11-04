@@ -35,6 +35,7 @@ def export_objective_release(
                 "question_id": item.draft.draft_id,
                 "question": item.draft.question_text,
                 "answer": list(item.draft.answer_values),
+                "assessed_difficulty": item.validation_report.assessed_difficulty,
                 "explanation": item.draft.concise_explanation,
                 "schema_version": "objective-public-question-v1",
             }

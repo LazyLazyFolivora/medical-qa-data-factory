@@ -6,6 +6,7 @@ ever allowed to upgrade an association into a causal or therapeutic claim.
 """
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 
 from .contracts import RelationSemantics
@@ -201,6 +202,22 @@ class RelationSemanticsPolicy:
         return FORBIDDEN_FOR_ASSOCIATION
 
 
+def contains_semantic_term(text: str, term: str) -> bool:
+    """Match whole English terms/phrases while retaining Chinese substrings."""
+    lowered = text.casefold()
+    normalized = term.casefold().strip()
+    if not normalized:
+        return False
+    if re.fullmatch(r"[a-z0-9 _-]+", normalized):
+        return bool(
+            re.search(
+                rf"(?<![a-z0-9_]){re.escape(normalized)}(?![a-z0-9_])",
+                lowered,
+            )
+        )
+    return normalized in lowered
+
+
 def study_claim_rejection_codes(
     *,
     intent: str,
@@ -235,6 +252,6 @@ def study_claim_rejection_codes(
         if intent == "therapeutic_research"
         else frozenset()
     )
-    if any(term.casefold() in lowered for term in forbidden):
+    if any(contains_semantic_term(lowered, term) for term in forbidden):
         reasons.append("claim_strength_exaggerated")
     return reasons

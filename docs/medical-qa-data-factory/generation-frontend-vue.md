@@ -12,8 +12,9 @@
 - 查看同一实体的历史任务；
 - 查看 Agent 编排、工具查询和失败位置。
 
-题目库、审核、数据集导出等页面暂继续使用原有 Jinja 页面。生成题目页不再使用
-`generation.html` 中的服务端结果拼装逻辑，而是由 Vue 调用 JSON API 渲染。
+后端不再提供 Jinja 页面或静态前端资源。生成题目页由独立 Vue 服务调用 JSON API
+渲染；题目库、审核和数据集等旧页面已随服务端渲染前端一起移除，后续需要按 Vue
+页面重新实现。
 
 ## 2. 用户目标与操作路径
 
@@ -50,6 +51,16 @@
 - 刷新页面时，后端优先使用 URL 中的 `task`，不会重新猜测用户想看哪次任务。
 - 同一实体的历史任务通过下拉框显式切换。
 - 题目、停止原因、执行步骤和 Agent 决策都只来自当前 `task_id`。
+
+当前稳定页面入口为：
+
+- `/generate`：生成工作台。
+- `/runs`：生成记录。
+- `/runs/<run_id>`：固定运行详情，可切换执行轨迹、候选、证据、题目和诊断页签。
+- `/questions/<question_id>`：已发布题目详情和证据链。
+
+旧的 `/?run=<run_id>` 地址仍会兼容并迁移到 `/runs/<run_id>`。历史任务不再只依赖工作台下拉框，
+可以在生成记录页搜索并进入稳定详情。
 
 这条约束修复了此前“最新执行轨迹”和“实体所有历史题目”被拼在一起的问题。
 
@@ -129,6 +140,23 @@
 - 工具查询参数和原始错误按需展开。
 
 这样普通用户先看到结果；排障用户再进入技术细节。
+
+### 4.6 研究工作台垂直切片
+
+生成页已完成第一轮研究工作台改造：
+
+- 配置面板和运行状态在首屏并列呈现；
+- 发布题目作为结果区主体，右侧按需显示单题证据卷宗；
+- 候选、拒绝和无法确定题目单独折叠，不混入已发布结果；
+- 材料预览、产物统计和主 Agent 决策轨迹放在次级展开区；
+- 运行中只轮询轻量 summary，结束后再读取 workbench 聚合数据；
+- 点击“查看证据”时按题目加载证据卷宗，不预先传输所有材料原文；
+- 历史 objective 任务会恢复其目标实体，而不是使用当前默认实体；
+- 390px 视口下页面无横向滚动，结果与证据按阅读顺序纵向排列。
+
+实现截图见
+`design/ui-directions/implemented-research-workbench-evidence.png`，其中的运行题面来自
+确定性测试夹具，不是线上医学结论。
 
 ## 5. 前端状态机
 
@@ -215,20 +243,51 @@ terminal:
   GET /api/generation-workspace?task=<task_id>
 ```
 
+### 6.4 主 Agent 研究工作台接口
+
+主 Agent 生成页使用以下只读投影。它们不会改变现有运行产物格式：
+
+| 接口 | 用途 |
+| --- | --- |
+| `POST /api/objective/generate` | 启动生成；支持 `difficulty_targets` 和 `question_style_ids` |
+| `GET /api/objective/{run_id}/summary` | 轮询用的轻量状态，不读取材料原文 |
+| `GET /api/objective/{run_id}/workbench` | 发布题、候选、拒绝题、检索来源和运行统计 |
+| `GET /api/questions/{question_id}/evidence` | 单题答案、复核结论和可定位原文证据 |
+| `GET /api/objective/{run_id}` | 兼容旧页面的完整运行详情 |
+
+轻量摘要包含发布数、候选数、拒绝数、无法确定数、当前动作和停止原因。工作台
+聚合接口只投影已持久化的运行产物，不重新生成或改写结论。
+
+单题证据卷宗沿以下链路组装：
+
+```text
+draft -> frozen contract -> answer resolution
+      -> supporting/contradicting anchors -> evidence materials
+      -> validation report
+```
+
+每条证据至少返回 provider、source record、material/anchor ID、原文区段、
+字符偏移和 `quoted_text`。`/api/objective/{run_id}` 继续保留，以便旧前端和排障
+工具兼容。
+
 ## 7. 组件边界
 
 ```text
 frontend/src/App.vue
 ├── components/EntityPicker.vue
 ├── components/GenerationComposer.vue
+├── components/ObjectiveStatus.vue
+├── components/ObjectiveRun.vue
 └── components/TaskRun.vue
     └── components/ExecutionTrace.vue
 ```
 
-- `App.vue`：API 加载、任务身份、URL 同步、生成提交与轮询。
+- `App.vue`：API 加载、任务身份、URL 同步、轻量轮询、证据加载与生成提交。
 - `EntityPicker.vue`：PrimeKG 搜索与实体切换。
 - `GenerationComposer.vue`：生成参数与提交。
-- `TaskRun.vue`：任务摘要、状态、结果与历史任务。
+- `ObjectiveStatus.vue`：当前 objective 运行状态、发布计数与历史任务。
+- `ObjectiveRun.vue`：发布题阅读、单题证据、候选处置和次级技术信息。
+- `TaskRun.vue`：兼容非 objective 的历史任务详情。
 - `ExecutionTrace.vue`：技术流水线和 Agent 决策。
 
 组件之间通过 props 和事件通信，不直接修改父级状态。
@@ -262,16 +321,15 @@ cd frontend
 npm run build
 ```
 
-构建结果写入：
+构建结果是独立前端静态包：
 
 ```text
-src/medical_qa_data_factory/web/static/generation-app/
-├── app.js
-├── app.css
+frontend/dist/
+├── assets/
 └── index.html
 ```
 
-Python 服务通过现有 StaticFiles 托管这些文件：
+Python 后端只负责 API，不托管 `frontend/dist`：
 
 ```powershell
 python -m medical_qa_data_factory web serve `
@@ -287,9 +345,9 @@ cd frontend
 npm run dev
 ```
 
-开发服务器默认端口为 `5173`。它只负责 Vue 页面，API 请求仍需由目标 Python
-服务提供。Vite 已将 `/api`、`/tasks`、`/groups` 和 `/static` 代理到
-`http://127.0.0.1:8765`；联调前先以该端口启动 Python 服务。
+开发服务器默认端口为 `5173`。它只负责 Vue 页面，API 请求由独立的 Python
+服务提供。Vite 只将 `/api` 代理到 `http://127.0.0.1:8765`。部署到不同域名时，
+通过 `VITE_API_BASE_URL` 指定 API 地址，不需要把前端产物复制进 Python 包。
 
 ## 10. 验证
 
@@ -330,7 +388,8 @@ npm run build
 
 ## 11. 当前边界与后续
 
-当前仅迁移生成题目页面，其他后台页面仍是原有 Jinja 页面。
+后端已经移除 Jinja 页面、模板目录、旧 `app.js/styles.css/workspace.css` 和静态页面托管。
+当前 Vue 只实现生成工作台，其他旧后台页面需要后续以 Vue 页面和 JSON API 重新实现。
 
 后续可继续演进：
 

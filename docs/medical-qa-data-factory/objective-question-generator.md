@@ -54,6 +54,16 @@ PubMed：
 当前默认启用 `hgnc`、`ncbi_gene`、`ensembl`、`primekg`、`pubmed`。结构化来源失败会保留
 `FAILED` 或 `UNKNOWN` 终态，不会被解释成“该事实不存在”。
 
+Web API 会按实体类型和生产源自动选择事实范围，并把
+`observation_association` 纳入默认范围，使文献中的机制、疾病关联、实验观察和临床
+结论能够进入事实抽取。调用方也可以通过 `allowed_fact_types` 显式覆盖默认范围。
+前端可以单独启停材料 provider；带 CTD 运行时需配置
+`MEDICAL_QA_CTD_INDEX` 或 `config/evidence_enrichment.json`。
+
+检索 Agent 默认最多 4 轮，并允许主 Agent 为单次任务覆盖材料数、轮数、每轮查询数
+和候选预览长度。PubMed 先按摘要筛候选，再只为已选 PMID 获取 PubTator/PMC 全文章节；
+全文不可用时保留摘要，不把全文缺失解释为材料失败。
+
 例如 ZRSR2 的 `gene_location` 需求会优先执行：
 
 ```text
@@ -62,6 +72,15 @@ NCBI Gene: 8233       -> chromosome X, map location, description
 Ensembl: ENSG...      -> assembly location and biotype
 PubMed: ZRSR2 chromosome -> optional literature support
 ```
+
+问题设计阶段可以看到由 candidate claim 绑定并受长度限制的证据片段，从而保留机制、
+人群、实验条件和限定词；它仍不能修改 claim、读取无界材料或自行确认答案。
+
+结构化 provider 使用完整记录优先：HGNC 通过 `fetch/symbol` 或 `fetch/id` 获取详情，
+Ensembl 使用 `expand=1` 并补充 xrefs，NCBI Gene 保留 genomic/location history 等字段。
+每条结构化材料同时提供字段级 anchor 和整条记录 anchor，避免模型只能引用少量白名单字段。
+只要存在尚未做事实抽取的新材料，主 Agent 必须先执行 `understand_facts`，之后才能设计问题；
+问题设计通过 claim group 组合同一来源的原子 claim，而不是继续把完整结论拆碎。
 
 底层命令如下。
 
@@ -86,7 +105,7 @@ $env:PYTHONPATH='E:\Cursor\assumption\projects\medical-qa-data-factory\src'
 
 ## Vue 工作台
 
-启动工作台：
+启动后端 API：
 
 ```powershell
 & 'D:\Anaconda\envs\qa_env\python.exe' -m medical_qa_data_factory web serve `
@@ -96,6 +115,15 @@ $env:PYTHONPATH='E:\Cursor\assumption\projects\medical-qa-data-factory\src'
 ```
 
 在首页的“生成引擎”中选择“主 Agent 循环”。页面会实时展示：
+
+Vue 工作台需在另一个终端启动：
+
+```powershell
+cd frontend
+npm run dev
+```
+
+浏览器访问 `http://127.0.0.1:5173`。后端不再提供 HTML 页面。
 
 - 主 Agent 每次 action、目标子 Agent 和预期信息增益；
 - 材料、anchor、claim、hypothesis、resolution、contract 和复核报告数量；

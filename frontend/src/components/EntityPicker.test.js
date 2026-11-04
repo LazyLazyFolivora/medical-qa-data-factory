@@ -78,4 +78,25 @@ describe("EntityPicker", () => {
 
     expect(wrapper.emitted("select")?.[0]?.[0]).toEqual(entities[3]);
   });
+
+  it("keeps the current task entity visible outside the default ten", () => {
+    const selected = {
+      value: "primekg:gene/protein:672",
+      entity_ref_id: "entity-primekg:gene/protein:672",
+      canonical_id: "primekg:gene/protein:672",
+      name: "BRCA1",
+      entity_type: "gene/protein",
+    };
+    const wrapper = mount(EntityPicker, {
+      props: {
+        entities: [...entities, selected],
+        selectedId: selected.value,
+      },
+    });
+
+    const select = wrapper.get("[data-entity-select]");
+    expect(select.findAll("option")).toHaveLength(10);
+    expect(select.element.value).toBe(selected.value);
+    expect(select.text()).toContain("BRCA1");
+  });
 });

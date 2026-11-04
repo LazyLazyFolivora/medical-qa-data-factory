@@ -25,6 +25,8 @@
 - [客观医学题目方法论](objective-question-methodology.md)：证据、候选事实、答案验证、题面冻结和发布门禁的长期不变量。
 - [客观医学题目验收标准](objective-question-acceptance.md)：Step 1 契约和全部 27 个可执行验收案例。
 - [客观医学题目生成器](objective-question-generator.md)：主 Agent 决策循环的运行命令、输出和当前 provider 边界。
+- [生成任务展示页与详情页信息架构](generation-run-pages-plan.md)：生成历史、运行详情、候选假设、证据和题目详情的页面规划与验收标准。
+- [Agent 面试题复盘：我们真实踩过的坑](agent-interview-pitfalls.md)：将牛客 Agent 题目映射到项目的真实故障、根因和处理方式。
 - [原架构重建实施计划](original-architecture-reconstruction-plan.md)：删除独立 MVP，在原始主干上实现真实 Validation World、任务验证和发布链路。
 - [CTD 正式接入开发计划](ctd-formal-integration-development-plan.md)：将现有 CTD/PubMed enrichment 接入 task-first 正式链路。
 - [CTD 正式接入验收标准](ctd-formal-integration-acceptance-criteria.md)：CTD-backed task 的代码、数据、题面和真实 pilot 门禁。
@@ -36,6 +38,7 @@
 
 ## 补充设计
 
+- [客观出题 Skills 使用与代码迁移说明](objective-skills-usage-and-migration.md)：七阶段 skill 的调用位置、加载方式、交接隔离、实现缺口与迁移验收清单。
 - [实现需求](entity-question-generation-implementation-requirements.md)
 - [当前实现差距](current-implementation-gaps.md)
 - [自然问答与证据增强计划](evidence-enrichment-natural-qa-plan.md)
