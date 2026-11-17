@@ -60,6 +60,36 @@ it('requests pause on the selected trigger', async () => {
   expect(apiFetch).toHaveBeenCalledWith(`/api/production/${trigger.id}/pause`, { method: 'POST' });
 });
 
+it('switches batch progress, execution rows and export together', async () => {
+  window.history.replaceState({}, '', '/production');
+  const completed = { ...trigger, id: 'batch-completed', state: 'completed', counted_count: 12, published_count: 12, entities: [
+    { run_id: 'run-nat2', name: 'NAT2', state: 'completed', published_count: 1 },
+    { run_id: 'run-failed', name: 'Failed entity', state: 'failed', published_count: 0, error: '检索服务暂不可用' },
+  ] };
+  apiFetch.mockResolvedValue({ ok: true, payload: { triggers: [trigger, completed] } });
+  wrapper = mount(ProductionApp);
+  await flushPromises();
+  await wrapper.get('select[aria-label="当前批次"]').setValue(completed.id);
+  expect(wrapper.get('progress').attributes('value')).toBe('12');
+  expect(wrapper.get('.production-table').text()).toContain('NAT2');
+  expect(wrapper.get('.production-table').text()).toContain('已完成');
+  expect(wrapper.get('.production-table').text()).toContain('检索服务暂不可用');
+  expect(wrapper.get('a[href="/runs/run-nat2"]').text()).toBe('NAT2');
+  expect(wrapper.get('a[href^="/api/production/dataset"]').attributes('href')).toContain(completed.id);
+  expect(wrapper.findAll('button').some(button => button.text() === '暂停')).toBe(false);
+  expect(wrapper.get('.production-start').attributes('disabled')).toBeDefined();
+});
+
+it('shows an empty execution table without invented progress', async () => {
+  window.history.replaceState({}, '', '/production');
+  apiFetch.mockResolvedValue({ ok: true, payload: { triggers: [] } });
+  wrapper = mount(ProductionApp);
+  await flushPromises();
+  expect(wrapper.find('progress').exists()).toBe(false);
+  expect(wrapper.get('.production-table-empty').text()).toContain('启动后');
+  expect(wrapper.get('.production-start').attributes('disabled')).toBeUndefined();
+});
+
 it('expands a trigger and fetches only its published questions', async () => {
   window.history.replaceState({}, '', '/publication-runs');
   apiFetch.mockImplementation(async path => ({ ok: true, payload: path.includes('/questions') ? { total: 1, questions: [question] } : { triggers: [trigger] } }));
