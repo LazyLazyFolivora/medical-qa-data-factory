@@ -114,6 +114,10 @@ def default_objective_fact_types(
             "entity_identity",
             "gene_location",
             "classification",
+            "protein_function",
+            "pathway_membership",
+            "disease_association",
+            "drug_target",
             "observation_association",
         ]
     elif normalized in {"disease", "phenotype"}:

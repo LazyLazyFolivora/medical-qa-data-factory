@@ -1,0 +1,14 @@
+{
+  "enabled": false,
+  "executable": "data/experiments/fulltext-downloader-evaluation/venv/Scripts/fulltext-download.exe",
+  "timeout_seconds": 180,
+  "output_dir": "data/cache/fulltext-downloads",
+  "pdftotext": "pdftotext",
+  "credentials": {
+    "UNPAYWALL_EMAIL": "",
+    "ELSEVIER_API_KEY": "",
+    "WILEY_API_KEY": "",
+    "SPRINGER_API_KEY": "",
+    "SEMANTIC_SCHOLAR_API_KEY": ""
+  }
+}

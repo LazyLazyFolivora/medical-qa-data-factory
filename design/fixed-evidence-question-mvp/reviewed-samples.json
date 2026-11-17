@@ -1,0 +1,161 @@
+[
+  {
+    "sample_id": "primary-1",
+    "candidate": {
+      "question": "在急性肾损伤（AKI）向慢性肾脏病（CKD）转化的小鼠模型中，使用3-DZNeP对EZH2进行药理学抑制如何影响肾功能和病理病变？",
+      "answer": "在缺血/再灌注（I/R）或叶酸（FA）诱导的AKI-to-CKD转化小鼠模型中，使用3-DZNeP对EZH2进行药理学抑制可显著改善肾功能并减轻病理病变。",
+      "answer_evidence": [
+        {
+          "answer_part": "significantly improved renal function and attenuated pathological lesion",
+          "source_id": "pubmed:37029114",
+          "sentence_ids": [
+            "S6"
+          ]
+        }
+      ],
+      "ready": true
+    },
+    "revision_used": false,
+    "audit_origin": "independent_agent_source_audit_and_parent_source_check",
+    "status": "reviewed_experimental_sample_not_published",
+    "original_draft": "final-primary-draft-1",
+    "original_translation": "final-primary-zh-1",
+    "final_artifact": "data\\experiments\\fixed-evidence-design-20261111\\final-primary-zh-1\\output.json"
+  },
+  {
+    "sample_id": "primary-2",
+    "candidate": {
+      "question": "在急性肾损伤向慢性肾脏病转化的小鼠模型（缺血/再灌注或叶酸诱导）中，条件性EZH2缺失或药理学抑制对EGFR磷酸化有何影响？",
+      "answer": "条件性EZH2缺失或药理学抑制抑制了EGFR的磷酸化。",
+      "answer_evidence": [
+        {
+          "answer_part": "在缺血/再灌注或叶酸小鼠模型中，条件性EZH2缺失或药理学抑制...改善了肾功能并减轻了病理损伤。",
+          "source_id": "pubmed:37029114",
+          "sentence_ids": [
+            "S6"
+          ]
+        },
+        {
+          "answer_part": "EZH2的遗传或药理学耗竭...抑制了EGFR及其下游信号通路ERK1/2和STAT3的磷酸化",
+          "source_id": "pubmed:37029114",
+          "sentence_ids": [
+            "S8"
+          ]
+        }
+      ],
+      "ready": true
+    },
+    "revision_used": true,
+    "audit_origin": "independent_agent_source_audit_and_parent_source_check",
+    "status": "reviewed_experimental_sample_not_published",
+    "original_draft": "final-primary-draft-2",
+    "original_translation": "final-primary-zh-2",
+    "final_artifact": "data\\experiments\\fixed-evidence-design-20261111\\final-primary-repair-2\\output.json"
+  },
+  {
+    "sample_id": "primary-3",
+    "candidate": {
+      "question": "在急性肾损伤向慢性肾脏病过渡的小鼠模型中，药理学抑制EZH2（使用3-DZNeP）对肾功能和病理损伤有何影响？",
+      "answer": "药理学抑制EZH2可显著改善肾功能并减轻病理损伤。",
+      "answer_evidence": [
+        {
+          "answer_part": "显著改善肾功能",
+          "source_id": "pubmed:37029114",
+          "sentence_ids": [
+            "S6"
+          ]
+        },
+        {
+          "answer_part": "减轻病理损伤",
+          "source_id": "pubmed:37029114",
+          "sentence_ids": [
+            "S6"
+          ]
+        }
+      ],
+      "ready": true
+    },
+    "revision_used": true,
+    "audit_origin": "independent_agent_source_audit_and_parent_source_check",
+    "status": "reviewed_experimental_sample_not_published",
+    "original_draft": "final-primary-draft-3",
+    "original_translation": "final-primary-zh-3",
+    "final_artifact": "data\\experiments\\fixed-evidence-design-20261111\\final-primary-repair-3\\output.json"
+  },
+  {
+    "sample_id": "transfer-1",
+    "candidate": {
+      "question": "抗癌治疗中，抗EGFR抗体阻断表皮生长因子受体（EGFR）可能引起哪些电解质紊乱？",
+      "answer": "临床上显著的镁和钾丢失。",
+      "answer_evidence": [
+        {
+          "answer_part": "临床上显著的镁和钾丢失",
+          "source_id": "pubmed:32509580",
+          "sentence_ids": [
+            "S7"
+          ]
+        }
+      ],
+      "ready": true
+    },
+    "revision_used": true,
+    "audit_origin": "independent_agent_source_audit_and_parent_source_check",
+    "status": "reviewed_experimental_sample_not_published",
+    "original_draft": "final-transfer-draft-1",
+    "original_translation": "final-transfer-zh-1",
+    "final_artifact": "data\\experiments\\fixed-evidence-design-20261111\\final-transfer-repair-1\\output.json"
+  },
+  {
+    "sample_id": "transfer-2",
+    "candidate": {
+      "question": "在抗癌症治疗期间，表皮生长因子受体（EGFR）被抗EGFR抗体阻断时，可能引发哪些电解质流失？",
+      "answer": "可能导致临床显著的镁和钾流失。",
+      "answer_evidence": [
+        {
+          "answer_part": "可能导致",
+          "source_id": "pubmed:32509580",
+          "sentence_ids": [
+            "S7"
+          ]
+        },
+        {
+          "answer_part": "临床显著的镁和钾流失",
+          "source_id": "pubmed:32509580",
+          "sentence_ids": [
+            "S7"
+          ]
+        }
+      ],
+      "ready": true
+    },
+    "revision_used": true,
+    "audit_origin": "independent_agent_source_audit_and_parent_source_check",
+    "status": "reviewed_experimental_sample_not_published",
+    "original_draft": "final-transfer-draft-2",
+    "original_translation": "final-transfer-zh-2",
+    "final_artifact": "data\\experiments\\fixed-evidence-design-20261111\\final-transfer-repair-2\\output.json"
+  },
+  {
+    "sample_id": "transfer-3",
+    "candidate": {
+      "question": "在抗肿瘤治疗背景下，抗EGFR抗体阻断表皮生长因子受体（EGFR）对镁和钾水平有何影响？",
+      "answer": "抗EGFR抗体阻断表皮生长因子受体（EGFR）可能导致临床上显著的镁和钾丢失。",
+      "answer_evidence": [
+        {
+          "answer_part": "clinically significant magnesium and potassium losses",
+          "source_id": "pubmed:32509580",
+          "sentence_ids": [
+            "S7"
+          ]
+        }
+      ],
+      "ready": true
+    },
+    "revision_used": false,
+    "audit_origin": "independent_agent_source_audit_and_parent_source_check",
+    "status": "reviewed_experimental_sample_not_published",
+    "original_draft": "final-transfer-draft-3",
+    "original_translation": "final-transfer-zh-3",
+    "final_artifact": "data\\experiments\\fixed-evidence-design-20261111\\final-transfer-zh-3\\output.json"
+  }
+]

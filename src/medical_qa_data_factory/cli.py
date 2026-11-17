@@ -8,6 +8,13 @@ from collections.abc import Sequence
 from .demo_adapters import DemoDraftAgent, DemoKGTool, DemoLiteratureTool
 from .domain import EntityRef, GenerationMode, GenerationTask, LinkStatus
 from .pipeline import DataFactoryPipeline
+from .generation.objective_run import (
+    DEFAULT_DIFFICULTIES,
+    DEFAULT_GENERATION_STRATEGY,
+    DEFAULT_MAX_ACTIONS,
+    DEFAULT_MAX_COST,
+    DEFAULT_MAX_MODEL_CALLS,
+)
 from .repository import LocalArtifactRepository
 from .schema_export import export_json_schemas
 
@@ -55,18 +62,28 @@ def build_parser() -> argparse.ArgumentParser:
     objective_generate.add_argument("--entity-id")
     objective_generate.add_argument("--entity-type")
     objective_generate.add_argument("--question-count", type=int, default=1)
-    objective_generate.add_argument("--max-actions", type=int, default=100)
-    objective_generate.add_argument("--max-cost", type=float, default=10.0)
-    objective_generate.add_argument("--max-model-calls", type=int, default=40)
+    objective_generate.add_argument("--difficulty", choices=["easy", "medium", "hard"], default=DEFAULT_DIFFICULTIES[0])
+    objective_generate.add_argument("--generation-strategy", choices=["auto", "easy", "medium", "hard", "free"], default=DEFAULT_GENERATION_STRATEGY)
+    objective_generate.add_argument("--max-actions", type=int, default=DEFAULT_MAX_ACTIONS)
+    objective_generate.add_argument("--max-cost", type=float, default=DEFAULT_MAX_COST)
+    objective_generate.add_argument("--max-model-calls", type=int, default=DEFAULT_MAX_MODEL_CALLS)
     objective_generate.add_argument(
         "--provider",
         action="append",
         choices=["primekg", "ctd", "pubmed", "hgnc", "ncbi_gene", "ensembl"],
         default=None,
-        help="Provider to enable (repeatable; defaults to primekg and pubmed)",
+        help="Provider to enable (repeatable; defaults to HGNC, NCBI Gene, Ensembl, PrimeKG and PubMed)",
     )
     objective_generate.add_argument("--model-config")
     objective_generate.add_argument("--ctd-index")
+    objective_training = objective_commands.add_parser(
+        "training-export", help="Collect and verify PubMed demonstrations for an objective release"
+    )
+    objective_training.add_argument("--release", required=True)
+    objective_training.add_argument("--output", required=True)
+    objective_training.add_argument("--model-config")
+    objective_training.add_argument("--question-id", action="append")
+    objective_training.add_argument("--max-searches", type=int, default=6)
 
     export = commands.add_parser("export", help="Export a gated dataset snapshot")
     export.add_argument("--workspace", required=True, help="Artifact repository")
@@ -536,6 +553,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
 
         return run_objective_generation_command(args)
+    if args.command == "objective" and args.objective_command == "training-export":
+        from .generation.objective_training_export import run_training_export_command
+
+        return run_training_export_command(args)
     if args.command == "export":
         from .export import (
             ExportBlockedError,

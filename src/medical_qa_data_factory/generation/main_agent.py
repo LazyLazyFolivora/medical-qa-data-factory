@@ -26,12 +26,21 @@ class MainAgentAction(str, Enum):
     RETRIEVE_MATERIALS = "retrieve_materials"
     UNDERSTAND_FACTS = "understand_facts"
     DESIGN_QUESTIONS = "design_questions"
+    REVISE_CANDIDATE = "revise_candidate"
     VERIFY_ANSWER = "verify_answer"
     REALIZE_QUESTION = "realize_question"
     REVIEW_RELEASE = "review_release"
     REQUEST_MORE_EVIDENCE = "request_more_evidence"
     STOP = "stop"
     CLOSE_CANDIDATE = "close_candidate"
+    READ_ARTIFACTS = "read_artifacts"
+    REVIEW_CANDIDATE = "review_candidate"
+    PUBLISH_QUESTION = "publish_question"
+    TOOL_FEEDBACK = "tool_feedback"
+    READ_SOURCE_DETAILS = "read_source_details"
+    SYNTHESIZE_EVIDENCE = "synthesize_evidence"
+    DISCOVER_QUESTIONS = "discover_questions"
+    RESEARCH_EVIDENCE = "research_evidence"
 
 
 class IllegalMainAgentAction(ValueError):
@@ -286,9 +295,12 @@ class StructuredMainAgent:
 
 
 _ROLE_BY_ACTION = {
+    MainAgentAction.RESEARCH_EVIDENCE: "objective_research_agent",
+    MainAgentAction.DISCOVER_QUESTIONS: "objective_question_discovery",
     MainAgentAction.RETRIEVE_MATERIALS: "material_retrieval",
     MainAgentAction.UNDERSTAND_FACTS: "fact_understanding",
     MainAgentAction.DESIGN_QUESTIONS: "objective_question_design",
+    MainAgentAction.REVISE_CANDIDATE: "objective_question_design",
     MainAgentAction.VERIFY_ANSWER: "objective_answer_verification",
     MainAgentAction.REALIZE_QUESTION: "objective_question_realization",
     MainAgentAction.REVIEW_RELEASE: "objective_release_review",
@@ -370,6 +382,10 @@ def validate_main_agent_decision(
         raise IllegalMainAgentAction(
             f"unknown main agent action: {decision.action}"
         ) from exc
+    from .react_main_agent import is_react, validate_react_decision
+    if is_react(decision):
+        validate_react_decision(snapshot, decision)
+        return
     # Hierarchical decisions are host-stamped. Stage dependencies are selected by
     # the scheduler; the LLM only chooses a bounded search or stopping direction.
     from .workflow_scheduler import is_hierarchical
@@ -570,6 +586,7 @@ def _unprocessed_fact_material_ids(
         str(material_id)
         for artifact in snapshot.artifacts.values()
         if artifact.artifact_type == "fact_understanding_batch"
+        and not artifact.payload.get("partial_source_selection", False)
         for material_id in artifact.payload.get("material_ids", [])
     }
     return material_ids - processed

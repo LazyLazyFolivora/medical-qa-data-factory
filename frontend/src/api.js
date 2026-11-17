@@ -35,6 +35,9 @@ export async function readApiPayload(response) {
 
 
 export function runStopMessage(task) {
+  if (task?.stop_reason === "difficulty_assessment_requires_repair") {
+    return "独立难度评估未完成，题目等待从断点继续。请查看诊断中的具体错误。";
+  }
   if (task?.stop_reason === "model_request_requires_repair") {
     return "本次生成因模型请求无法继续而暂停，已有结果已保存。若诊断中提示上下文超限，请更新并重启后端后从断点继续。";
   }

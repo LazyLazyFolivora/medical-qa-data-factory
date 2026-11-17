@@ -8,6 +8,18 @@
       "title": "Answer Values",
       "type": "array"
     },
+    "evidence_need": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Evidence Need"
+    },
     "query_id": {
       "minLength": 1,
       "title": "Query Id",

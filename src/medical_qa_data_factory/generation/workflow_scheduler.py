@@ -9,6 +9,7 @@ from pydantic import Field
 from ..domain.common import ContractModel
 from ..llm.contracts import StructuredGenerationRequest
 from .objective_question_contracts import MainAgentDecision, HypothesisState, canonical_digest
+from .question_strategies import question_strategy
 from .exploration_memory import prepare_exploration_history
 from .main_agent import MainAgentAction, _ROLE_BY_ACTION, _unprocessed_fact_material_ids
 
@@ -68,15 +69,15 @@ def candidate_outcomes(snapshot):
 
 
 def target_question_count(snapshot):
-    if not snapshot.goal or set(snapshot.goal.difficulty_targets) != {"medium"}:
+    if not snapshot.goal or set(snapshot.goal.difficulty_targets) not in ({"medium"}, {"hard"}):
         return sum(s is HypothesisState.PUBLISHED for s in snapshot.hypotheses.values())
     return sum(row["state"] == HypothesisState.PUBLISHED.value and any(
-        review["verdict"] == "PASS" and review["assessed_difficulty"] == "medium"
+        review["verdict"] == "PASS" and review["assessed_difficulty"] in snapshot.goal.difficulty_targets
         for review in row["release_reviews"]) for row in candidate_outcomes(snapshot))
 
 
 def is_hierarchical(decision):
-    return decision.action_parameters.get("workflow_version") == VERSION
+    return decision.action_parameters.get("workflow_version") in {VERSION, "objective-react-v1"}
 
 
 def candidate_decisions(snapshot, hypothesis_id):
@@ -123,6 +124,7 @@ class HierarchicalMainAgent:
             role="objective_workflow_planner", system_prompt_version=VERSION,
             payload={"stage": "verification_gap" if local else "exploration",
                      "goal": snapshot.goal.model_dump(mode="json"),
+                     "generation_strategy": question_strategy(snapshot.goal).payload(),
                      "hypothesis": hypothesis, "evidence_gap": gap,
                      "available_providers": self.provider_ids,
                      "prior_searches": [d.action_parameters for d in history],
@@ -132,6 +134,8 @@ class HierarchicalMainAgent:
                          and a.parent_decision_id in {d.decision_id for d in history}],
                      "failures": failed[-3:],
                      "facts": [a.payload for a in snapshot.artifacts.values() if a.artifact_type == "candidate_claim"],
+                     "design_feedback": [a.payload for a in snapshot.artifacts.values()
+                                         if a.artifact_type in {"question_design_notes", "question_design_batch"}][-3:],
                      "candidate_outcomes": outcomes,
                      "counted_toward_target": target_question_count(snapshot),
                      "published_question_count": sum(s is HypothesisState.PUBLISHED for s in snapshot.hypotheses.values()),
@@ -300,8 +304,8 @@ class HierarchicalMainAgent:
                   if state not in {HypothesisState.REJECTED, HypothesisState.INDETERMINATE, HypothesisState.PUBLISHED}}
         if target_question_count(snapshot) >= snapshot.goal.question_count_upper_bound:
             active = {hid: state for hid, state in active.items()
-                      if set(snapshot.goal.difficulty_targets) == {"medium"} and hid in snapshot.artifacts
-                      and snapshot.artifacts[hid].payload.get("proposed_difficulty") == "easy"}
+                      if set(snapshot.goal.difficulty_targets) in ({"medium"}, {"hard"}) and hid in snapshot.artifacts
+                      and snapshot.artifacts[hid].payload.get("proposed_difficulty") not in snapshot.goal.difficulty_targets}
             if not active:
                 return self._decision(snapshot, MainAgentAction.STOP, phase="complete", reason="target_reached")
         # First finish ready candidates, then rotate waiting candidates by their local work count.
@@ -447,6 +451,8 @@ class HierarchicalMainAgent:
             for fact_type in goal.allowed_fact_types:
                 for topic in topics.get(fact_type, ()):
                     routes.append(("pubmed", {"term": f"{entity} {topic}"}, f"Explore {topic} for {entity}"))
+        preferred = question_strategy(goal).preferred_sources
+        routes.sort(key=lambda route: preferred.index(route[0]) if route[0] in preferred else len(preferred))
         attempted = {(d.action_parameters.get("provider_id"), canonical_digest(d.action_parameters.get("query", {})))
                      for d in searches}
         for provider, query, need in routes:

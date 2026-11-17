@@ -14,6 +14,8 @@ build/
 .env.*
 !.env.example
 config/models.json
+config/fulltext.json
+data/experiments/
 *.log
 *.sqlite
 *.sqlite3

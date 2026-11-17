@@ -1,0 +1,15 @@
+# 材料调用可靠性
+
+问题：first-action-1596af89fe18 第8步复制长哈希ID时漏字，同时一次读取9份材料；程序只报告第一个未知ID，反馈步骤状态又显示SUCCEEDED。
+
+改动：主ReAct控制器看到M0001等稳定材料句柄。句柄映射随每步decision/step保存，新增材料追加编号，恢复任务不重排；存储和子工具仍使用原ID。精确转换列表值、source_sections键及笔记引用，不模糊猜测。旧任务首次恢复建立映射。原始长ID继续兼容。
+
+read_artifacts在执行前合并报告未知ID、超过8个、重复ID和未选中的source_sections键；模型输出schema也声明8个上限。此改动只合并这类引用参数问题，不宣称汇总所有工具所有业务前提错误。
+
+tool_feedback的execution_record.status为NOT_EXECUTED，feedback_delivery_status另存反馈提交状态。旧步骤在execution_state视图中同样规范化，历史文件不重写。
+
+验证：短编号读取、跨恢复新增材料不重编号、选段/笔记双向映射、9个未知ID同时反馈、旧状态投影及现有ReAct测试。真实第8步after快照离线重建输入，20份材料显示M0001–M0020，正确解析M0001，未执行真实模型/工具或推进任务。输入保存在该run的reliability-next-input.json。
+
+边界：修复引用可靠性，不改变研究策略，不自动替模型换方向或修正证据。其他非材料artifact ID仍使用原ID。
+
+实跑第9步：模型使用M0011–M0018，8份材料均正确解析并读取。首次严格schema请求被服务端以Unimplemented keys: uniqueItems拒绝，自动降级后完成。本地已删除不兼容的schema关键字，重复ID仍由程序校验；15个相关测试通过。该步仍重复阅读已有摘要，短编号未解决研究决策停滞。

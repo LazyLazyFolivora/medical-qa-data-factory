@@ -295,10 +295,18 @@ class CandidateClaim(ObjectiveContractModel):
     status: Literal["PROPOSED"] = "PROPOSED"
 
 
+class SuggestedRetrieval(ObjectiveContractModel):
+    query: str = Field(min_length=1)
+    sources: list[str] = Field(min_length=1, max_length=4)
+    expected_evidence: str = Field(min_length=1)
+    stop_condition: str = Field(min_length=1)
+
+
 class QuestionHypothesis(ObjectiveContractModel):
+    evidence_basis: Literal["claims", "source_passages"] = "claims"
     proposed_difficulty: Literal["easy", "medium", "hard"] | None = None
     hypothesis_id: str = Field(min_length=1)
-    candidate_claim_ids: list[str] = Field(min_length=1)
+    candidate_claim_ids: list[str] = Field(default_factory=list)
     question_intent: str = Field(min_length=1)
     proposed_public_scope: str = Field(min_length=1)
     proposed_answer_type: str = Field(min_length=1)
@@ -306,7 +314,14 @@ class QuestionHypothesis(ObjectiveContractModel):
     proposed_cardinality: AnswerCardinality
     discovery_anchor_ids: list[str] = Field(min_length=1)
     risk_flags: list[str] = Field(default_factory=list)
+    suggested_retrieval: SuggestedRetrieval | None = None
     status: Literal["PROPOSED"] = "PROPOSED"
+
+    @model_validator(mode="after")
+    def require_claims_for_legacy_basis(self):
+        if self.evidence_basis == "claims" and not self.candidate_claim_ids:
+            raise ValueError("claim-based hypotheses require candidate_claim_ids")
+        return self
 
 
 class BlindAnswerQuery(ObjectiveContractModel):
@@ -322,15 +337,22 @@ class BlindAnswerQuery(ObjectiveContractModel):
 
 
 class VerificationPlan(ObjectiveContractModel):
+    evidence_mode: Literal["retrieved", "existing_sources"] = "retrieved"
     plan_id: str = Field(min_length=1)
     hypothesis_id: str = Field(min_length=1)
     blind_answer_query_digest: Digest
-    expected_attempt_ids: list[str] = Field(min_length=1)
-    allowed_provider_ids: list[str] = Field(min_length=1)
+    expected_attempt_ids: list[str] = Field(default_factory=list)
+    allowed_provider_ids: list[str] = Field(default_factory=list)
     competing_answer_strategy: str = Field(min_length=1)
     contradiction_strategy: str = Field(min_length=1)
     budget: dict[str, Any] = Field(min_length=1)
     stop_conditions: list[str] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def require_retrieval_attempts(self):
+        if self.evidence_mode == "retrieved" and (not self.expected_attempt_ids or not self.allowed_provider_ids):
+            raise ValueError("retrieved verification requires attempts and providers")
+        return self
 
 
 class VerificationAttempt(ObjectiveContractModel):
@@ -347,8 +369,9 @@ class VerificationAttempt(ObjectiveContractModel):
 
 
 class VerificationCoverageReport(ObjectiveContractModel):
+    evidence_mode: Literal["retrieved", "existing_sources"] = "retrieved"
     coverage_report_id: str = Field(min_length=1)
-    expected_attempt_ids: list[str] = Field(min_length=1)
+    expected_attempt_ids: list[str] = Field(default_factory=list)
     terminal_attempt_ids: list[str] = Field(default_factory=list)
     successful_attempt_ids: list[str] = Field(default_factory=list)
     failed_attempt_ids: list[str] = Field(default_factory=list)
@@ -360,6 +383,8 @@ class VerificationCoverageReport(ObjectiveContractModel):
 
     @model_validator(mode="after")
     def coverage_shape_is_valid(self) -> "VerificationCoverageReport":
+        if self.evidence_mode == "retrieved" and not self.expected_attempt_ids:
+            raise ValueError("retrieved coverage requires expected attempts")
         expected = set(self.expected_attempt_ids)
         terminal = set(self.terminal_attempt_ids)
         successful = set(self.successful_attempt_ids)
@@ -495,6 +520,7 @@ class AnswerEvidenceAuditResult(ObjectiveContractModel):
 
 class ObjectiveValidationReport(ObjectiveContractModel):
     assessed_difficulty: Literal["easy", "medium", "hard"] | None = None
+    difficulty_assessment_id: str | None = None
     report_id: str = Field(min_length=1)
     question_id: str = Field(min_length=1)
     verdict: ObjectiveVerdict
@@ -562,6 +588,7 @@ class GenerationGoal(ObjectiveContractModel):
     target_entity_type: str | None = None
     question_count_upper_bound: int = Field(ge=0)
     difficulty_targets: list[str] = Field(default_factory=list)
+    generation_strategy: Literal["auto", "easy", "medium", "hard", "free"] = "auto"
     style_targets: list[str] = Field(default_factory=list)
     language: str | None = None
     planner_environment: dict[str, Any] = Field(default_factory=dict)

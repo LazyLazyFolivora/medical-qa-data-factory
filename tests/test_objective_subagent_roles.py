@@ -502,6 +502,101 @@ def test_question_design_cannot_reuse_a_claim_id_as_hypothesis_artifact() -> Non
     assert stamped.hypothesis_id.startswith("hypothesis.")
 
 
+@pytest.mark.parametrize("focused", [False, True])
+def test_answer_only_revision_reconstructs_answer_from_original_sources(focused):
+    question = "On which chromosome is human BRCA1 located?"
+    issue = {"target": "proposed_answer", "statement": "Its location causes the disease."}
+    observation = {"span_id": 1,
+                   "subject_or_intervention": "BRCA1", "conditions": "human", "result": "located on chromosome 17",
+                   "relationship": "description",
+                   "relevance": "direct"}
+    quote = _anchor().quoted_text
+    resolved = {**observation, "anchor_id": _anchor().anchor_id, "quote": quote,
+                "start_in_anchor": 0, "end_in_anchor": len(quote)}
+
+    def read_sources(request):
+        assert set(request.payload) == {"question", "sources"}
+        assert request.payload["question"] == question
+        assert request.payload["sources"][0]["spans"][0] == {"span_id": 1, "quote": quote}
+        assert len(request.payload["sources"][0]["spans"]) == 2
+        return {"requested_result": "Identify the chromosome", "quantitative_result_needed": False,
+                "direct_observations_cover_question": focused,
+                "observations": [observation, {**observation, "span_id": 99}],
+                "missing_relationships": [], "unestablished_links": ["Chromosome location causes the disease"]}
+
+    def respond(request):
+        payload = request.payload
+        assert payload["research_context"]["approved_question"] == question
+        assert "design_instruction" not in payload
+        assert "revision_context" not in payload
+        assert "question_portfolio" not in payload
+        assert payload["evidence_excerpts"][0]["quoted_text"] == (quote if focused else RAW_TEXT)
+        if focused:
+            assert payload["evidence_excerpts"][0]["end_in_anchor"] == len(quote)
+        else:
+            assert "Use the smallest complete answer" in payload["instruction"]
+        assert payload["answer_source_reading"]["requested_result"] == "Identify the chromosome"
+        assert payload["answer_source_reading"]["quantitative_result_needed"] is False
+        assert payload["answer_source_reading"]["unestablished_links"] == ["Chromosome location causes the disease"]
+        assert payload["answer_source_reading"]["observations"] == [resolved]
+        assert payload["answer_source_reading"]["unknown_span_ids"] == 1
+        return {"hypotheses": [{
+            "hypothesis_id": "repaired", "question_intent": question,
+            "proposed_public_scope": "human BRCA1", "proposed_answer_type": "entity",
+            "proposed_answer_values": ["chromosome 17"], "proposed_cardinality": "EXACTLY_ONE",
+            "evidence_basis": "source_passages", "discovery_anchor_ids": [_anchor().anchor_id],
+        }]}
+
+    model = FakeStructuredModel(responses={"objective_answer_source_reading": read_sources,
+                                           "objective_grounded_answer": respond})
+    outcome = ObjectiveQuestionDesignSubagent(model).run(
+        _task(SubagentRole.QUESTION_DESIGN, direct_sources=True, revision_of="previous",
+              design_instruction="Repeat the unsupported claim from the old answer.",
+              revision_context={"revision_target": "answer", "previous_candidate": {"question_intent": question},
+                                "verification_feedback": [{"repair_issues": [issue]}]}).model_copy(
+            update={"budget": {"max_model_calls": 2, "max_provider_calls": 0}},
+        ),
+        claims=[], anchors=[_anchor(RAW_TEXT)],
+    )
+    assert [(h.question_intent, h.proposed_answer_values) for h in outcome.hypotheses] == [(question, ["chromosome 17"])]
+    assert outcome.answer_source_reading["observations"] == [resolved]
+    assert (outcome.answer_source_reading.get("draft_evidence_scope") == "direct_observation_sentences") is focused
+
+
+def test_reviewed_alternative_has_its_own_question_and_evidence():
+    anchor = _anchor()
+    other = anchor.model_copy(update={"anchor_id": "anchor.other", "material_id": "other"})
+    original = "How does BRCA1 location cause disease?"
+    alternative = "Which chromosome contains human BRCA1?"
+
+    def respond(request):
+        payload = request.payload
+        assert payload["research_context"]["approved_question"] == alternative
+        assert payload["research_context"]["parent_research_id"] == "original"
+        assert [item["anchor_id"] for item in payload["evidence_excerpts"]] == [anchor.anchor_id]
+        return {"hypotheses": [{
+            "hypothesis_id": "proposal", "question_intent": alternative,
+            "proposed_public_scope": "human BRCA1", "proposed_answer_type": "entity",
+            "proposed_answer_values": ["chromosome 17"], "proposed_cardinality": "EXACTLY_ONE",
+            "evidence_basis": "source_passages", "discovery_anchor_ids": [anchor.anchor_id],
+        }]}
+
+    model = FakeStructuredModel(responses={
+        "objective_answer_source_reading": {"requested_result": "Chromosome", "quantitative_result_needed": False,
+                                             "observations": [], "missing_relationships": [], "unestablished_links": []},
+        "objective_grounded_answer": respond,
+    })
+    task = _task(SubagentRole.QUESTION_DESIGN, direct_sources=True, llm_owned_design=True,
+                 research_context={"approved_question": original})
+    record = {"artifact_id": "alternative", "origin": "answer_reading_alternative", "parent_research_id": "original",
+              "approved_question": alternative, "question_review": "ACCEPT", "assessment": {"ready_for_design": True},
+              "source_ids": [anchor.material_id]}
+    result, context = ObjectiveQuestionDesignSubagent(model).draft_reviewed_alternative(task, record, [anchor, other])
+    assert result.hypotheses[0].question_intent == alternative
+    assert context["research_id"] == "alternative"
+    assert task.goal["research_context"]["approved_question"] == original
+
+
 def test_design_keeps_supported_single_question_when_preferred_design_declines():
     supported = QuestionHypothesis(
         hypothesis_id="location", candidate_claim_ids=[_claim().claim_id],

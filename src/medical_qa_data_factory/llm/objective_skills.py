@@ -7,6 +7,11 @@ from pathlib import Path
 
 SKILL_ROOT = Path(__file__).resolve().parents[3] / "skills"
 ROLE_SKILLS = {
+    "objective_research_agent": ("objective-research-agent", ()),
+    "objective_question_discovery": ("objective-research-question-discovery", ()),
+    "objective_evidence_synthesis": ("objective-evidence-synthesis", ()),
+    "objective_difficulty_assessment": ("objective-difficulty-assessment", ()),
+    "objective_react_agent": ("objective-react-agent", ()),
     "objective_workflow_planner": ("objective-workflow-planner", ()),
     "objective_candidate_review": ("objective-candidate-review", ()),
     "objective_main_agent": ("objective-main-agent", ()),
@@ -24,6 +29,8 @@ ROLE_SKILLS = {
     ),
 }
 
+ROLE_COMPANION_SKILLS = {}
+
 
 def load_objective_skill(role: str, payload: dict, *, root: Path = SKILL_ROOT):
     """Return a bundle, or None for roles with their own instruction lifecycle.
@@ -36,7 +43,9 @@ def load_objective_skill(role: str, payload: dict, *, root: Path = SKILL_ROOT):
         return None
     skill_id, references = specification
     if role == "objective_question_design":
-        targets = payload.get("task", {}).get("difficulty_targets", [])
+        from ..generation.question_strategies import question_strategy
+        strategy = question_strategy(payload.get("task", {}))
+        targets = [strategy.name] if strategy.name != "free" else ["easy", "medium", "hard"]
         if any(level not in {"easy", "medium", "hard"} for level in targets):
             raise ValueError("unsupported objective question difficulty targets")
         selected = [level for level in ("easy", "medium", "hard") if level in targets]
@@ -55,6 +64,11 @@ def load_objective_skill(role: str, payload: dict, *, root: Path = SKILL_ROOT):
         if not content.strip():
             raise ValueError(f"empty skill resource: {skill_id}/{relative}")
         parts.append(f"Resource: {relative.as_posix()}\n{content}")
+    for companion in ROLE_COMPANION_SKILLS.get(role, ()):
+        content = (root / companion / "SKILL.md").read_text(encoding="utf-8")
+        if not content.strip():
+            raise ValueError(f"empty companion skill: {companion}")
+        parts.append(f"Companion skill: {companion}/SKILL.md\n{content}")
     instruction = "\n\n".join(parts)
     stage = str(payload.get("stage", "default"))
     instruction += (

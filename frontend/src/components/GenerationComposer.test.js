@@ -47,8 +47,8 @@ describe("GenerationComposer", () => {
     expect(wrapper.emitted("submit")?.[0]?.[0]).toMatchObject({
       entity,
       questionCount: 3,
-      difficulties: ["easy", "medium"],
-      styleId: "layperson-search-v1",
+      difficulties: ["easy"],
+      styleId: "",
       providers: [
         "hgnc",
         "ncbi_gene",

@@ -30,6 +30,8 @@ def export_objective_release(
         ObjectiveQuestionReleaseGate.assert_releasable(
             item.validation_report
         )
+        hypothesis = result.runtime.artifacts.get(item.resolution.hypothesis_id)
+        suggested = hypothesis.payload.get("suggested_retrieval") if hypothesis else None
         public_rows.append(
             {
                 "question_id": item.draft.draft_id,
@@ -37,6 +39,7 @@ def export_objective_release(
                 "answer": list(item.draft.answer_values),
                 "assessed_difficulty": item.validation_report.assessed_difficulty,
                 "explanation": item.draft.concise_explanation,
+                **({"suggested_retrieval": suggested} if suggested else {}),
                 "schema_version": "objective-public-question-v1",
             }
         )

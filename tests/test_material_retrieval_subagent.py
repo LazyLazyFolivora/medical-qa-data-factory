@@ -214,7 +214,7 @@ def test_empty_failure_and_unknown_are_never_negative_claims(
     assert outcome.result.stop_reason == stop
 
 
-def test_pubmed_adapter_relaxes_an_overlong_empty_query() -> None:
+def test_pubmed_adapter_preserves_empty_query_for_controller_replanning() -> None:
     class FakePubMed:
         def __init__(self):
             self.queries = []
@@ -270,8 +270,15 @@ def test_pubmed_adapter_relaxes_an_overlong_empty_query() -> None:
     )
     result = provider.retrieve(request)
 
-    assert result.terminal_status is ProviderTerminalStatus.SUCCEEDED
-    assert client.queries[-1] == "ZRSR2"
+    assert result.terminal_status is ProviderTerminalStatus.EMPTY
+    assert client.queries == [request.query["term"]]
+
+    # A subsequent explicit controller query must return fetched records successfully.
+    successful = provider.retrieve(request.model_copy(update={"query": {"term": "ZRSR2"}}))
+    assert successful.terminal_status is ProviderTerminalStatus.SUCCEEDED
+    assert successful.material_ids == ["material.pubmed.123"]
+    assert successful.usage["provider_calls"] == 2
+    assert "ZRSR2 maps to chromosome X." in successful.raw_content_by_material_id["material.pubmed.123"]
 
 
 def test_pubmed_adapter_fetches_full_text_for_selected_materials() -> None:
@@ -339,3 +346,28 @@ class FakePubMedWithoutContent:
             snapshot_id="pubmed:test",
             input_pmids=list(pmids),
         )
+
+
+def test_open_article_fallback_keeps_late_results_and_original_anchor_offsets(tmp_path):
+    from medical_qa_data_factory.generation.research_documents import parse_article
+    document = parse_article("<article><front><article-meta><title-group><article-title>Study</article-title>"
+        "</title-group></article-meta></front><body><sec><title>Introduction</title><p>" + "x" * 18000 +
+        "</p></sec><sec><title>Results FcγRIIIa " + "detailed comparison " * 12 +
+        "</title><p>Distinct outcome in the comparator group.</p></sec></body></article>")
+    def failed_primary(url):
+        raise ConnectionError("primary endpoint unavailable")
+    provider = PubMedMaterialProvider(fulltext_transport=failed_primary, open_article_loader=lambda pmid: document)
+    request = EvidenceProviderRequest(request_id="request.details.fallback", provider_id="pubmed",
+        provider_version=provider.capability.provider_version, operation_key="fallback", query={"term": "Study"},
+        requested_at=NOW, material_limit=1)
+    result = provider.retrieve_details(request, material_ids=["material.pubmed.123"])
+    assert result.terminal_status is ProviderTerminalStatus.SUCCEEDED
+    assert "Distinct outcome" in result.raw_content_by_material_id["material.pubmed.123"]
+    persistence = ObjectiveQuestionPersistence(tmp_path)
+    for m in result.materials:
+        persistence.save_material(EvidenceMaterial.model_validate(m), result.raw_content_by_material_id[m["material_id"]].encode())
+    for a in result.anchors:
+        assert a["anchor_id"].isascii()
+        assert len(a["anchor_id"] + ".detail." + "a" * 16 + "." + "b" * 16) <= 128
+        persistence.save_anchor(EvidenceAnchor.model_validate(a))
+    assert result.usage["fallback_errors"]

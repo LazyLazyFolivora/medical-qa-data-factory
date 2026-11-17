@@ -5,6 +5,7 @@ const props = defineProps({
   selectedEntity: { type: Object, default: null },
   model: { type: Object, required: true },
   styles: { type: Array, default: () => [] },
+  defaults: { type: Object, default: null },
   running: { type: Boolean, default: false },
 });
 
@@ -21,18 +22,18 @@ const providerOptions = [
 
 const form = reactive({
   questionCount: 3,
-  difficulties: ["easy", "medium"],
+  difficulties: null,
   styleId: "",
   modelProviderId: "",
-  providers: ["hgnc", "ncbi_gene", "ensembl", "primekg", "pubmed"],
+  providers: null,
 });
 
-watch(
-  () => props.styles,
-  (styles) => {
-    if (!form.styleId && styles.length) form.styleId = styles[0].skill_id;
-  },
-  { immediate: true },
+const selectedDifficulties = computed(
+  () => form.difficulties ?? props.defaults?.difficulty_targets ?? ["easy"],
+);
+const selectedProviders = computed(
+  () => form.providers ?? props.defaults?.providers ??
+    ["hgnc", "ncbi_gene", "ensembl", "primekg", "pubmed"],
 );
 
 watch(
@@ -66,16 +67,17 @@ const selectedModelReady = computed(
 
 const difficultyLabel = computed(() => {
   const labels = { easy: "简单", medium: "适中", hard: "困难" };
-  return form.difficulties.map((item) => labels[item] || item).join("、");
+  return selectedDifficulties.value.map((item) => labels[item] || item).join("、");
 });
 
 const styleLabel = computed(
   () =>
     props.styles.find((item) => item.skill_id === form.styleId)?.display_name ||
-    "默认风格",
+    "简洁（默认）",
 );
 
 const toggleDifficulty = (value) => {
+  form.difficulties ??= [...selectedDifficulties.value];
   const existing = form.difficulties.indexOf(value);
   if (existing >= 0) {
     if (form.difficulties.length === 1) return;
@@ -86,6 +88,7 @@ const toggleDifficulty = (value) => {
 };
 
 const toggleProvider = (value) => {
+  form.providers ??= [...selectedProviders.value];
   const existing = form.providers.indexOf(value);
   if (existing >= 0) {
     if (form.providers.length === 1) return;
@@ -100,17 +103,17 @@ const submit = () => {
     !props.selectedEntity ||
     props.running ||
     !selectedModelReady.value ||
-    !form.providers.length
+    !selectedProviders.value.length
   ) {
     return;
   }
   emit("submit", {
     entity: props.selectedEntity,
     questionCount: Number(form.questionCount),
-    difficulties: [...form.difficulties],
+    difficulties: [...selectedDifficulties.value],
     styleId: form.styleId,
     modelProviderId: form.modelProviderId,
-    providers: [...form.providers],
+    providers: [...selectedProviders.value],
   });
 };
 </script>
@@ -152,7 +155,7 @@ const submit = () => {
             :key="item[0]"
             type="button"
             class="choice-chip"
-            :class="{ active: form.difficulties.includes(item[0]) }"
+            :class="{ active: selectedDifficulties.includes(item[0]) }"
             @click="toggleDifficulty(item[0])"
           >
             {{ item[1] }}
@@ -163,6 +166,7 @@ const submit = () => {
       <label class="config-field style-field">
         <span>提问风格</span>
         <select v-model="form.styleId" :disabled="running">
+          <option value="">简洁（默认）</option>
           <option
             v-for="style in styles"
             :key="style.skill_id"
@@ -202,7 +206,7 @@ const submit = () => {
             :key="value"
             type="button"
             class="choice-chip"
-            :class="{ active: form.providers.includes(value) }"
+            :class="{ active: selectedProviders.includes(value) }"
             @click="toggleProvider(value)"
           >
             {{ label }}

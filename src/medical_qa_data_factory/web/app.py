@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
+import logging
 import os
 import re
 from contextlib import asynccontextmanager
@@ -16,7 +16,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Route
 
 from ..domain import ClaimStatus, EvidenceBundle, EntityRef
@@ -51,35 +51,30 @@ from ..generation.contracts import (
     UpstreamEntitySeed,
 )
 from ..generation.service import EntityGenerationService, GenerationError
-from ..generation.agent_loop import ObjectiveQuestionAgentLoop
 from ..generation.fact_source_policy import (
     FACT_SOURCE_ROUTES,
     default_objective_fact_types,
 )
-from ..generation.workflow_scheduler import FINAL_QUESTION_WORKFLOW, HierarchicalMainAgent
-from ..generation.objective_provider_adapters import (
-    CtdMaterialProvider,
-    PrimeKgMaterialProvider,
-    PubMedMaterialProvider,
-)
-from ..evidence_enrichment.ctd import CtdEvidenceIndex
-from ..generation.structured_biomedical_providers import (
-    EnsemblMaterialProvider,
-    HgncMaterialProvider,
-    NcbiGeneMaterialProvider,
+from ..generation.objective_run import (
+    DEFAULT_DIFFICULTIES,
+    DEFAULT_GENERATION_STRATEGY,
+    DEFAULT_MAX_ACTIONS,
+    DEFAULT_PROVIDERS,
+    DEFAULT_STYLE_TARGETS,
+    create_objective_run,
+    objective_provider_map as _objective_provider_map,
+    run_objective_loop,
 )
 from ..generation.objective_question_contracts import (
     EvidenceMaterial,
-    GenerationGoal,
-    RunManifest,
 )
 from ..generation.objective_question_persistence import (
     ObjectiveQuestionPersistence,
 )
 from ..generation.objective_question_release import export_objective_release
 from ..generation.objective_question_runtime import (
+    CheckpointIntegrityError,
     ObjectiveRuntimeRepository,
-    RuntimeBudget,
     RunState as RuntimeRunState,
 )
 from ..generation.review_operations import ReviewCommand, ReviewCommandError
@@ -93,6 +88,7 @@ from ..generation.training_repository import TrainingRepository
 from ..llm.errors import ModelError
 from ..llm.registry import ProviderRegistry
 from .objective_projection import (
+    build_production_progress,
     OBJECTIVE_STALL_AFTER_SECONDS,
     build_objective_summary,
     build_objective_workbench,
@@ -184,49 +180,6 @@ def _objective_run_root(workspace: str | Path, run_id: str) -> Path:
 
 def _objective_release_root(workspace: str | Path, run_id: str) -> Path:
     return Path(workspace) / "objective_releases" / run_id
-
-
-def _objective_provider_map(
-    providers: list[str],
-    objective_providers: dict[str, object] | None,
-) -> tuple[dict[str, object], object | None]:
-    provider_map = dict(objective_providers or {})
-    kg_provider = None
-    if "primekg" in providers and "primekg" not in provider_map:
-        kg_provider = provider_from_config("primekg")
-        provider_map["primekg"] = PrimeKgMaterialProvider(kg_provider)
-    if "pubmed" in providers and "pubmed" not in provider_map:
-        provider_map["pubmed"] = PubMedMaterialProvider()
-    if "ctd" in providers and "ctd" not in provider_map:
-        ctd_index_path = os.environ.get("MEDICAL_QA_CTD_INDEX")
-        if not ctd_index_path:
-            evidence_config = Path("config/evidence_enrichment.json")
-            if evidence_config.is_file():
-                ctd_index_path = json.loads(
-                    evidence_config.read_text(encoding="utf-8")
-                ).get("ctd_index_path")
-        if not ctd_index_path:
-            raise ValueError(
-                "CTD provider requires MEDICAL_QA_CTD_INDEX or "
-                "config/evidence_enrichment.json"
-            )
-        provider_map["ctd"] = CtdMaterialProvider(
-            CtdEvidenceIndex(ctd_index_path)
-        )
-    if "hgnc" in providers and "hgnc" not in provider_map:
-        provider_map["hgnc"] = HgncMaterialProvider()
-    if "ncbi_gene" in providers and "ncbi_gene" not in provider_map:
-        provider_map["ncbi_gene"] = NcbiGeneMaterialProvider()
-    if "ensembl" in providers and "ensembl" not in provider_map:
-        provider_map["ensembl"] = EnsemblMaterialProvider()
-    selected = {
-        name: provider_map[name]
-        for name in providers
-        if name in provider_map
-    }
-    if not selected:
-        raise ValueError("no usable objective provider configured")
-    return selected, kg_provider
 
 
 def _objective_run_provider_ids(snapshot: object) -> list[str]:
@@ -884,6 +837,7 @@ def _objective_published_question_rows(
                     OBJECTIVE_PROVIDER_LABELS.get(source, source)
                     for source in resolution.get("verification_sources", [])
                 ]
+            suggested_retrieval = payload.get("suggested_retrieval")
             rows.append(
                 {
                     "run_id": run_id,
@@ -891,6 +845,7 @@ def _objective_published_question_rows(
                     "question": str(payload.get("question") or ""),
                     "answers": [str(value) for value in answers],
                     "explanation": str(payload.get("explanation") or ""),
+                    **({"suggested_retrieval": suggested_retrieval} if suggested_retrieval else {}),
                     "entity_name": (
                         snapshot.goal.target_entity
                         if snapshot is not None and snapshot.goal is not None
@@ -936,6 +891,7 @@ def _run_objective_web_generation(
     model: object,
     model_provider_id: str | None = None,
     objective_providers: dict[str, object] | None = None,
+    generation_strategy: str = DEFAULT_GENERATION_STRATEGY,
 ) -> dict[str, object]:
     run_root = _objective_run_root(workspace, run_id)
     release_root = _objective_release_root(workspace, run_id)
@@ -945,76 +901,25 @@ def _run_objective_web_generation(
         providers,
         objective_providers,
     )
-    manifest_seed = json.dumps(
-        {
-            "model": getattr(model, "model_config_id", "structured-model"),
-            "providers": sorted(selected),
-        },
-        sort_keys=True,
-    )
-    bundle_digest = hashlib.sha256(
-        manifest_seed.encode("utf-8")
-    ).hexdigest()
-    manifest = RunManifest(
-        manifest_id=f"manifest.{run_id}",
-        run_id=run_id,
-        orchestrator_version=FINAL_QUESTION_WORKFLOW,
-        main_agent_version="objective-workflow-planner-v1",
-        subagent_role_versions={"all": "v1", "objective_answer_verification": "final-question-v2"},
-        model_versions={
-            "structured": getattr(
-                model,
-                "model_config_id",
-                "structured-model",
-            ),
-            "provider_id": model_provider_id or "",
-        },
-        provider_adapter_versions={
-            name: "v1" for name in sorted(selected)
-        },
-        schema_versions={"objective_question_contracts": "objective-question-v1"},
-        validation_policy_version="final-question-v2",
-        data_snapshot_or_retrieval_time_policy="pinned-per-run",
-        runtime_bundle_id="objective-runtime-v1",
-        runtime_bundle_digest=bundle_digest,
-    )
-    goal = GenerationGoal(
-        run_id=run_id,
-        target_entity=entity_name,
-        target_entity_id=entity_canonical_id.rsplit(":", 1)[-1],
-        target_entity_type=entity_type or None,
-        question_count_upper_bound=question_count,
-        difficulty_targets=difficulty_targets,
-        style_targets=style_targets,
-        allowed_fact_types=allowed_fact_types,
-        run_budget={"max_actions": max_actions},
-        run_manifest_id=manifest.manifest_id,
-        runtime_bundle_id=manifest.runtime_bundle_id,
-    )
     try:
-        runtime = ObjectiveRuntimeRepository.create(
+        runtime = create_objective_run(
             run_root,
-            manifest=manifest,
-            goal=goal,
-            budget=RuntimeBudget(
-                max_cost=10.0,
-                max_model_calls=max(20, max_actions * 3),
-            ),
+            run_id=run_id,
+            entity_name=entity_name,
+            entity_id=entity_canonical_id.split(":", 2)[-1],
+            entity_type=entity_type or None,
+            question_count=question_count,
+            providers=selected,
+            difficulty_targets=difficulty_targets,
+            style_targets=style_targets,
+            generation_strategy=generation_strategy,
+            allowed_fact_types=allowed_fact_types,
+            model=model,
+            model_provider_id=model_provider_id,
+            max_actions=max_actions,
         )
         try:
-            result = ObjectiveQuestionAgentLoop(
-                runtime=runtime,
-                persistence=ObjectiveQuestionPersistence(run_root),
-                goal=goal,
-                main_agent=HierarchicalMainAgent(
-                    model,
-                    provider_ids=sorted(selected),
-                    memory_root=run_root,
-                ),
-                model=model,
-                providers=selected,
-                max_actions=max_actions,
-            ).run()
+            result = run_objective_loop(runtime, runtime.load().goal, model, selected)
         except Exception as exc:
             try:
                 latest = runtime.load()
@@ -1072,6 +977,7 @@ def _resume_objective_web_generation(
     model: object | None = None,
     model_provider_id: str | None = None,
     objective_providers: dict[str, object] | None = None,
+    worker_interrupted: bool = False,
 ) -> dict[str, object]:
     run_root = _objective_run_root(workspace, run_id)
     release_root = _objective_release_root(workspace, run_id)
@@ -1085,7 +991,7 @@ def _resume_objective_web_generation(
             run_root,
             terminal=False,
         )
-        if not stalled:
+        if not (stalled or worker_interrupted):
             raise ValueError("run is neither recoverable nor stalled")
         if snapshot.run_state in {
             RuntimeRunState.COMPLETED,
@@ -1117,30 +1023,19 @@ def _resume_objective_web_generation(
         )
         selected_model = build_model_port(requested_provider or None)
 
-    max_actions = int(goal.run_budget.get("max_actions", 100))
     if recovering:
         runtime.resume_from_recovery()
     else:
+        reason = (
+            "web worker interrupted; resume from the saved checkpoint"
+            if worker_interrupted
+            else f"no runtime commit for {age} seconds; resume from the pending decision"
+        )
         runtime.resume_stalled(
-            reason=(
-                f"no runtime commit for {age} seconds; "
-                "resume from the pending decision"
-            )
+            reason=reason,
         )
     try:
-        result = ObjectiveQuestionAgentLoop(
-            runtime=runtime,
-            persistence=ObjectiveQuestionPersistence(run_root),
-            goal=goal,
-            main_agent=HierarchicalMainAgent(
-                selected_model,
-                provider_ids=sorted(selected),
-                memory_root=run_root,
-            ),
-            model=selected_model,
-            providers=selected,
-            max_actions=max_actions,
-        ).run()
+        result = run_objective_loop(runtime, goal, selected_model, selected)
     except Exception as exc:
         try:
             latest = runtime.load()
@@ -1648,7 +1543,38 @@ def create_app(
 ) -> Starlette:
     repository = LocalArtifactRepository(workspace)
     generation_lock = asyncio.Lock()
+    objective_job: asyncio.Task | None = None
+    active_objective_run_id = ""
     entity_search_lock = asyncio.Lock()
+
+    def generation_busy() -> bool:
+        return bool(active_objective_run_id) or generation_lock.locked()
+
+    def web_worker_interrupted(run_id: str) -> bool:
+        return (
+            run_id.startswith(("web-", "objective-web-"))
+            and active_objective_run_id != run_id
+            and not production.owns_run(run_id)
+        )
+
+    async def run_objective_job(run_id, operation, **kwargs):
+        nonlocal active_objective_run_id, objective_job
+
+        async def execute():
+            nonlocal active_objective_run_id
+            try:
+                async with generation_lock:
+                    return await run_in_threadpool(operation, run_id=run_id, **kwargs)
+            finally:
+                active_objective_run_id = ""
+
+        active_objective_run_id = run_id
+        objective_job = asyncio.create_task(execute())
+        # Observe errors even if the client disconnected before the worker finished.
+        objective_job.add_done_callback(
+            lambda task: task.exception() if not task.cancelled() else None
+        )
+        return await asyncio.shield(objective_job)
     model_status = (
         {
             "ready": True,
@@ -1730,6 +1656,198 @@ def create_app(
             raise ValueError("无法在 PrimeKG 中唯一确认所选实体")
         return _seed_ref(matches[0])
 
+    from .production import ProductionConfig, ProductionService
+    from ..llm.registry import build_model_port
+
+    production_source = None
+    import threading
+    production_model_gate = threading.BoundedSemaphore(4)
+
+    class ProductionModel:
+        def __init__(self, model):
+            self.model = model
+
+        def __getattr__(self, name):
+            return getattr(self.model, name)
+
+        def generate_structured(self, *args, **kwargs):
+            with production_model_gate:
+                return self.model.generate_structured(*args, **kwargs)
+
+
+    def production_page(entity_type, after):
+        nonlocal production_source
+        if production_source is None:
+            production_source = entity_provider or provider_from_config()
+        return production_source.production_entities(entity_type, after)
+
+    def production_progress(run_id):
+        try:
+            return build_production_progress(repository.root, run_id)
+        except (FileNotFoundError, CheckpointIntegrityError):
+            return None
+
+    def production_pause(run_id):
+        root = _objective_run_root(repository.root, run_id)
+        try:
+            ObjectiveRuntimeRepository(root, run_id=run_id).request_pause()
+        except (FileNotFoundError, CheckpointIntegrityError, ValueError):
+            # A worker may finish between the coordinator's poll and pause request.
+            return
+
+    production_provider_gates = {
+        name: threading.BoundedSemaphore(1)
+        for name in (*DEFAULT_PROVIDERS, "ctd")
+    }
+    other_provider_gate = threading.BoundedSemaphore(1)
+    production_fulltext_gate = threading.BoundedSemaphore(2)
+
+    class ProductionProvider:
+        def __init__(self, provider, gate, detail_gate):
+            self.provider = provider
+            self.gate = gate
+            self.detail_gate = detail_gate
+
+        def __getattr__(self, name):
+            value = getattr(self.provider, name)
+            if not callable(value):
+                return value
+
+            gate = self.detail_gate if name == "retrieve_details" else self.gate
+
+            def limited(*args, **kwargs):
+                with gate:
+                    return value(*args, **kwargs)
+            return limited
+
+    def production_entity_for_run(run_id):
+        runtime = ObjectiveRuntimeRepository(_objective_run_root(repository.root, run_id), run_id=run_id)
+        try:
+            goal = runtime.load().goal
+        except (FileNotFoundError, CheckpointIntegrityError):
+            return None
+        if not goal or not goal.target_entity_id or not goal.target_entity_type:
+            return None
+        identity = goal.target_entity_id
+        entity_type = {"gene": "gene/protein"}.get(goal.target_entity_type, goal.target_entity_type)
+        if identity.count(":") < 2:
+            if not run_id.startswith(("web-", "objective-web-")):
+                return None
+            identity = f"primekg:{entity_type}:{identity}"
+        return identity, goal.target_entity, entity_type
+
+    def production_execute(entity, config):
+        run_id = entity["run_id"]
+        runtime = ObjectiveRuntimeRepository(_objective_run_root(repository.root, run_id), run_id=run_id)
+        try:
+            snapshot = runtime.load()
+        except FileNotFoundError:
+            snapshot = None
+        if snapshot and snapshot.run_state in {RuntimeRunState.COMPLETED, RuntimeRunState.COMPLETED_WITH_ZERO_QUESTIONS}:
+            if not (_objective_release_root(repository.root, run_id) / "audit" / "manifest.json").is_file():
+                # A finished checkpoint still supplies published questions and trace to the production dataset.
+                logging.getLogger(__name__).warning("Completed production checkpoint lacks release package: %s", run_id)
+            return build_objective_summary(repository.root, run_id)
+        providers = (
+            _objective_run_provider_ids(snapshot) if snapshot else
+            list(objective_providers or DEFAULT_PROVIDERS)
+        )
+        selected_providers, graph_provider = _objective_provider_map(providers, objective_providers)
+        managed_providers = {
+            name: ProductionProvider(
+                provider,
+                production_provider_gates.get(name, other_provider_gate),
+                production_fulltext_gate if name == "pubmed" else production_provider_gates.get(name, other_provider_gate),
+            )
+            for name, provider in selected_providers.items()
+        }
+        try:
+            model_provider_id = snapshot.manifest.model_versions.get("provider_id") if snapshot else None
+            raw_model = structured_model or build_model_port(model_provider_id)
+            if model_provider_id is None:
+                model_provider_id = getattr(getattr(raw_model, "config", None), "provider_id", None)
+            model = ProductionModel(raw_model)
+            if snapshot:
+                if snapshot.run_state is not RuntimeRunState.RECOVERY_REQUIRED:
+                    runtime.set_run_state(expected_state_revision=snapshot.state_revision,
+                        target=RuntimeRunState.RECOVERY_REQUIRED, stop_reason="production_resume")
+                _resume_objective_web_generation(workspace=repository.root, run_id=run_id,
+                    model=model, objective_providers=managed_providers)
+            else:
+                _run_objective_web_generation(workspace=repository.root, run_id=run_id,
+                    entity_canonical_id=entity["identity"], entity_name=entity["name"],
+                    entity_type=entity["entity_type"], question_count=entity["quota"],
+                    max_actions=config.max_actions, providers=providers,
+                    allowed_fact_types=default_objective_fact_types(entity["entity_type"], available_providers=providers),
+                    difficulty_targets=config.difficulty_targets, style_targets=list(DEFAULT_STYLE_TARGETS),
+                    generation_strategy=config.generation_strategy,
+                    model=model, model_provider_id=model_provider_id, objective_providers=managed_providers)
+            return build_objective_summary(repository.root, run_id)
+        finally:
+            if graph_provider is not None:
+                graph_provider.close()
+
+    production = ProductionService(repository.root, source=production_page, execute=production_execute,
+        progress=production_progress, pause=production_pause, entity_for_run=production_entity_for_run)
+
+    async def production_api(request):
+        try:
+            if request.method == "GET":
+                return JSONResponse({"triggers": await run_in_threadpool(production.list_triggers)})
+            payload = await request.json()
+            config = ProductionConfig.model_validate(payload)
+            if generation_busy() or (production.thread is not None and production.thread.is_alive()):
+                return JSONResponse({"error": "已有生成任务运行中"}, status_code=409)
+            async with generation_lock:
+                if structured_model is None:
+                    await run_in_threadpool(build_model_port)
+                trigger_id = await run_in_threadpool(production.start, config)
+            return JSONResponse({"trigger_id": trigger_id}, status_code=202)
+        except (ValueError, ModelError) as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+
+    async def production_control(request):
+        try:
+            trigger_id = request.path_params["trigger_id"]
+            action = request.path_params["action"]
+            if action == "resume":
+                if generation_busy():
+                    raise ValueError("单实体任务正在运行，请先完成或暂停")
+                async with generation_lock:
+                    await run_in_threadpool(production.control, trigger_id, action)
+            else:
+                await run_in_threadpool(production.control, trigger_id, action)
+            return JSONResponse({"accepted": True}, status_code=202)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=409)
+
+    async def production_questions(request):
+        try:
+            page = max(1, int(request.query_params.get("page", "1")))
+            result = await run_in_threadpool(production.questions,
+                request.query_params.get("trigger_id"), page,
+                request.query_params.get("difficulty") or None, request.query_params.get("search", ""))
+            return JSONResponse(result)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+
+    async def production_entities(request):
+        try:
+            page = max(1, int(request.query_params.get("page", "1")))
+            return JSONResponse(await run_in_threadpool(
+                production.entity_history, search=request.query_params.get("search", ""), page=page,
+            ))
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+
+    async def production_dataset(request):
+        await run_in_threadpool(production.import_releases)
+        return StreamingResponse(
+            production.dataset_rows(request.query_params.get("trigger_id")),
+            media_type="application/x-ndjson",
+            headers={"Content-Disposition": 'attachment; filename="objective-dataset.jsonl"'},
+        )
+
     def close_entity_provider() -> None:
         if provider_instance is not None:
             provider_instance.close()
@@ -1737,8 +1855,17 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_: Starlette):
         try:
+            await run_in_threadpool(production.recover)
+        except ValueError as exc:
+            logging.getLogger(__name__).warning("Cannot acquire production coordinator: %s", exc)
+        try:
             yield
         finally:
+            if objective_job is not None and not objective_job.done():
+                await asyncio.gather(objective_job, return_exceptions=True)
+            await run_in_threadpool(production.close)
+            if production_source is not None and production_source is not provider_instance:
+                production_source.close()
             close_entity_provider()
 
     async def generation_workspace(request: Request) -> JSONResponse:
@@ -2055,6 +2182,10 @@ def create_app(
                     else None
                 ),
                 "model": model_status,
+                "objective_defaults": {
+                    "difficulty_targets": list(DEFAULT_DIFFICULTIES),
+                    "providers": list(DEFAULT_PROVIDERS),
+                },
                 "question_styles": [
                     {
                         "skill_id": skill.skill_id,
@@ -2069,7 +2200,7 @@ def create_app(
     async def objective_runs(request: Request) -> JSONResponse:
         """List objective runs only, optionally scoped to one entity."""
         entity_id = str(request.query_params.get("entity_id") or "").strip()
-        requested_native_id = entity_id.rsplit(":", 1)[-1] if entity_id else ""
+        requested_native_id = entity_id.split(":", 2)[-1]
         runs = []
         objective_runs_root = Path(workspace) / "objective_runs"
         run_dirs = (
@@ -2087,8 +2218,12 @@ def create_app(
                     build_objective_summary,
                     repository.root,
                     run_dir.name,
+                    worker_interrupted=web_worker_interrupted(run_dir.name),
                 )
             except (FileNotFoundError, ValueError):
+                continue
+            except (OSError, CheckpointIntegrityError) as exc:
+                logging.getLogger(__name__).warning("Cannot read history for %s: %s", run_dir.name, exc)
                 continue
             goal = summary.get("goal") or {}
             target_id = str(goal.get("target_entity_id") or "")
@@ -2320,7 +2455,7 @@ def create_app(
         except (TypeError, ValueError) as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
 
-        if generation_lock.locked():
+        if generation_busy() or (production.thread is not None and production.thread.is_alive()):
             return JSONResponse(
                 {"error": "已有生成任务正在运行，请等待它完成"},
                 status_code=409,
@@ -2415,16 +2550,19 @@ def create_app(
             entity_type = resolved_entity.entity_type or entity_type
         try:
             question_count = int(payload.get("question_count", 1))
-            max_actions = int(payload.get("max_actions", 100))
+            max_actions = int(payload.get("max_actions", DEFAULT_MAX_ACTIONS))
             if not 1 <= question_count <= 20:
                 raise ValueError("题数上限必须在 1 到 20 之间")
             if not 2 <= max_actions <= 100:
                 raise ValueError("主 Agent 最大动作数必须在 2 到 100 之间")
         except (TypeError, ValueError) as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
+        generation_strategy = str(payload.get("generation_strategy", DEFAULT_GENERATION_STRATEGY))
+        if generation_strategy not in {"auto", "easy", "medium", "hard", "free"}:
+            return JSONResponse({"error": "未知出题策略"}, status_code=400)
         raw_difficulties = payload.get(
             "difficulty_targets",
-            ["easy", "medium"],
+            list(DEFAULT_DIFFICULTIES),
         )
         if (
             not isinstance(raw_difficulties, list)
@@ -2483,7 +2621,7 @@ def create_app(
                 return JSONResponse({"error": str(exc)}, status_code=400)
             style_targets = question_style_ids
         else:
-            raw_style_targets = payload.get("style_targets", ["concise"])
+            raw_style_targets = payload.get("style_targets", list(DEFAULT_STYLE_TARGETS))
             if (
                 not isinstance(raw_style_targets, list)
                 or not raw_style_targets
@@ -2497,7 +2635,7 @@ def create_app(
             ]
         requested_providers = payload.get(
             "providers",
-            ["hgnc", "ncbi_gene", "ensembl", "primekg", "pubmed"],
+            list(DEFAULT_PROVIDERS),
         )
         if not isinstance(requested_providers, list) or not requested_providers:
             return JSONResponse({"error": "至少选择一个材料 provider"}, status_code=400)
@@ -2592,7 +2730,7 @@ def create_app(
                 },
                 status_code=400,
             )
-        if generation_lock.locked():
+        if generation_busy() or (production.thread is not None and production.thread.is_alive()):
             return JSONResponse(
                 {"error": "已有生成任务正在运行，请等待它完成"},
                 status_code=409,
@@ -2603,24 +2741,24 @@ def create_app(
                 from ..llm.registry import build_model_port
 
                 model = build_model_port(selected_model_provider or None)
-            async with generation_lock:
-                result = await run_in_threadpool(
-                    _run_objective_web_generation,
-                    workspace=repository.root,
-                    run_id=run_id,
-                    entity_canonical_id=canonical_id,
-                    entity_name=entity_name,
-                    entity_type=entity_type,
-                    question_count=question_count,
-                    max_actions=max_actions,
-                    providers=providers,
-                    allowed_fact_types=allowed_fact_types,
-                    difficulty_targets=difficulty_targets,
-                    style_targets=style_targets,
-                    model=model,
-                    model_provider_id=selected_model_provider,
-                    objective_providers=objective_providers,
-                )
+            result = await run_objective_job(
+                run_id,
+                _run_objective_web_generation,
+                workspace=repository.root,
+                entity_canonical_id=canonical_id,
+                entity_name=entity_name,
+                entity_type=entity_type,
+                question_count=question_count,
+                max_actions=max_actions,
+                providers=providers,
+                allowed_fact_types=allowed_fact_types,
+                difficulty_targets=difficulty_targets,
+                generation_strategy=generation_strategy,
+                style_targets=style_targets,
+                model=model,
+                model_provider_id=selected_model_provider,
+                objective_providers=objective_providers,
+            )
         except FileExistsError as exc:
             return JSONResponse({"error": str(exc)}, status_code=409)
         except Exception as exc:
@@ -2652,6 +2790,8 @@ def create_app(
         request: Request,
     ) -> JSONResponse:
         run_id = request.path_params["run_id"]
+        if production.owns_run(run_id):
+            return JSONResponse({"error": "请在自动出题页面恢复所属触发任务，避免重复执行实体"}, status_code=409)
         if not WEB_TASK_ID_PATTERN.fullmatch(run_id):
             return JSONResponse(
                 {"error": "任务 ID 格式无效"},
@@ -2688,13 +2828,14 @@ def create_app(
         recoverable = (
             snapshot.run_state is RuntimeRunState.RECOVERY_REQUIRED
         )
+        interrupted = web_worker_interrupted(run_id)
         if not recoverable:
             _last_commit, _age, stalled = await run_in_threadpool(
                 _objective_progress_timing,
                 _objective_run_root(repository.root, run_id),
                 terminal=False,
             )
-            recoverable = stalled
+            recoverable = stalled or interrupted
         if not recoverable:
             return JSONResponse(
                 {
@@ -2705,21 +2846,21 @@ def create_app(
                 },
                 status_code=409,
             )
-        if generation_lock.locked():
+        if generation_busy() or (production.thread is not None and production.thread.is_alive()):
             return JSONResponse(
                 {"error": "已有生成任务正在运行，请等待它完成"},
                 status_code=409,
             )
         try:
-            async with generation_lock:
-                result = await run_in_threadpool(
-                    _resume_objective_web_generation,
-                    workspace=repository.root,
-                    run_id=run_id,
-                    model=structured_model,
-                    model_provider_id=model_provider_id or None,
-                    objective_providers=objective_providers,
-                )
+            result = await run_objective_job(
+                run_id,
+                _resume_objective_web_generation,
+                workspace=repository.root,
+                model=structured_model,
+                model_provider_id=model_provider_id or None,
+                objective_providers=objective_providers,
+                worker_interrupted=interrupted,
+            )
         except FileNotFoundError:
             return JSONResponse(
                 {
@@ -2786,6 +2927,7 @@ def create_app(
                 build_objective_summary,
                 repository.root,
                 run_id,
+                worker_interrupted=web_worker_interrupted(run_id),
             )
         except FileNotFoundError:
             return JSONResponse(
@@ -2808,6 +2950,7 @@ def create_app(
                 build_objective_workbench,
                 repository.root,
                 run_id,
+                worker_interrupted=web_worker_interrupted(run_id),
             )
         except FileNotFoundError:
             return JSONResponse(
@@ -3138,6 +3281,11 @@ def create_app(
             methods=["POST"],
             name="review_claim",
         ),
+        Route("/api/production", production_api, methods=["GET", "POST"]),
+        Route("/api/production/questions", production_questions, methods=["GET"]),
+        Route("/api/production/entities", production_entities, methods=["GET"]),
+        Route("/api/production/dataset", production_dataset, methods=["GET"]),
+        Route("/api/production/{trigger_id}/{action}", production_control, methods=["POST"]),
         Route("/health", health, name="health"),
         Route("/api/export", export_dataset, methods=["POST"], name="export_dataset"),
     ]

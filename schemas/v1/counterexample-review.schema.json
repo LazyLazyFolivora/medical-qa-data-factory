@@ -26,6 +26,18 @@
       "title": "Directly Supporting Anchor Ids",
       "type": "array"
     },
+    "evidence_need": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Evidence Need"
+    },
     "support_directly_entails_answer": {
       "default": false,
       "title": "Support Directly Entails Answer",

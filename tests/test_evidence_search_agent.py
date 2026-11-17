@@ -253,3 +253,22 @@ def test_search_agent_replaces_selected_abstract_with_full_text(
     assert outcome.provider_result.usage["detail_trace"][0][
         "terminal_status"
     ] == "SUCCEEDED"
+
+def test_search_failure_preserves_original_error_in_trace(tmp_path):
+    class FailedProvider(CandidateProvider):
+        def retrieve(self, request):
+            return EvidenceProviderResult(
+                request=request,
+                terminal_status=ProviderTerminalStatus.FAILED,
+                error_category="PUBMED_PROVIDER_ERROR",
+                usage={"error_message": "Read timed out (read timeout=12)"},
+            )
+
+    outcome = EvidenceSearchAgent(
+        model=FakeStructuredModel(responses={}),
+        persistence=ObjectiveQuestionPersistence(tmp_path / "ws"),
+        max_rounds=1,
+    ).run(_task(), provider=FailedProvider(), initial_query={"term": "PHYHIP"})
+    trace = outcome.provider_result.usage["search_trace"]
+    assert trace[0]["query"] == {"term": "PHYHIP"}
+    assert trace[0]["error_message"] == "Read timed out (read timeout=12)"

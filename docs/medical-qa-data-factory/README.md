@@ -21,6 +21,10 @@
 
 当前重建工作：
 
+- [持续自动出题前后端需求](continuous-generation-requirements.md)：自动遍历实体、处理账本、并发调度、暂停恢复、页面交互与数据集导出的交付和验收要求。
+
+- [批量并发出题与数据集生产](batch-dataset-generation.md)：实体队列、worker 并发、失败恢复、批次统计及 query-planner 联调验收的待实施方案。
+
 - [证据先行题目空间改造计划](../../plans/evidence-first-question-derivation-refactor-plan-2026-10-28.md)：从实体和客观证据反推题目，取代“疾病题先行”或“方向题唯一”的实现假设。
 - [客观医学题目方法论](objective-question-methodology.md)：证据、候选事实、答案验证、题面冻结和发布门禁的长期不变量。
 - [客观医学题目验收标准](objective-question-acceptance.md)：Step 1 契约和全部 27 个可执行验收案例。
@@ -51,3 +55,7 @@
 - [旧版验收报告](acceptance-report-v1.md)
 
 历史材料用于追溯决策，不作为当前功能已经验收的证明。
+
+- [ReAct 编排改造与兼容说明](change-records/2026-11-05-react-orchestration.md)
+
+- [ReAct 最新结果可读性改造与真实回放](change-records/2026-11-05-react-readable-observations.md)

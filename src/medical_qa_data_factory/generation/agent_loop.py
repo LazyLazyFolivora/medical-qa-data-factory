@@ -67,7 +67,12 @@ from .objective_question_runtime import (
     SubagentLoopGuard,
 )
 from .question_design import ObjectiveQuestionDesignSubagent
+from .question_strategies import question_strategy
+from .difficulty_assessment import assess_difficulty, DifficultyAssessmentError
 from .candidate_review import review_candidates
+from ..llm.run_trace import trace_run, trace_step, trace_event
+from .react_main_agent import is_react
+from .react_tools import execute_react_tool
 from .workflow_scheduler import FINAL_QUESTION_WORKFLOW, is_hierarchical, MAX_EVIDENCE_ROUNDS, target_question_count
 from .release_review_subagent import (
     AnswerEvidenceAuditPackage,
@@ -141,11 +146,23 @@ class ObjectiveQuestionAgentLoop:
         self.loop_guard = SubagentLoopGuard(max_repeated_decisions=3)
 
     def run(self) -> ObjectiveAgentLoopResult:
+        with trace_run(self.runtime.root, self.runtime.run_id):
+            trace_event("run_start")
+            try:
+                result = self._run()
+                trace_event("run_end", state=result.run_state.value, stop_reason=result.stop_reason)
+                return result
+            except Exception as exc:
+                trace_event("run_error", error_type=type(exc).__name__, error=str(exc))
+                raise
+
+    def _run(self) -> ObjectiveAgentLoopResult:
         stop_reason: str | None = None
         for _ in range(self.max_actions):
             if self.runtime.pause_at_boundary():
                 break
             snapshot = self.runtime.load()
+            trace_step(state_revision=snapshot.state_revision, action="decide")
             decision = self.runtime.pending_decision()
             if decision is None:
                 decision = self.main_agent.decide(snapshot)
@@ -156,6 +173,8 @@ class ObjectiveQuestionAgentLoop:
                 )
             if self.runtime.pause_at_boundary():
                 break
+            trace_step(state_revision=snapshot.state_revision, decision_id=decision.decision_id, action=decision.action)
+            trace_event("action", decision=decision.model_dump(mode="json"))
             self.loop_guard.observe(decision)
             action = MainAgentAction(decision.action)
             if action is MainAgentAction.STOP:
@@ -163,7 +182,12 @@ class ObjectiveQuestionAgentLoop:
                 self._finish(stop_reason, completed=is_hierarchical(decision))
                 break
             try:
-                if action is MainAgentAction.CLOSE_CANDIDATE:
+                if action in {MainAgentAction.READ_ARTIFACTS, MainAgentAction.REVIEW_CANDIDATE,
+                              MainAgentAction.PUBLISH_QUESTION, MainAgentAction.TOOL_FEEDBACK,
+                              MainAgentAction.READ_SOURCE_DETAILS, MainAgentAction.SYNTHESIZE_EVIDENCE,
+                              MainAgentAction.DISCOVER_QUESTIONS, MainAgentAction.RESEARCH_EVIDENCE}:
+                    execute_react_tool(self, snapshot, decision)
+                elif action is MainAgentAction.CLOSE_CANDIDATE:
                     self._close_candidate(snapshot, decision)
                 elif action in {
                     MainAgentAction.RETRIEVE_MATERIALS,
@@ -172,7 +196,7 @@ class ObjectiveQuestionAgentLoop:
                     self._retrieve_materials(snapshot, decision)
                 elif action is MainAgentAction.UNDERSTAND_FACTS:
                     self._understand_facts(snapshot, decision)
-                elif action is MainAgentAction.DESIGN_QUESTIONS:
+                elif action in {MainAgentAction.DESIGN_QUESTIONS, MainAgentAction.REVISE_CANDIDATE}:
                     self._design_questions(snapshot, decision)
                 elif action is MainAgentAction.VERIFY_ANSWER:
                     self._verify_answer(snapshot, decision)
@@ -183,6 +207,26 @@ class ObjectiveQuestionAgentLoop:
                 else:  # pragma: no cover - enum and validator close this set
                     raise AssertionError(action)
             except (ModelError, RoleContractViolation, ValidationError) as exc:
+                if action is MainAgentAction.RESEARCH_EVIDENCE and isinstance(exc, ModelError):
+                    # Keep the parent decision pending: completed inner tools are
+                    # checkpointed, and resuming must reopen that same session.
+                    latest = self.runtime.load()
+                    self.runtime.set_run_state(
+                        expected_state_revision=latest.state_revision,
+                        target=RunState.RECOVERY_REQUIRED,
+                        stop_reason="research_model_request_requires_repair",
+                        recovery_error=exc.as_dict(),
+                    )
+                    break
+                if isinstance(exc, DifficultyAssessmentError):
+                    latest = self.runtime.load()
+                    self.runtime.set_run_state(
+                        expected_state_revision=latest.state_revision,
+                        target=RunState.RECOVERY_REQUIRED,
+                        stop_reason="difficulty_assessment_requires_repair",
+                        recovery_error=exc.as_dict(),
+                    )
+                    break
                 self._record_recoverable_failure(
                     decision,
                     action.value,
@@ -235,15 +279,34 @@ class ObjectiveQuestionAgentLoop:
         self,
         snapshot: ObjectiveRuntimeSnapshot,
         decision: MainAgentDecision,
-    ) -> None:
+        *, persistence=None, request_suffix="", collect_only=False, provider_override=None,
+    ):
+        if "searches" in decision.action_parameters and not collect_only:
+            from .research_tools import retrieve_batch
+            return retrieve_batch(self, snapshot, decision)
         provider_id = str(
             decision.action_parameters.get("provider_id", "")
         )
-        provider = self.providers.get(provider_id)
+        provider = provider_override or self.providers.get(provider_id)
         if provider is None:
             raise ValueError(
                 f"main agent selected unavailable provider {provider_id!r}"
             )
+        query = decision.action_parameters.get("query", {})
+        if provider_id == "primekg" and query.get("operation") in {"overview", "search_nodes", "list_neighbors"}:
+            from ..knowledge_graph.errors import KnowledgeGraphError
+            try:
+                navigation = provider.browse(query)
+            except (KnowledgeGraphError, ValueError, TypeError) as exc:
+                raise RoleContractViolation(f"PrimeKG navigation failed: {exc}") from exc
+            if collect_only:
+                return {"provider_id": provider_id, "query": query, "status": "SUCCEEDED", "navigation": navigation}
+            observation = _artifact({"artifact_id": f"primekg.navigation.{decision.decision_id}",
+                "query": query, "navigation": navigation,
+                "instruction": "Navigation only, not an evidence material. Select target IDs for get_relations or use names to search papers."},
+                "react_observation", decision, SubagentRole.MATERIAL_RETRIEVAL)
+            result = _success_result(observation.artifact_id, [observation.artifact_id], "primekg_navigation_completed")
+            return self._commit_child(snapshot, decision, result.subtask_id, result, [observation])
         purpose = str(
             decision.action_parameters.get("purpose", "discovery")
         )
@@ -265,11 +328,13 @@ class ObjectiveQuestionAgentLoop:
             SubagentRole.MATERIAL_RETRIEVAL
         ]
         task = build_objective_subagent_task(
-            task_id=f"materials.{decision.decision_id}",
+            task_id=f"materials.{decision.decision_id}{request_suffix}",
             role=SubagentRole.MATERIAL_RETRIEVAL,
             capability=capability,
             goal={
-                "target_entity": self.goal.target_entity,
+                "target_entity": decision.action_parameters.get("target_entity", self.goal.target_entity),
+                "strict_selection": is_react(decision),
+                "fetch_full_text": decision.action_parameters.get("fetch_full_text", False),
                 "evidence_need": str(
                     decision.action_parameters.get("evidence_need")
                     or f"{purpose}: {self.goal.target_entity}; "
@@ -329,21 +394,12 @@ class ObjectiveQuestionAgentLoop:
             allowed_tools=[provider_id],
         )
         outcome = MaterialRetrievalSubagent(
-            self.persistence,
+            persistence or self.persistence,
             model=self.model,
         ).run(
             task,
             provider=provider,
             query=dict(decision.action_parameters.get("query", {})),
-        )
-        (
-            self._empty_retrieval_streak,
-            self._provider_failure_streak,
-        ) = _advance_retrieval_streaks(
-            outcome.provider_result.terminal_status,
-            has_materials=bool(outcome.materials),
-            empty_streak=self._empty_retrieval_streak,
-            provider_failure_streak=self._provider_failure_streak,
         )
         artifacts = [
             _artifact(
@@ -367,13 +423,24 @@ class ObjectiveQuestionAgentLoop:
         )
         artifacts.append(
             ArtifactEnvelope(
-                artifact_id=f"provider_result.{decision.decision_id}",
+                artifact_id=f"provider_result.{decision.decision_id}{request_suffix}",
                 artifact_type="provider_result",
                 payload=outcome.provider_result.model_dump(mode="json"),
                 producer_role=SubagentRole.MATERIAL_RETRIEVAL.value,
                 parent_decision_id=decision.decision_id,
                 metadata=artifact_metadata,
             )
+        )
+        if collect_only:
+            return task, outcome, artifacts
+        (
+            self._empty_retrieval_streak,
+            self._provider_failure_streak,
+        ) = _advance_retrieval_streaks(
+            outcome.provider_result.terminal_status,
+            has_materials=bool(outcome.materials),
+            empty_streak=self._empty_retrieval_streak,
+            provider_failure_streak=self._provider_failure_streak,
         )
         self._commit_child(
             snapshot,
@@ -426,6 +493,45 @@ class ObjectiveQuestionAgentLoop:
         ]
         if not materials or not anchors:
             raise ValueError("fact understanding requires persisted materials")
+        raw_contents = {m.material_id: self.persistence.load_raw_content(m).decode("utf-8") for m in materials}
+        selected_anchors = []
+        research_id = decision.action_parameters.get("research_id") if is_react(decision) else None
+        source_sections = decision.action_parameters.get("source_sections") if is_react(decision) else None
+        if research_id or source_sections is not None:
+            from .research_tools import design_research_context, material_passages
+            from .objective_question_contracts import text_digest
+            if research_id:
+                context = design_research_context(snapshot, research_id, selected_material_ids)
+            else:
+                context = {"source_passages": [material_passages(self, snapshot, mid, source_sections[mid])
+                                               for mid in sorted(selected_material_ids)]}
+            if sum(len(e["text"]) for s in context["source_passages"] for e in s["excerpts"]) > 16000:
+                raise RoleContractViolation("Selected fact excerpts exceed 16000 characters; choose fewer source_sections")
+            selected_raw = {}
+            for source in context["source_passages"]:
+                mid = source["material_id"]
+                if not source["excerpts"]:
+                    raise RoleContractViolation("Research contains only an index; select source_sections in synthesize_evidence before extracting facts")
+                for excerpt in source["excerpts"]:
+                    start, quote = excerpt["offset"], excerpt["text"]
+                    if raw_contents[mid][start:start + len(quote)] != quote:
+                        raise RoleContractViolation("Research excerpt no longer matches persisted source")
+                    selected_anchors.append(EvidenceAnchor(
+                        anchor_id="anchor.research." + canonical_digest([mid, start, quote])[:24],
+                        material_id=mid, document_id=next(a.document_id for a in anchors if a.material_id == mid),
+                        section_or_field=f"research excerpt {excerpt.get('paragraph_id', '')} at {start}",
+                        start_offset=start, end_offset=start + len(quote), quoted_text=quote, quote_hash=text_digest(quote)))
+                selected_raw[mid] = "\n\n".join(e["text"] for e in source["excerpts"])
+            materials = [m for m in materials if m.material_id in selected_raw]
+            selected_material_ids = set(selected_raw)
+            raw_contents, anchors = selected_raw, selected_anchors
+        elif is_react(decision) and sum(len(text) for text in raw_contents.values()) > 16000:
+            raise RoleContractViolation(
+                "Fact extraction was not sent to the model: full source text exceeds 16000 characters. "
+                "Read each material with read_artifacts(source_view=true), then call understand_facts with "
+                "source_sections={material_id: [paragraph_ids]} for these input_artifact_ids, or call "
+                "synthesize_evidence with selected source_sections and use its returned research_id. "
+                "Do not invent research_id or retry without selection; the full paper remains saved.")
         canonical_name = self.goal.target_entity
         authority = "task-scoped target"
         target_id = (self.goal.target_entity_id or "").removeprefix("gene:")
@@ -476,23 +582,24 @@ class ObjectiveQuestionAgentLoop:
             materials=materials,
             anchors=anchors,
             entity_resolutions=[resolution],
-            raw_content_by_material_id={
-                item.material_id: self.persistence.load_raw_content(item).decode(
-                    "utf-8"
-                )
-                for item in materials
-            },
+            raw_content_by_material_id=raw_contents,
         )
         artifacts, claim_ids = _fact_claim_artifacts(
             snapshot,
             outcome.claims,
             decision,
         )
+        artifacts.extend(_artifact(anchor, "evidence_anchor", decision, SubagentRole.FACT_UNDERSTANDING)
+                         for anchor in selected_anchors if anchor.anchor_id not in snapshot.artifacts)
+        for anchor in selected_anchors:
+            self.persistence.save_anchor(anchor)
         artifacts.append(
             _artifact(
                 {
                     "batch_id": f"fact_batch.{decision.decision_id}",
                     "material_ids": sorted(selected_material_ids),
+                    "partial_source_selection": bool(research_id) or source_sections is not None,
+                    "research_id": research_id,
                     "anchor_ids": [anchor.anchor_id for anchor in anchors],
                     "claim_ids": claim_ids,
                     "stop_reason": outcome.result.stop_reason,
@@ -531,8 +638,61 @@ class ObjectiveQuestionAgentLoop:
         snapshot: ObjectiveRuntimeSnapshot,
         decision: MainAgentDecision,
     ) -> None:
+        revise_existing = decision.action == MainAgentAction.REVISE_CANDIDATE.value
+        if revise_existing:
+            decision = decision.model_copy(update={"action_parameters": {
+                **decision.action_parameters,
+                "revision_of": decision.action_parameters["hypothesis_id"],
+                "design_instruction": decision.action_parameters["revision_instruction"],
+                "evidence_sufficiency_reason": "Use the selected original passages to address the stated revision; report any remaining gap. Selection is not proof of sufficiency.",
+            }})
+        research_only = (is_react(decision) and decision.action_parameters.get("research_id")
+                         and not decision.action_parameters.get("claim_ids"))
+        direct_sources = is_react(decision) and (revise_existing or "source_sections" in decision.action_parameters or bool(research_only))
+        from .research_tools import design_research_context
+        research_context = None
+        source_anchors = []
+        source_section_context = []
         claims = self._models(snapshot, "candidate_claim", CandidateClaim)
-        anchors = self._models(snapshot, "evidence_anchor", EvidenceAnchor)
+        if direct_sources:
+            from .source_question_inputs import design_source_anchors, research_source_anchors
+            if revise_existing and decision.action_parameters.get("evidence_research_id"):
+                from .source_question_inputs import completed_research_evidence
+                if decision.action_parameters.get("source_sections"):
+                    raise RoleContractViolation("Choose evidence_research_id OR source_sections for replacement evidence")
+                research_context = completed_research_evidence(snapshot, decision.action_parameters["evidence_research_id"])
+                source_anchors = research_source_anchors(self, snapshot, research_context)
+            elif revise_existing and decision.action_parameters.get("source_sections"):
+                source_anchors = design_source_anchors(self, snapshot, decision.action_parameters["source_sections"],
+                                                      section_context_out=source_section_context)
+            elif revise_existing:
+                from .source_question_inputs import SELECTED_EVIDENCE_CHAR_BUDGET, candidate_research_context
+                previous = snapshot.artifacts[decision.action_parameters["revision_of"]].payload
+                previous_context = candidate_research_context(snapshot, decision.action_parameters["revision_of"]) or {}
+                # Evidence coverage belongs to the reused sources; approval belongs
+                # only to the old wording and must be earned again after revision.
+                research_context = {key: previous_context[key]
+                                    for key in ("source_passages", "section_context") if key in previous_context} or None
+                source_anchors = [EvidenceAnchor.model_validate(snapshot.artifacts[aid].payload)
+                                  for aid in dict.fromkeys(previous["discovery_anchor_ids"])]
+                if sum(len(a.quoted_text) for a in source_anchors) > SELECTED_EVIDENCE_CHAR_BUDGET:
+                    raise RoleContractViolation("Saved candidate evidence exceeds the revision budget; select fewer source_sections with design_questions revision_of")
+            elif research_only:
+                research_context = design_research_context(snapshot, decision.action_parameters["research_id"])
+                source_anchors = research_source_anchors(self, snapshot, research_context)
+            else:
+                source_anchors = design_source_anchors(self, snapshot, decision.action_parameters["source_sections"],
+                                                      section_context_out=source_section_context)
+            claims = []
+        elif is_react(decision):
+            selected = set(decision.action_parameters["claim_ids"])
+            claims = [claim for claim in claims if claim.claim_id in selected]
+        anchors = source_anchors or self._models(snapshot, "evidence_anchor", EvidenceAnchor)
+        claim_anchor_ids = {aid for claim in claims for aid in claim.supporting_anchor_ids}
+        research_context = research_context or design_research_context(snapshot, decision.action_parameters.get("research_id"),
+            {a.material_id for a in anchors if a.anchor_id in claim_anchor_ids})
+        if source_section_context:
+            research_context = {**(research_context or {}), "section_context": source_section_context}
         hypotheses = self._models(
             snapshot,
             "question_hypothesis",
@@ -545,17 +705,47 @@ class ObjectiveQuestionAgentLoop:
         capability = default_objective_role_registry()[
             SubagentRole.QUESTION_DESIGN
         ]
+        revision_of = decision.action_parameters.get("revision_of")
+        revision_context = None
+        if revision_of:
+            previous = snapshot.artifacts[revision_of].payload
+            step_sequence = {a.parent_decision_id: a.payload.get("sequence", -1)
+                             for a in snapshot.artifacts.values() if a.artifact_type == "react_step"}
+            revision_feedback = sorted(
+                (a for a in snapshot.artifacts.values()
+                 if a.artifact_type in {"verification_gap", "final_question_review", "candidate_usability_review"}
+                 and a.payload.get("hypothesis_id") == revision_of),
+                key=lambda a: (step_sequence.get(a.parent_decision_id, -1), a.artifact_type),
+            )
+            feedback = [{k: v for k, v in a.payload.items() if k in {
+                            "artifact_id", "reason", "diagnosis", "repair_issues", "recommended_action",
+                            "evidence_need", "missing_evidence_kind", "review", "blind_result", "question_reader", "reviews"}}
+                        for a in revision_feedback[-4:]]
+            revision_context = {"previous_candidate": previous, "verification_feedback": feedback[-4:],
+                                "revision_target": decision.action_parameters.get("revision_target", "question_and_answer")}
         task = build_objective_subagent_task(
             task_id=f"questions.{decision.decision_id}",
             role=SubagentRole.QUESTION_DESIGN,
             capability=capability,
+            budget={"max_model_calls": 7 if research_only else 2, "max_provider_calls": 0} if direct_sources and (
+                (research_context or {}).get("approved_question")
+                or (revision_context or {}).get("revision_target") == "answer"
+            ) else None,
             goal={
                 "target_entity": self.goal.target_entity,
                 "allowed_fact_types": self.goal.allowed_fact_types,
                 "question_count_upper_bound": (
-                    remaining_question_count
+                    1 if revise_existing else remaining_question_count
                 ),
                 "difficulty_targets": self.goal.difficulty_targets,
+                "generation_strategy": self.goal.generation_strategy,
+                "llm_owned_design": is_react(decision),
+                "direct_sources": direct_sources,
+                "design_instruction": decision.action_parameters.get("design_instruction", ""),
+                "evidence_sufficiency_reason": decision.action_parameters.get("evidence_sufficiency_reason", ""),
+                "research_context": research_context,
+                "revision_of": decision.action_parameters.get("revision_of"),
+                "revision_context": revision_context,
                 "style_targets": self.goal.style_targets,
                 "language": self.goal.language,
                 "planner_environment": self.goal.planner_environment,
@@ -583,18 +773,21 @@ class ObjectiveQuestionAgentLoop:
                 ),
             ],
         )
-        outcome = ObjectiveQuestionDesignSubagent(self.model).run(
+        designer = ObjectiveQuestionDesignSubagent(self.model)
+        outcome = designer.run(
             task,
             claims=claims,
             anchors=anchors,
         )
         original_candidates = [h.model_dump(mode="json") for h in outcome.hypotheses]
         reviews, review_history = [], []
-        if snapshot.manifest.orchestrator_version != FINAL_QUESTION_WORKFLOW:
+        if not is_react(decision) and snapshot.manifest.orchestrator_version != FINAL_QUESTION_WORKFLOW:
             reviewed, reviews, review_history = review_candidates(
                 self.model, outcome.hypotheses, claims, anchors, operation_id=task.operation_key)
             outcome = replace(outcome, hypotheses=reviewed)
         rejected_ids = {r.hypothesis_id for r in reviews if r.disposition == "REJECT"}
+        original_hypotheses = outcome.hypotheses
+        original_result = outcome.result
         artifacts = [
             _artifact(
                 hypothesis,
@@ -604,6 +797,87 @@ class ObjectiveQuestionAgentLoop:
             )
             for hypothesis in outcome.hypotheses
         ]
+        reading = outcome.answer_source_reading
+        original_question = (research_context or {}).get("approved_question")
+        if research_only and original_question and reading and reading.get("status") == "read":
+            from .question_discovery import formulate_alternative_question, review_alternative_question
+            operation_id = f"alternative.{decision.decision_id}"
+            public_goal = self.goal.model_dump(mode="json")
+            existing = [a.payload.get("approved_question") or a.payload.get("question_intent")
+                        for a in snapshot.artifacts.values()]
+            record, followup = None, None
+            wording_usage, review_usage = {}, {}
+            try:
+                alternative, wording_usage = formulate_alternative_question(
+                    self.model, reading=reading, original_question=original_question,
+                    goal=public_goal, operation_id=operation_id,
+                )
+                if alternative:
+                    reading["alternative"] = alternative
+                    question = alternative["question"].strip().casefold()
+                    if question and not any(isinstance(text, str) and text.strip().casefold() == question for text in existing):
+                        anchor = next((a for a in source_anchors if a.anchor_id == alternative["anchor_id"]), None)
+                        record, review_usage = review_alternative_question(
+                            self.model, alternative=alternative, anchor=anchor, research_context=research_context,
+                            goal=public_goal, operation_id=operation_id,
+                        )
+                        if record and record["approved_question"] and remaining_question_count:
+                            record["draft_attempt"] = {"status": "started"}
+                            followup, followup_context = designer.draft_reviewed_alternative(task, record, source_anchors)
+                            record["draft_attempt"] = {
+                                "status": followup.result.stop_reason,
+                                "hypothesis_ids": [item.hypothesis_id for item in followup.hypotheses],
+                                "reading": followup.answer_source_reading,
+                            }
+            except (ModelError, RoleContractViolation, ValidationError) as exc:
+                if record and record.get("draft_attempt"):
+                    record["draft_attempt"] = {"status": "failed", "error": str(exc)}
+                else:
+                    reading["alternative_review_error"] = str(exc)
+            if record:
+                artifacts.append(_artifact(record, "react_observation", decision, SubagentRole.QUESTION_DISCOVERY))
+            if wording_usage or review_usage or record:
+                usage = dict(outcome.result.usage)
+                for extra_usage in (wording_usage, review_usage, followup.result.usage if followup else {}):
+                    for key, value in extra_usage.items():
+                        if isinstance(value, (int, float)):
+                            usage[key] = (usage.get(key) or 0) + value
+                output_ids = [*outcome.result.output_artifact_ids]
+                result_updates = {}
+                if record:
+                    output_ids.append(record["artifact_id"])
+                if followup:
+                    for hypothesis in followup.hypotheses:
+                        artifacts.append(_artifact(hypothesis, "question_hypothesis", decision, SubagentRole.QUESTION_DESIGN))
+                        artifacts.append(_artifact(
+                            {"artifact_id": f"candidate_context.{hypothesis.hypothesis_id}",
+                             "hypothesis_id": hypothesis.hypothesis_id, "research_context": followup_context},
+                            "candidate_research_context", decision, SubagentRole.QUESTION_DESIGN))
+                    output_ids.extend(followup.result.output_artifact_ids)
+                    outcome = replace(outcome, hypotheses=[*original_hypotheses, *followup.hypotheses])
+                    if followup.hypotheses and not original_hypotheses:
+                        result_updates = {"domain_outcome": followup.result.domain_outcome,
+                                          "stop_reason": "alternative_hypothesis_proposed"}
+                outcome = replace(outcome, result=outcome.result.model_copy(update={
+                    **result_updates, "usage": usage, "output_artifact_ids": output_ids,
+                }))
+        if research_context:
+            for hypothesis in original_hypotheses:
+                artifacts.append(_artifact(
+                    {"artifact_id": f"candidate_context.{hypothesis.hypothesis_id}",
+                     "hypothesis_id": hypothesis.hypothesis_id, "research_context": research_context},
+                    "candidate_research_context", decision, SubagentRole.QUESTION_DESIGN))
+        if revision_of and original_hypotheses:
+            artifacts.append(_artifact(
+                {"batch_id": f"revision.{decision.decision_id}", "revision_of": revision_of,
+                 "new_hypothesis_ids": [h.hypothesis_id for h in original_hypotheses],
+                 "note": "New candidates require fresh review and verification; old evidence decisions are not inherited."},
+                "question_design_notes", decision, SubagentRole.QUESTION_DESIGN,
+            ))
+        for anchor in source_anchors:
+            self.persistence.save_anchor(anchor)
+            if anchor.anchor_id not in snapshot.artifacts:
+                artifacts.append(_artifact(anchor, "evidence_anchor", decision, SubagentRole.QUESTION_DESIGN))
         if reviews:
             artifacts.append(_artifact(
                 {"artifact_id": f"candidate_review.{decision.decision_id}",
@@ -612,19 +886,22 @@ class ObjectiveQuestionAgentLoop:
                  "original_candidates": original_candidates},
                 "candidate_usability_review", decision, SubagentRole.QUESTION_DESIGN,
             ))
-        if outcome.fact_selections:
+        if outcome.fact_selections or outcome.answer_source_reading or decision.action_parameters.get("evidence_sufficiency_reason"):
             artifacts.append(_artifact(
                 {"batch_id": f"design_notes.{decision.decision_id}",
+                 "evidence_sufficiency_reason": decision.action_parameters.get("evidence_sufficiency_reason", ""),
+                 "readiness_status": "controller_judgment_not_verified_evidence",
                  "method": "fact-pair-v1-production-adaptation-1",
+                 **({"answer_source_reading": outcome.answer_source_reading} if outcome.answer_source_reading else {}),
                  "fact_selections": [note.model_dump(mode="json") for note in outcome.fact_selections]},
                 "question_design_notes", decision, SubagentRole.QUESTION_DESIGN,
             ))
-        if not outcome.hypotheses or is_hierarchical(decision):
+        if not original_hypotheses or is_hierarchical(decision):
             artifacts.append(_artifact(
                 {"batch_id": f"design_batch.{decision.decision_id}",
                  "claim_ids": [claim.claim_id for claim in claims],
-                 "stop_reason": outcome.result.stop_reason,
-                 "domain_outcome": outcome.result.domain_outcome.value},
+                 "stop_reason": original_result.stop_reason,
+                 "domain_outcome": original_result.domain_outcome.value},
                 "question_design_batch", decision, SubagentRole.QUESTION_DESIGN,
             ))
         self._commit_child(
@@ -694,7 +971,9 @@ class ObjectiveQuestionAgentLoop:
             and _artifact_has_purpose(artifact, "verification")
             and artifact.payload.get("terminal_status") == "SUCCEEDED"
         ]
-        verification_results = _select_verification_results(
+        existing_sources = is_react(decision) and decision.action_parameters.get(
+            "evidence_mode", "existing_sources" if hypothesis.evidence_basis == "source_passages" else "retrieved") == "existing_sources"
+        verification_results = [] if existing_sources else _select_verification_results(
             decision,
             hypothesis=hypothesis,
             claims=claims,
@@ -705,7 +984,7 @@ class ObjectiveQuestionAgentLoop:
             ),
             provider_results=all_verification_results,
         )
-        final_wording = snapshot.manifest.orchestrator_version == FINAL_QUESTION_WORKFLOW
+        final_wording = is_react(decision) or snapshot.manifest.orchestrator_version == FINAL_QUESTION_WORKFLOW
         query = build_blind_answer_query(hypothesis, claims)
         provider_results = [
             EvidenceProviderResult.model_validate(artifact.payload)
@@ -716,6 +995,7 @@ class ObjectiveQuestionAgentLoop:
             for artifact in verification_results
         ]
         plans = VerificationPlan(
+            evidence_mode="existing_sources" if existing_sources else "retrieved",
             plan_id=f"verification_plan.{hypothesis.hypothesis_id}",
             hypothesis_id=hypothesis.hypothesis_id,
             blind_answer_query_digest=query.input_digest(),
@@ -775,6 +1055,7 @@ class ObjectiveQuestionAgentLoop:
             for focus in successful_focuses
         )
         coverage = VerificationCoverageReport(
+            evidence_mode="existing_sources" if existing_sources else "retrieved",
             coverage_report_id=f"coverage.{hypothesis.hypothesis_id}",
             expected_attempt_ids=attempt_ids,
             terminal_attempt_ids=attempt_ids if all_terminal else [],
@@ -803,13 +1084,16 @@ class ObjectiveQuestionAgentLoop:
             for item in attempts
             for anchor_id in item.anchor_ids
         }
-        anchors = [
-            anchor
-            for anchor in self._models(
-                snapshot, "evidence_anchor", EvidenceAnchor
-            )
-            if anchor.anchor_id in verification_anchor_ids
-        ]
+        if existing_sources:
+            verification_anchor_ids = set(hypothesis.discovery_anchor_ids)
+        anchors = [anchor for anchor in self._models(snapshot, "evidence_anchor", EvidenceAnchor)
+                   if anchor.anchor_id in verification_anchor_ids]
+        if existing_sources:
+            material_by_id = {m.material_id: m for m in self._models(snapshot, "evidence_material", EvidenceMaterial)}
+            for anchor in anchors:
+                raw = self.persistence.load_raw_content(material_by_id[anchor.material_id]).decode("utf-8")
+                if raw[anchor.start_offset:anchor.end_offset] != anchor.quoted_text:
+                    raise RoleContractViolation("Saved source anchor no longer matches original text")
         bundle = VerificationEvidenceBundle(
             plan=plans,
             attempts=attempts,
@@ -824,7 +1108,7 @@ class ObjectiveQuestionAgentLoop:
         task = build_objective_subagent_task(
             task_id=f"verification.{decision.decision_id}",
             role=SubagentRole.ANSWER_VERIFICATION,
-            budget={"max_model_calls": 2 * MAX_VIEW_CALLS + 1, "max_provider_calls": 0},
+            budget={"max_model_calls": 3 * MAX_VIEW_CALLS + 1, "max_provider_calls": 0},
             capability=capability,
             goal={
                 "blind_answer_query": query.model_dump(mode="json"),
@@ -836,13 +1120,15 @@ class ObjectiveQuestionAgentLoop:
                 *verification_anchor_ids,
             ],
         )
+        from .source_question_inputs import candidate_research_context
         outcome = AnswerVerificationSubagent(self.model).run(
             task,
             hypothesis=hypothesis,
             claims=claims,
             evidence=bundle,
             final_wording=final_wording,
-            design_requirements={"style_targets": self.goal.style_targets,
+            design_requirements={"research_context": candidate_research_context(snapshot, hypothesis.hypothesis_id),
+                                 "style_targets": self.goal.style_targets,
                                  "language": self.goal.language, "planner_environment": self.goal.planner_environment},
             discovery_document_ids=frozenset(snapshot.artifacts[aid].payload.get("document_id", "")
                 for aid in hypothesis.discovery_anchor_ids if aid in snapshot.artifacts),
@@ -851,23 +1137,38 @@ class ObjectiveQuestionAgentLoop:
         if outcome.final_review:
             audit = _artifact({"artifact_id": f"final_review.{decision.decision_id}",
                 "hypothesis_id": hypothesis.hypothesis_id, "question": hypothesis.question_intent,
+                "evidence_mode": plans.evidence_mode,
                 "blind_result": outcome.blind_result.model_dump(mode="json"),
+                "claim_checks": [check.model_dump(mode="json") for check in outcome.claim_checks],
+                "independent_answer_repair": outcome.independent_answer_repair,
+                "claim_entailment_audits": list(outcome.claim_entailment_audits),
                 "review": outcome.final_review.model_dump(mode="json")},
                 "final_question_review", decision, SubagentRole.ANSWER_VERIFICATION)
         if (is_hierarchical(decision)
-                and outcome.resolution.status is AnswerStatus.INDETERMINATE
-                and (outcome.evidence_need or "").strip()
-                and decision.action_parameters.get("verification_round", 1) < MAX_EVIDENCE_ROUNDS):
+                and (is_react(decision) or outcome.resolution.status is AnswerStatus.INDETERMINATE)
+                and (is_react(decision) or (outcome.evidence_need or "").strip())
+                and outcome.frozen_contract is None
+                and (is_react(decision) or decision.action_parameters.get("verification_round", 1) < MAX_EVIDENCE_ROUNDS)):
             gap = {"artifact_id": f"verification_gap.{decision.decision_id}",
                    "hypothesis_id": hypothesis.hypothesis_id,
                    "round": decision.action_parameters.get("verification_round", 1),
                    "reason": outcome.result.stop_reason,
                    "evidence_need": outcome.evidence_need,
+                   "diagnosis": outcome.final_review.explanation if outcome.final_review else outcome.result.stop_reason,
+                   "repair_issues": [i.model_dump(mode="json") for i in outcome.final_review.repair_issues] if outcome.final_review else [],
+                   "recommended_action": outcome.final_review.recommended_action if outcome.final_review else None,
                    "question": hypothesis.question_intent,
                    "resolution": outcome.resolution.model_dump(mode="json"),
                    "used_anchor_ids": sorted(verification_anchor_ids)}
             if audit:
                 gap["missing_evidence_kind"] = outcome.final_review.missing_evidence_kind
+            if outcome.result.stop_reason == "ANSWER_SCOPE_UNCONFIRMED":
+                gap["diagnosis"] = (
+                    "The evidence review did not confirm semantic answer completeness. "
+                    "Identify which requested component is missing using the review and source text. "
+                    "Complementary list entries may form one answer; merging their formatting "
+                    "does not resolve a substantive coverage gap."
+                )
             gap_artifacts = [_artifact(gap, "verification_gap", decision, SubagentRole.ANSWER_VERIFICATION)]
             if audit:
                 gap_artifacts.append(audit)
@@ -896,15 +1197,45 @@ class ObjectiveQuestionAgentLoop:
             artifacts.append(audit)
             states = [HypothesisState.REJECTED if outcome.resolution.status is AnswerStatus.REJECTED
                       else HypothesisState.INDETERMINATE]
+            classification_usage = {}
             if outcome.frozen_contract:
-                draft, report = _publish_reviewed_wording(outcome, audit)
-                artifacts.extend([_artifact(draft, "objective_question_draft", decision, SubagentRole.ANSWER_VERIFICATION),
-                                  _artifact(report, "objective_validation_report", decision, SubagentRole.ANSWER_VERIFICATION)])
+                classification, classification_usage = assess_difficulty(
+                    self.model,
+                    question=outcome.frozen_contract.question_intent,
+                    answer=outcome.frozen_contract.answer_values,
+                    anchors=[anchor for anchor in anchors if anchor.anchor_id in outcome.resolution.supporting_anchor_ids],
+                    planner_environment=self.goal.planner_environment,
+                    operation_key=task.operation_key,
+                )
+                difficulty_audit = _artifact(
+                    {"artifact_id": f"difficulty.{decision.decision_id}",
+                     "hypothesis_id": hypothesis.hypothesis_id,
+                     "generation_strategy": question_strategy(self.goal).name,
+                     "strategy_version": "question-strategies-v1",
+                     "assessment_version": "difficulty-v1",
+                     "assessment": classification.model_dump(mode="json")},
+                    "difficulty_assessment", decision, SubagentRole.ANSWER_VERIFICATION,
+                ).model_copy(update={"producer_role": "objective_difficulty_assessment"})
+                artifacts.append(difficulty_audit)
+                draft, report = _publish_reviewed_wording(outcome, audit, classification, difficulty_audit)
+                artifacts.append(_artifact(draft, "objective_question_draft", decision, SubagentRole.ANSWER_VERIFICATION))
+                if is_react(decision):
+                    artifacts.append(_artifact({"artifact_id": f"proposal.{decision.decision_id}",
+                        "hypothesis_id": hypothesis.hypothesis_id, "report": report.model_dump(mode="json"),
+                        "draft_id": draft.draft_id, "note": "Verified proposal; not published. Quality review and explicit publication remain."},
+                        "react_publication_proposal", decision, SubagentRole.ANSWER_VERIFICATION))
+                else:
+                    artifacts.append(_artifact(report, "objective_validation_report", decision, SubagentRole.ANSWER_VERIFICATION))
                 path = [HypothesisState.PROPOSED, HypothesisState.VERIFICATION_PLANNED, HypothesisState.VERIFYING,
                         HypothesisState.ANSWER_VERIFIED, HypothesisState.QUESTION_REALIZED,
                         HypothesisState.RELEASE_REVIEWED, HypothesisState.PUBLISHED]
+                if is_react(decision):
+                    path = path[:-1]
                 states = path[path.index(snapshot.hypotheses[hypothesis.hypothesis_id]) + 1:]
-            result = outcome.result.model_copy(update={"output_artifact_ids": [a.artifact_id for a in artifacts]})
+            usage = dict(outcome.result.usage)
+            for key in ("model_calls", "input_tokens", "output_tokens"):
+                usage[key] = (usage.get(key) or 0) + (classification_usage.get(key) or 0)
+            result = outcome.result.model_copy(update={"output_artifact_ids": [a.artifact_id for a in artifacts], "usage": usage})
             self._commit_child(snapshot, decision, task.subtask_id, result, artifacts,
                                hypothesis_transition=(hypothesis.hypothesis_id, states))
             return
@@ -1230,6 +1561,18 @@ class ObjectiveQuestionAgentLoop:
         artifacts: list[ArtifactEnvelope],
         *, hypothesis_transition=None,
     ) -> None:
+        if is_react(decision):
+            step = _artifact({"artifact_id": f"step.{decision.decision_id}",
+                "sequence": snapshot.commit_sequence, "action": decision.action,
+                "execution_record": {"origin": "host", "status": "NOT_EXECUTED" if decision.action == "tool_feedback" else result.execution_status,
+                    "feedback_delivery_status": result.execution_status if decision.action == "tool_feedback" else None,
+                    "domain_outcome": result.domain_outcome, "error_category": "TOOL_CALL_REJECTED" if decision.action == "tool_feedback" else result.error_category,
+                    "attempted_tool_executed": decision.action != "tool_feedback"},
+                "parameters": decision.action_parameters,
+                "research_note": decision.action_parameters.get("research_note", ""),
+                "result_ids": [a.artifact_id for a in artifacts]}, "react_step", decision, SubagentRole.FACT_UNDERSTANDING)
+            artifacts = [*artifacts, step]
+            result = result.model_copy(update={"output_artifact_ids": [*result.output_artifact_ids, step.artifact_id]})
         self.runtime.register_child_slot(
             expected_state_revision=snapshot.state_revision,
             slot_id=slot_id,
@@ -1243,6 +1586,9 @@ class ObjectiveQuestionAgentLoop:
             artifacts=artifacts,
             hypothesis_transition=hypothesis_transition,
         )
+
+        trace_event("tool_result", slot_id=slot_id, result=result.model_dump(mode="json"),
+                    artifacts=[a.model_dump(mode="json") for a in artifacts])
 
     def _models(self, snapshot, artifact_type: str, model: type):
         return [
@@ -1400,7 +1746,7 @@ class ObjectiveQuestionAgentLoop:
             if contract is None:
                 continue
             resolution = resolutions_by_id.get(contract.resolution_id)
-            if resolution is None:
+            if resolution is None or snapshot.hypotheses.get(resolution.hypothesis_id) is not HypothesisState.PUBLISHED:
                 continue
             published.append(
                 PublishedObjectiveQuestion(
@@ -1413,20 +1759,24 @@ class ObjectiveQuestionAgentLoop:
         return published
 
 
-def _publish_reviewed_wording(outcome, audit):
+def _publish_reviewed_wording(outcome, audit, classification, difficulty_audit):
     contract = outcome.frozen_contract
-    review = outcome.final_review
     readback = QuestionSemanticReadback.model_validate(
         contract.model_dump(include=set(QuestionSemanticReadback.model_fields)))
+    # The review rationale is an audit artifact. The public field points to the
+    # evidence so it cannot add factual claims beyond the checked answer.
+    sources = ", ".join(outcome.resolution.verification_sources)
     draft = ObjectiveQuestionDraft(draft_id=f"draft.{contract.contract_id}", contract_id=contract.contract_id,
         question_text=contract.question_intent, answer_values=contract.answer_values,
-        concise_explanation=review.explanation, semantic_readback=readback)
+        concise_explanation=f"Evidence: {sources}" if sources else "See the supporting evidence.",
+        semantic_readback=readback)
     report = ObjectiveValidationReport(report_id=f"validation.{draft.draft_id}", question_id=draft.draft_id,
         verdict=ObjectiveVerdict.PASS, release_allowed=True, primary_reason="PASS",
-        assessed_difficulty=review.assessed_difficulty, public_question_audit_id=audit.artifact_id,
+        assessed_difficulty=classification.assessed_difficulty, difficulty_assessment_id=difficulty_audit.artifact_id,
+        public_question_audit_id=audit.artifact_id,
         answer_audit_id=audit.artifact_id, evidence_used=outcome.resolution.verification_sources,
         validator_version="final-question-v2", input_digest=canonical_digest(
-            [draft.model_dump(mode="json"), outcome.resolution.digest(), audit.digest]))
+            [draft.model_dump(mode="json"), outcome.resolution.digest(), audit.digest, difficulty_audit.digest]))
     return draft, report
 
 
@@ -1437,6 +1787,7 @@ def _processed_fact_material_ids(
         str(material_id)
         for artifact in snapshot.artifacts.values()
         if artifact.artifact_type == "fact_understanding_batch"
+        and not artifact.payload.get("partial_source_selection", False)
         for material_id in artifact.payload.get("material_ids", [])
     }
 
@@ -2004,7 +2355,13 @@ def _fact_claim_artifacts(
 
 def _artifact_id(artifact_type: str, payload: dict[str, Any]) -> str:
     preferred_key = {
+        "candidate_research_context": "artifact_id",
+        "react_publication_proposal": "artifact_id",
+        "candidate_usability_review": "artifact_id",
+        "react_observation": "artifact_id",
+        "react_step": "artifact_id",
         "final_question_review": "artifact_id",
+        "difficulty_assessment": "artifact_id",
         "verification_gap": "artifact_id",
         "wording_repair_request": "artifact_id",
         "candidate_closure": "artifact_id",

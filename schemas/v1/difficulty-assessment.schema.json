@@ -1,0 +1,48 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "assessed_difficulty": {
+      "enum": [
+        "easy",
+        "medium",
+        "hard"
+      ],
+      "title": "Assessed Difficulty",
+      "type": "string"
+    },
+    "necessary_integrations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Necessary Integrations",
+      "type": "array"
+    },
+    "rationale": {
+      "minLength": 1,
+      "title": "Rationale",
+      "type": "string"
+    },
+    "shortcuts": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Shortcuts",
+      "type": "array"
+    },
+    "shortest_solution_steps": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Shortest Solution Steps",
+      "type": "array"
+    }
+  },
+  "required": [
+    "assessed_difficulty",
+    "shortest_solution_steps",
+    "rationale"
+  ],
+  "title": "DifficultyAssessment",
+  "type": "object"
+}

@@ -55,6 +55,7 @@ const model = reactive({
   providers: [],
 });
 const questionStyles = ref([]);
+const objectiveDefaults = ref(null);
 const starting = ref(false);
 const runNotice = ref("");
 const taskSection = ref(null);
@@ -146,6 +147,7 @@ const applyBootstrap = (payload) => {
   entities.value = payload.entities || [];
   selectedEntityId.value = payload.selected_entity_id || "";
   questionStyles.value = payload.question_styles || [];
+  objectiveDefaults.value = payload.objective_defaults || null;
   entityError.value = payload.entity_error || "";
   model.ready = Boolean(payload.model?.ready);
   model.detail = payload.model?.detail || "";
@@ -253,6 +255,7 @@ const fetchObjectiveStatus = async (taskId, signal) => {
 };
 
 const progressMessage = (summary) => {
+  if (summary.worker_interrupted) return summary.stop_reason;
   if (summary.stalled) {
     return `主 Agent 已经 ${Math.floor(
       (summary.seconds_since_progress || 0) / 60,
@@ -303,7 +306,9 @@ const loadObjectiveWorkbench = async (
   runNotice.value =
     !isTerminalTask(payload)
       ? progressMessage(payload)
-      : payload.status === "failed"
+      : payload.worker_interrupted
+        ? payload.stop_reason
+        : payload.status === "failed"
         ? "本次运行未完成，请查看停止原因。"
         : payload.published_count > 0
       ? `本次发布 ${payload.published_count} 道题；候选与拒绝原因可继续展开。`
@@ -507,8 +512,13 @@ const resumeSelectedTask = async () => {
     };
     await loadRunDetail(taskId);
   } catch (error) {
+    if (selectedTask.value?.task_id !== taskId) return;
     detailError.value = error.message || String(error);
-    if (selectedTask.value?.task_id === taskId) selectedTask.value = previousTask;
+    if (await pollObjectiveSummary(taskId)) {
+      scheduleObjectivePoll(taskId);
+    } else if (selectedTask.value?.task_id === taskId) {
+      selectedTask.value = previousTask;
+    }
   } finally {
     resumeBusy.value = false;
   }
@@ -563,20 +573,27 @@ const selectTask = async (taskId) => {
 };
 
 const pollObjectiveSummary = async (taskId) => {
+  const revision = selectionRevision;
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 8000);
   try {
     const summary = await fetchObjectiveStatus(taskId, controller.signal);
-    if (selectedTask.value?.task_id !== taskId) return null;
-    mergeTaskSummary(summary);
+    if (revision !== selectionRevision || selectedTask.value?.task_id !== taskId) return null;
+    if (starting.value && routeName.value === "workbench") {
+      window.history.replaceState({}, "", runDetailUrl(taskId));
+      parseRoute();
+    }
     runNotice.value = progressMessage(summary);
-    if (isTerminalTask(summary) && completedObjectiveTaskId !== taskId) {
-      window.clearTimeout(progressTimer);
-      completedObjectiveTaskId = taskId;
-      await loadObjectiveWorkbench(taskId);
+    const newlyFinished = isTerminalTask(summary) && completedObjectiveTaskId !== taskId;
+    if (newlyFinished || (summary.published_count ?? 0) > questions.value.length) {
+      const workbench = await loadObjectiveWorkbench(taskId, revision);
+      if (newlyFinished && workbench) completedObjectiveTaskId = taskId;
+    } else {
+      mergeTaskSummary(summary);
     }
     return summary;
   } catch (error) {
+    if (revision !== selectionRevision || selectedTask.value?.task_id !== taskId) return null;
     runNotice.value =
       error?.name === "AbortError"
         ? "读取主 Agent 进度超时，后台暂时没有响应。"
@@ -737,7 +754,6 @@ const startGeneration = async (configuration) => {
         ...(configuration.styleId
           ? { question_style_ids: [configuration.styleId] }
           : {}),
-        max_actions: 100,
         providers: configuration.providers,
       }),
     });
@@ -753,11 +769,18 @@ const startGeneration = async (configuration) => {
       payload,
       ...tasks.value.filter((item) => item.task_id !== taskId),
     ];
-    if (routeName.value !== "workbench") return;
-    window.history.replaceState({}, "", runDetailUrl(taskId));
-    parseRoute();
+    if (routeName.value === "workbench") {
+      window.history.replaceState({}, "", runDetailUrl(taskId));
+      parseRoute();
+    }
+    if (routeRunId.value !== taskId) return;
     await loadRunDetail(taskId);
   } catch (error) {
+    if (revision !== selectionRevision || selectedTask.value?.task_id !== taskId) return;
+    if (await pollObjectiveSummary(taskId)) {
+      scheduleObjectivePoll(taskId);
+      return;
+    }
     if (revision !== selectionRevision || selectedTask.value?.task_id !== taskId) return;
     runNotice.value = `生成失败：${error.message || error}`;
     selectedTask.value = {
@@ -847,6 +870,9 @@ onBeforeUnmount(() => {
       <span>Research</span>
     </a>
     <nav aria-label="工作台导航">
+      <a href="/production">自动出题</a>
+      <a href="/publication-runs">按触发查看</a>
+      <a href="/published">全部题目</a>
       <a
         href="/generate"
         :aria-current="routeName === 'workbench' ? 'page' : undefined"
@@ -978,6 +1004,7 @@ onBeforeUnmount(() => {
             :selected-entity="selectedEntity"
             :model="model"
             :styles="questionStyles"
+            :defaults="objectiveDefaults"
             :running="taskIsRunning"
             @submit="startGeneration"
           />

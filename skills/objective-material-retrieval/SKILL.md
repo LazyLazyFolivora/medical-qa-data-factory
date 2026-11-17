@@ -5,7 +5,7 @@ description: 从生物医学实体出发，为 query-planner 出题探索和筛�
 
 # 实体驱动的出题材料检索
 
-本文件是供审阅的第一版项目 skill，尚未接入应用。当前检索子 Agent 每次只能访问一个指定 provider；接入时由主 Agent 使用方向规划规则，由检索子 Agent 使用单来源搜索规则，并加载任务相关的参考内容。
+本文件由 material_retrieval 模型角色加载，并附带下方检索参考内容。当前 ReAct 主链路通常直接执行 provider 查询并返回未筛选结果，不调用该模型角色；其检索方向与正文选择由 objective-react-agent skill 指导。不要将本文件的存在视为主 agent 已读取它。
 
 ## 目标与边界
 

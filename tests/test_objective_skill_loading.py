@@ -67,3 +67,22 @@ def test_blind_payload_is_not_enriched_with_candidate_answers():
     result = request("objective_answer_verification", payload)
     assert result.payload == payload
     assert "proposed_answer_values" not in result.payload
+
+
+def test_discovery_is_independent_and_versioned(tmp_path):
+    import shutil
+    companion = "objective-research-question-discovery"
+    marker = "# 研究问题发现"
+    assert marker in request("objective_question_discovery").skill_instruction
+    assert marker not in request("objective_react_agent").skill_instruction
+    assert marker not in request("objective_question_design").skill_instruction
+    assert marker not in request("objective_answer_verification", {"stage": "final_blind"}).skill_instruction
+    shutil.copytree(SKILL_ROOT / companion, tmp_path / companion)
+    before = load_objective_skill("objective_question_discovery", {}, root=tmp_path)
+    path = tmp_path / companion / "SKILL.md"
+    path.write_text(path.read_text(encoding="utf-8") + "\nChanged guidance", encoding="utf-8")
+    after = load_objective_skill("objective_question_discovery", {}, root=tmp_path)
+    assert before[1] != after[1]
+    path.unlink()
+    with pytest.raises(FileNotFoundError):
+        load_objective_skill("objective_question_discovery", {}, root=tmp_path)

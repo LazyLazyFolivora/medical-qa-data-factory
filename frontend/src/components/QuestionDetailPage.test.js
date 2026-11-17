@@ -14,6 +14,12 @@ describe("QuestionDetailPage", () => {
             answer: ["BAI1"],
             explanation: "The interaction was experimentally confirmed.",
             status_label: "已发布",
+            suggested_retrieval: {
+              query: "PHYHIP binding partners",
+              sources: ["PubMed"],
+              expected_evidence: "A documented binding assay",
+              stop_condition: "The source identifies the binding partner",
+            },
           },
           validation: {
             verdict: "PASS",
@@ -35,6 +41,8 @@ describe("QuestionDetailPage", () => {
     expect(wrapper.text()).toContain("Which protein binds PHYHIP?");
     expect(wrapper.text()).toContain("BAI1");
     expect(wrapper.text()).toContain("PHYHIP interacts with BAI1");
+    expect(wrapper.text()).toContain("PHYHIP binding partners");
+    expect(wrapper.text()).toContain("A documented binding assay");
     expect(wrapper.text()).toContain("web-question");
   });
 });

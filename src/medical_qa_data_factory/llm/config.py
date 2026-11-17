@@ -43,6 +43,8 @@ class ModelProviderConfig:
     max_retries: int = 3
     #: Whether the provider honours a strict JSON Schema response format.
     supports_strict_json_schema: bool = True
+    structured_output_modes_by_role: dict[str, str] = field(default_factory=dict)
+    tokenization_url: str | None = None
     request_parameters: dict[str, Any] = field(default_factory=dict)
     context_window_tokens: int = 32768
     output_reserve_tokens: int = 4096
@@ -51,6 +53,17 @@ class ModelProviderConfig:
     compact_target_ratio: float = 0.75
 
     def __post_init__(self) -> None:
+        if self.tokenization_url:
+            from urllib.parse import urlsplit
+            target, origin = urlsplit(self.tokenization_url), urlsplit(self.base_url)
+            if target.scheme not in {"http", "https"} or (target.scheme, target.netloc) != (origin.scheme, origin.netloc):
+                raise ModelConfigurationError("tokenization_url must share the model endpoint origin")
+        if not isinstance(self.structured_output_modes_by_role, dict) or any(
+                not isinstance(role, str) or mode not in {"json_schema", "json_object", "prompt_only"}
+                for role, mode in self.structured_output_modes_by_role.items()):
+            raise ModelConfigurationError("invalid structured_output_modes_by_role")
+        if "json_schema" in self.structured_output_modes_by_role.values() and not self.supports_strict_json_schema:
+            raise ModelConfigurationError("role JSON Schema mode requires supports_strict_json_schema")
         if (self.output_reserve_tokens < 1 or self.context_safety_tokens < 0
                 or self.context_window_tokens <= self.output_reserve_tokens + self.context_safety_tokens):
             raise ModelConfigurationError("invalid context token budget")
@@ -89,6 +102,8 @@ class ModelProviderConfig:
             "api_key_env": self.api_key_env,
             "auth_mode": self.auth_mode,
             "structured_output_mode": self.structured_output_mode,
+            "structured_output_modes_by_role": self.structured_output_modes_by_role,
+            "tokenization_url": self.tokenization_url,
             "timeout_seconds": self.timeout_seconds,
             "max_retries": self.max_retries,
             "supports_strict_json_schema": self.supports_strict_json_schema,
@@ -203,6 +218,8 @@ def _provider_from_payload(
         ),
         auth_mode=auth_mode,
         structured_output_mode=structured_output_mode,
+        structured_output_modes_by_role=payload.get("structured_output_modes_by_role", {}),
+        tokenization_url=payload.get("tokenization_url"),
         timeout_seconds=int(payload.get("timeout_seconds", 60)),
         max_retries=int(payload.get("max_retries", 3)),
         supports_strict_json_schema=bool(

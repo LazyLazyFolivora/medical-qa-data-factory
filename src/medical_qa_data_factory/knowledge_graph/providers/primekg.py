@@ -301,6 +301,20 @@ class PrimeKGSQLiteProvider:
         self._connection = connection
         return connection
 
+    def production_entities(self, entity_type: str, after: str = "", limit: int = 100):
+        """Page stable entity identities for continuous production."""
+        if self._entity_catalog is None:
+            raise GraphConfigurationError("production requires an entity catalog")
+        with self._entity_search_lock:
+            self._entity_catalog.ensure(snapshot_id=self.snapshot().data_snapshot_id)
+        with sqlite3.connect(f"file:{self._entity_catalog.path.as_posix()}?mode=ro", uri=True) as connection:
+            rows = connection.execute(
+                "SELECT canonical_id, name, entity_type FROM entities "
+                "WHERE canonical_id > ? AND entity_type = ? ORDER BY canonical_id LIMIT ?",
+                (after, entity_type, limit),
+            ).fetchall()
+        return [dict(canonical_id=row[0], name=row[1], entity_type=row[2]) for row in rows]
+
     def close(self) -> None:
         if self._connection is not None:
             self._connection.close()
@@ -724,6 +738,28 @@ class PrimeKGSQLiteProvider:
                     if len(entities) > limit:
                         return entities[:limit], True, rows_examined
         return entities[:limit], False, rows_examined
+
+    def relation_inventory(self, lookup: EntityLookup) -> dict[str, Any]:
+        """Describe actual relation choices for one resolved entity, not evidence."""
+        resolution = self.resolve_entity(lookup)
+        if resolution.selected is None:
+            return {"resolution": resolution.model_dump(mode="json"), "relations": []}
+        entity = resolution.selected
+        groups = []
+        # Same read-only connection and timeout as normal graph queries.
+        for side, other, direction in (("head", "tail", "outgoing"), ("tail", "head", "incoming")):
+            rows, truncated = self._select(
+                f"SELECT relation, {other}_type AS target_type, COUNT(*) AS edge_rows "
+                f"FROM edges WHERE {side}_id = ? AND {side}_type = ? "
+                f"GROUP BY relation, {other}_type ORDER BY relation, {other}_type LIMIT 201",
+                (entity.native_id, entity.metadata.get("entity_type_raw", entity.entity_type)), 200,
+            )
+            groups.extend({**dict(row), "direction": direction} for row in rows[:200])
+            if truncated:
+                raise GraphQueryError("Relation inventory exceeds 200 groups; narrow the entity")
+        return {"entity": entity.model_dump(mode="json"), "relations": groups,
+                "snapshot_id": self.snapshot().data_snapshot_id,
+                "meaning": "Actual available relation/type groups; counts are database rows, not biological importance or unique neighbors."}
 
     def neighbors(self, query: NeighborQuery) -> GraphQueryResult:
         started = time.perf_counter()

@@ -24,6 +24,10 @@ def estimate_tokens(body: dict[str, Any]) -> int:
 @dataclass
 class ContextManager:
     config: ModelProviderConfig
+    counter: Callable[[dict[str, Any]], tuple[int, str]] | None = None
+
+    def count(self, body):
+        return self.counter(body) if self.counter else (estimate_tokens(body), "heuristic_ascii3_unicode2")
 
     def input_budget(self, body):
         output = body.get("max_completion_tokens", body.get("max_tokens", self.config.output_reserve_tokens))
@@ -34,20 +38,21 @@ class ContextManager:
     def prepare(self, request, build: Callable, compact: Callable):
         body = build(request)
         budget = self.input_budget(body)
-        before = estimate_tokens(body)
+        before, estimator = self.count(body)
         after = before
         rounds = 0
         if after > budget * self.config.compact_trigger_ratio:
             for round_number in (1, 2):
                 candidate = compact(request, round_number=round_number)
                 candidate_body = build(candidate)
-                size = estimate_tokens(candidate_body)
+                size, candidate_estimator = self.count(candidate_body)
                 if size < after:
                     request, body, after = candidate, candidate_body, size
+                    estimator = candidate_estimator
                     rounds += 1
                 if after <= budget * self.config.compact_target_ratio:
                     break
-        report = {"estimator": "heuristic_ascii3_unicode2", "estimated_before": before,
+        report = {"estimator": estimator, "estimated_before": before,
                   "estimated_after": after, "input_budget": budget, "compaction_rounds": rounds}
         if after > budget:
             raise ModelError(ModelErrorCode.BAD_REQUEST,

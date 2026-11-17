@@ -41,6 +41,18 @@
       "title": "Blocking Findings",
       "type": "array"
     },
+    "difficulty_assessment_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Difficulty Assessment Id"
+    },
     "evidence_used": {
       "items": {
         "type": "string"

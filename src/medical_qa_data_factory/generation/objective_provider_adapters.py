@@ -88,33 +88,45 @@ class PrimeKgMaterialProvider:
             safe_to_repeat=True,
         )
 
+    def browse(self, query):
+        from ..knowledge_graph.primekg_browser import PrimeKGBrowser
+        return PrimeKGBrowser(self.provider).navigate(query)
+
     def retrieve(self, request: EvidenceProviderRequest) -> EvidenceProviderResult:
         query = request.query.get(request.provider_id, request.query)
         if not isinstance(query, dict):
             query = request.query
         try:
-            resolution = self.provider.resolve_entity(
-                EntityLookup(
-                    mention=str(query.get("mention") or query.get("term") or ""),
-                    native_id=query.get("native_id"),
-                    entity_types=list(query.get("entity_types") or []),
-                    limit=10,
+            operation = query.get("operation")
+            if operation == "get_relations":
+                from ..knowledge_graph.primekg_browser import PrimeKGBrowser
+                edges = PrimeKGBrowser(self.provider).get_relations(query, request.material_limit)
+            elif operation not in {None, "neighbors"}:
+                raise ValueError("Use the PrimeKG navigation route for overview/search_nodes/list_neighbors")
+            else:
+                resolution = self.provider.resolve_entity(
+                    EntityLookup(
+                        mention=str(query.get("mention") or query.get("term") or ""),
+                        native_id=query.get("native_id"),
+                        entity_types=list(query.get("entity_types") or []),
+                        limit=10,
+                    )
                 )
-            )
-            if resolution.selected is None:
-                return _empty_result(request)
-            direction = str(query.get("direction") or "both")
-            if direction not in {"both", "incoming", "outgoing"}:
-                direction = "both"
-            edges = self.provider.neighbors(
-                NeighborQuery(
-                    entity=resolution.selected,
-                    direction=direction,
-                    target_types=list(query.get("target_types") or []),
-                    relations=list(query.get("relations") or []),
-                    limit=request.material_limit,
+                if resolution.selected is None:
+                    return _empty_result(request)
+                direction = str(query.get("direction") or "both")
+                if direction not in {"both", "incoming", "outgoing"}:
+                    direction = "both"
+                edges = self.provider.neighbors(
+                    NeighborQuery(
+                        entity=resolution.selected,
+                        direction=direction,
+                        target_types=list(query.get("target_types") or []),
+                        relations=list(query.get("relations") or []),
+                        limit=request.material_limit,
+                        cursor=query.get("cursor"),
+                    )
                 )
-            )
         except Exception as exc:
             return _failure_result(
                 request,
@@ -135,8 +147,12 @@ class PrimeKgMaterialProvider:
                 f"head_type={edge.head.entity_type}; "
                 f"tail_type={edge.tail.entity_type}"
             )
-            material_id = f"material.primekg.{edge.edge_id}"
-            anchor_id = f"anchor.primekg.{edge.edge_id}"
+            if query.get("operation") == "get_relations":
+                content += "\n" + json.dumps({"stored_source": edge.source, "metadata": edge.metadata,
+                    "interpretation": "Stored association; orientation is not causality. Source label is not a publication citation."}, ensure_ascii=False, sort_keys=True)
+            suffix = "." + text_digest(content)[:16] if query.get("operation") == "get_relations" else ""
+            material_id = f"material.primekg.{edge.edge_id}{suffix}"
+            anchor_id = f"anchor.primekg.{edge.edge_id}{suffix}"
             digest = text_digest(content)
             materials.append(
                 {
@@ -177,6 +193,9 @@ class PrimeKgMaterialProvider:
             usage={
                 "provider_calls": 2,
                 "rows_examined": edges.trace.rows_examined or 0,
+                "truncated": edges.truncated,
+                "next_cursor": edges.next_cursor,
+                "operation": query.get("operation", "neighbors"),
             },
         )
 
@@ -190,13 +209,17 @@ class PubMedMaterialProvider:
         client: PubMedClient | None = None,
         *,
         fulltext_transport: JsonGetTransport | None = None,
-        max_fulltext_chars: int = 16000,
+        max_fulltext_chars: int = 180000,
+        open_article_loader: Callable | None = None,
     ) -> None:
         self.client = client or PubMedClient()
         self.fulltext_transport = (
             fulltext_transport or _requests_pubtator_json
         )
         self.max_fulltext_chars = max(1000, max_fulltext_chars)
+        # An injected transport stays offline unless a fallback is explicitly injected.
+        from .fulltext_download import fetch_article_with_fallback
+        self.open_article_loader = open_article_loader or (fetch_article_with_fallback if fulltext_transport is None else None)
         self.capability = EvidenceProviderCapability(
             provider_id="pubmed",
             provider_version="pubmed-eutils-v1",
@@ -208,28 +231,9 @@ class PubMedMaterialProvider:
 
     def retrieve(self, request: EvidenceProviderRequest) -> EvidenceProviderResult:
         term = str(request.query.get("term") or request.query.get("mention") or "")
-        queries = [term]
-        words = term.split()
-        if len(words) > 1:
-            queries.extend(
-                [
-                    " ".join(words[:6]),
-                    " ".join(words[:3]),
-                ]
-            )
-        if len(words) > 6:
-            # Only relax instruction-like queries to the leading term. Normal
-            # short biomedical queries keep their full meaning.
-            queries.append(words[0])
-        queries = list(dict.fromkeys(query for query in queries if query))
-        search = None
-        for query in queries:
-            search = self.client.search_result(
-                query, limit=request.material_limit
-            )
-            if search.status is not PubMedProviderStatus.EMPTY:
-                break
-        assert search is not None
+        if not term.strip():
+            raise ValueError("PubMed query requires a non-empty term")
+        search = self.client.search_result(term, limit=request.material_limit)
         if search.status is PubMedProviderStatus.EMPTY:
             return _empty_result(request, snapshot_id=search.snapshot_id)
         if search.status is not PubMedProviderStatus.SUCCESS:
@@ -299,7 +303,7 @@ class PubMedMaterialProvider:
             raw_content_by_material_id=raw_contents,
             snapshot_id=fetched.snapshot_id,
             usage={
-                "provider_calls": len(queries) + 1,
+                "provider_calls": 2,  # One search_result and one fetch_result call.
                 "documents_retrieved": len(materials),
             },
         )
@@ -325,19 +329,19 @@ class PubMedMaterialProvider:
             "publications/export/biocjson?pmids="
             + quote(",".join(pmids), safe=",")
         )
+        primary_error = None
         try:
             payload = self.fulltext_transport(url)
             documents = _pubtator_documents(payload)
         except Exception as exc:
-            return _failure_result(
-                request,
-                category="PUBMED_FULLTEXT_ERROR",
-                message=str(exc),
-            )
+            primary_error = str(exc)
+            documents = {}
         materials: list[dict[str, Any]] = []
         anchors: list[dict[str, Any]] = []
         raw_contents: dict[str, str] = {}
-        fallback_errors: list[dict[str, str]] = []
+        fallback_errors: list[dict[str, str]] = ([{"source": "pubtator", "error_message": primary_error}] if primary_error else [])
+        truncated_pmids: list[str] = []
+        fulltext_downloads: list[dict] = []
         for pmid in pmids:
             document = documents.get(pmid)
             sections = _pubtator_sections(document or {})
@@ -362,13 +366,25 @@ class PubMedMaterialProvider:
                             "error_message": str(exc),
                         }
                     )
+            if not _has_substantive_sections(sections) and self.open_article_loader:
+                try:
+                    article = self.open_article_loader(pmid)
+                    if article.get("download_provenance"):
+                        fulltext_downloads.append({"pmid": pmid, **article["download_provenance"]})
+                    sections = {f"{p['section']} / {p['paragraph_id']}":
+                                article["text"][p["offset"]:p["offset"] + p["length"]]
+                                for p in article["paragraph_index"]}
+                except Exception as exc:
+                    fallback_errors.append({"pmid": pmid, "source": "open_article_loader",
+                                            "error_category": type(exc).__name__, "error_message": str(exc)})
             if not _has_substantive_sections(sections):
                 continue
             content = "\n\n".join(
                 f"[{section_name}]\n{text}"
                 for section_name, text in sections.items()
-            )
+            ).rstrip()
             if len(content) > self.max_fulltext_chars:
+                truncated_pmids.append(pmid)
                 content = content[: self.max_fulltext_chars].rstrip()
             material_id = f"material.pubmed.{pmid}"
             digest = text_digest(content)
@@ -417,7 +433,12 @@ class PubMedMaterialProvider:
                 )
                 cursor = end
         if not materials:
-            return _empty_result(request)
+            if primary_error:
+                return _failure_result(request, category="PUBMED_FULLTEXT_ERROR", message=primary_error).model_copy(
+                    update={"usage": {"fallback_errors": fallback_errors, "requested_pmids": pmids}})
+            return _empty_result(request).model_copy(update={"usage": {
+                "fallback_errors": fallback_errors, "requested_pmids": pmids,
+                "detail_status": "No substantive full-text sections available; abstracts are not full text"}})
         return EvidenceProviderResult(
             request=request,
             terminal_status=ProviderTerminalStatus.SUCCEEDED,
@@ -431,6 +452,9 @@ class PubMedMaterialProvider:
                 "provider_calls": 1,
                 "full_text_documents": len(materials),
                 "fallback_errors": fallback_errors,
+                "truncated_pmids": truncated_pmids,
+                "max_fulltext_chars": self.max_fulltext_chars,
+                "fulltext_downloads": fulltext_downloads,
             },
         )
 
@@ -516,9 +540,11 @@ def _has_substantive_sections(sections: dict[str, str]) -> bool:
 
 def _safe_anchor_field(value: str) -> str:
     cleaned = "".join(
-        character if character.isalnum() else "_"
+        character if character.isascii() and character.isalnum() else "_"
         for character in value.casefold()
     ).strip("_")
+    if len(cleaned) > 48 or not value.isascii():
+        return (cleaned[:36] or "text") + "_" + text_digest(value)[:12]
     return cleaned or "text"
 
 

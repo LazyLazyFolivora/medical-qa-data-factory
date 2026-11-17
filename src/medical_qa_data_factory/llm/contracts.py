@@ -13,6 +13,19 @@ from ..domain.common import ContractModel
 
 
 ModelRole = Literal[
+    "objective_claim_entailment",
+    "objective_research_agent",
+    "objective_reading_summary",
+    "objective_question_discovery",
+    "objective_question_opportunity",
+    "objective_question_reader",
+    "objective_question_form_reader",
+    "objective_training_demonstrator",
+    "objective_training_trace_review",
+    "objective_grounded_answer",
+    "objective_answer_source_reading",
+    "objective_react_agent",
+    "objective_difficulty_assessment",
     "question_method_pilot",
     "exploration_planner",
     "entity_question_exploration_planner",
@@ -33,6 +46,7 @@ ModelRole = Literal[
     "objective_main_agent",
     "objective_workflow_planner",
     "objective_history_summary",
+    "objective_evidence_synthesis",
 ]
 
 

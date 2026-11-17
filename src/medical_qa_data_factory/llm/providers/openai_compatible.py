@@ -15,6 +15,7 @@ deliberately strict about the things the plan requires:
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import time
 from copy import deepcopy
@@ -27,11 +28,15 @@ from ..config import ModelProviderConfig
 from ..context import ContextManager, estimate_tokens
 from ..errors import ModelError, ModelErrorCode, UnsupportedProviderError
 from ..prompts import template_for
+from ..run_trace import trace_event
 
 
 #: The system prompt used for the single allowed schema repair.
 REPAIR_PROMPT = (
     "Your previous reply did not satisfy the required JSON schema. "
+    "Repair that reply using the validation error and the original task. "
+    "Preserve valid content and judgments; change them only when required to resolve the reported error "
+    "or a contradiction identified by that error. Complete missing fields from the original evidence. "
     "Reply with the corrected JSON object only. Do not explain it."
 )
 
@@ -70,6 +75,8 @@ class OpenAICompatibleModel:
     on_physical_call: Any = None
     retry_backoff_seconds: float = 0.5
     retry_sleep: Any = time.sleep
+    _token_counts: dict[str, int] = field(default_factory=dict, init=False, repr=False)
+    _tokenizer_unavailable: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.config.structured_output_mode not in {
@@ -94,7 +101,18 @@ class OpenAICompatibleModel:
 
     # ---- public API ----------------------------------------------------
 
-    def generate_structured(
+    def generate_structured(self, request, response_model):
+        try:
+            result = self._generate_structured(request, response_model)
+            trace_event("model_result", invocation_id=request.invocation_id, role=request.role,
+                        stage=request.payload.get("stage"), result=result.model_dump(mode="json"))
+            return result
+        except Exception as exc:
+            trace_event("model_error", invocation_id=request.invocation_id, role=request.role,
+                        stage=request.payload.get("stage"), error_type=type(exc).__name__, error=str(exc))
+            raise
+
+    def _generate_structured(
         self,
         request: StructuredGenerationRequest,
         response_model: type[ContractModel],
@@ -105,6 +123,7 @@ class OpenAICompatibleModel:
         last_error: ModelError | None = None
         repair = False
         repair_error = None
+        repair_content = None
         fallback_mode: str | None = None
         active_request = request
         context_compaction_round = 0
@@ -113,6 +132,7 @@ class OpenAICompatibleModel:
         def build(current):
             body = self._build_body(current, schema, repair=repair,
                 repair_error=repair_error,
+                repair_content=repair_content,
                 structured_output_mode=fallback_mode)
             if output_cap is not None:
                 key = "max_completion_tokens" if "max_completion_tokens" in body else "max_tokens"
@@ -120,11 +140,20 @@ class OpenAICompatibleModel:
             return body
 
         for attempt_index in range(max_attempts):
-            active_request, attempt_body, context_report = ContextManager(self.config).prepare(
-                active_request,
-                build,
-                _compact_context_request,
-            )
+            context = ContextManager(self.config, self._count_input_tokens)
+            try:
+                active_request, attempt_body, context_report = context.prepare(
+                    active_request, build, _compact_context_request,
+                )
+            except ModelError as exc:
+                if not repair_content or exc.code is not ModelErrorCode.BAD_REQUEST:
+                    raise
+                # Rebuild the same evidence-bearing request without an optional
+                # malformed reply if that reply consumed the remaining budget.
+                repair_content = None
+                active_request, attempt_body, context_report = context.prepare(
+                    active_request, build, _compact_context_request,
+                )
             try:
                 response = self._attempt(
                     active_request, attempt_body, repaired=repair
@@ -145,7 +174,7 @@ class OpenAICompatibleModel:
                                 active_request,
                                 round_number=context_compaction_round + 1,
                             )
-                            shrank = estimate_tokens(build(compacted)) < estimate_tokens(attempt_body)
+                            shrank = self._count_input_tokens(build(compacted))[0] < self._count_input_tokens(attempt_body)[0]
                             if shrank:
                                 active_request = compacted
                             # Some servers stop counting at the first token over the limit.
@@ -159,7 +188,8 @@ class OpenAICompatibleModel:
                                 raise
                         else:
                             fallback_mode = self._next_structured_output_mode(
-                                attempt_body, current_mode=fallback_mode or self.config.structured_output_mode)
+                                attempt_body, current_mode=fallback_mode or self.config.structured_output_modes_by_role.get(
+                                    request.role, self.config.structured_output_mode))
                     delay = self.retry_backoff_seconds * (2 ** attempt_index)
                     if delay > 0:
                         self.retry_sleep(delay)
@@ -187,7 +217,18 @@ class OpenAICompatibleModel:
                 ):
                     raise
                 repair = True
-                repair_error = exc.message
+                repair_error = exc.message[:1500]
+                # Keep only the public answer, never provider reasoning fields.
+                # The next attempt repairs this output instead of solving afresh.
+                try:
+                    envelope = json.loads(response.body)
+                    repair_content = _message_content(envelope) if isinstance(envelope, dict) else None
+                    if repair_content is not None and (
+                        len(repair_content) > 6000 or not repair_content.strip()
+                    ):
+                        repair_content = None
+                except (json.JSONDecodeError, ModelError):
+                    repair_content = None
                 continue
             usage_record = self._usage_record(active_request, usage)
             self.usage_records.append(usage_record)
@@ -217,7 +258,40 @@ class OpenAICompatibleModel:
     def needs_history_compaction(self, request, response_model):
         body = self._build_body(request, response_model.model_json_schema())
         budget = ContextManager(self.config).input_budget(body)
-        return estimate_tokens(body) > budget * self.config.compact_trigger_ratio
+        return self._count_input_tokens(body)[0] > budget * self.config.compact_trigger_ratio
+
+    def _count_input_tokens(self, body):
+        """Count rendered chat input, excluding the decoder grammar and HTTP envelope."""
+        if self.config.tokenization_url and not self._tokenizer_unavailable:
+            payload = {k: v for k, v in body.items() if k in {
+                "model", "messages", "tools", "tool_choice", "chat_template_kwargs"}}
+            payload["add_generation_prompt"] = True
+            key = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+            if key in self._token_counts:
+                return self._token_counts[key], "server_tokenizer"
+            headers = {"Content-Type": "application/json"}
+            api_key = self.config.api_key()
+            if api_key is not None:
+                headers["Authorization"] = f"Bearer {api_key}"
+            try:
+                status, _, text = self.transport(self.config.tokenization_url, headers, payload,
+                                                min(self.config.timeout_seconds, 15))
+                if status != 200:
+                    raise ValueError(f"tokenizer HTTP {status}")
+                result = json.loads(text)
+                count = result.get("count") if isinstance(result, dict) else None
+                if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+                    raise ValueError("tokenizer returned an invalid count")
+                if len(self._token_counts) >= 256:
+                    self._token_counts.clear()
+                self._token_counts[key] = count
+                trace_event("context_token_count", estimator="server_tokenizer", input_tokens=count)
+                return count, "server_tokenizer"
+            except (OSError, TimeoutError, ValueError, ModelError) as exc:
+                self._tokenizer_unavailable = True
+                trace_event("context_token_count_fallback", error_type=type(exc).__name__,
+                            reason="Tokenizer unavailable; using conservative local estimate")
+        return estimate_tokens(body), "heuristic_ascii3_unicode2"
 
     def next_invocation_id(self, prefix: str = "invocation") -> str:
         return new_id(prefix)
@@ -231,6 +305,7 @@ class OpenAICompatibleModel:
         *,
         repair: bool = False,
         repair_error: str | None = None,
+        repair_content: str | None = None,
         structured_output_mode: str | None = None,
     ) -> dict[str, Any]:
         if not request.system_prompt_version.strip():
@@ -239,6 +314,8 @@ class OpenAICompatibleModel:
                 "a structured call must name the prompt version it used",
             )
         role_template = template_for(request.role)
+        output_mode = structured_output_mode or self.config.structured_output_modes_by_role.get(
+            request.role, self.config.structured_output_mode)
         system_prompt = role_template.body
         if request.skill_instruction:
             system_prompt = (
@@ -263,7 +340,8 @@ class OpenAICompatibleModel:
                         "skill_id": request.skill_id,
                         "skill_version": request.skill_version,
                         "payload": request.payload,
-                        "json_schema": schema,
+                        **({} if request.role == "objective_react_agent" and output_mode == "json_schema"
+                           else {"json_schema": schema}),
                     },
                     ensure_ascii=False,
                     sort_keys=True,
@@ -281,11 +359,15 @@ class OpenAICompatibleModel:
             messages[0]["content"] = (
                 f"{messages[0]['content']}\n\n{repair_message}"
             )
+            if repair_content is not None:
+                messages.extend([
+                    {"role": "assistant", "content": repair_content},
+                    {"role": "user", "content": repair_message},
+                ])
         body: dict[str, Any] = {
             "model": self.config.model_id,
             "messages": messages,
         }
-        output_mode = structured_output_mode or self.config.structured_output_mode
         if output_mode == "json_schema":
             body["response_format"] = {
                 "type": "json_schema",
@@ -338,6 +420,11 @@ class OpenAICompatibleModel:
         # and must be charged twice.
         if self.on_physical_call is not None:
             self.on_physical_call(request, repaired)
+        trace_attempt = new_id("trace_attempt")
+        trace_event("model_request", attempt_id=trace_attempt, invocation_id=request.invocation_id,
+                    role=request.role, stage=request.payload.get("stage"),
+                    skill_id=request.skill_id, skill_version=request.skill_version,
+                    repaired=repaired, body=body)
         started = time.monotonic()
         headers = {"Content-Type": "application/json"}
         api_key = self.config.api_key()
@@ -348,6 +435,7 @@ class OpenAICompatibleModel:
                 self.config.base_url, headers, body, self.config.timeout_seconds
             )
         except TimeoutError as exc:
+            trace_event("transport_error", attempt_id=trace_attempt, invocation_id=request.invocation_id, role=request.role, error_type="TimeoutError")
             record = ModelCallRecord(
                 attempt_id=new_id("attempt"),
                 role=request.role,
@@ -360,9 +448,11 @@ class OpenAICompatibleModel:
                 ModelErrorCode.TIMEOUT,
                 f"model call timed out after {self.config.timeout_seconds}s",
             ) from exc
-        except ModelError:
+        except ModelError as exc:
+            trace_event("transport_error", attempt_id=trace_attempt, invocation_id=request.invocation_id, role=request.role, error_type=type(exc).__name__, error=str(exc))
             raise
         except Exception as exc:  # transport-level failure
+            trace_event("transport_error", attempt_id=trace_attempt, invocation_id=request.invocation_id, role=request.role, error_type=type(exc).__name__)
             record = ModelCallRecord(
                 attempt_id=new_id("attempt"),
                 role=request.role,
@@ -375,6 +465,9 @@ class OpenAICompatibleModel:
                 ModelErrorCode.NETWORK_ERROR,
                 f"model call failed: {type(exc).__name__}: {exc}",
             ) from exc
+        trace_event("model_response", attempt_id=trace_attempt, invocation_id=request.invocation_id,
+                    role=request.role, stage=request.payload.get("stage"), http_status=status,
+                    elapsed_ms=int((time.monotonic() - started) * 1000), raw_response=text)
         elapsed = int((time.monotonic() - started) * 1000)
         provider_request_id = _header(response_headers, "x-request-id")
         provider_response = _sanitize_provider_response(text)
@@ -663,7 +756,7 @@ def _compact_context_payload(
     # Preserve the newest search verbatim. Older searches still identify the
     # provider, query and purpose, which the planner needs to avoid repetition.
     searches = compacted.get("prior_searches")
-    if isinstance(searches, list) and len(searches) > 1:
+    if isinstance(searches, list) and len(searches) > 1 and compacted.get("control_mode") != "objective-react-v1":
         compacted["prior_searches"] = [
             {key: item[key] for key in ("provider_id", "query", "purpose", "evidence_need") if key in item}
             if isinstance(item, dict) else item for item in searches[:-1]

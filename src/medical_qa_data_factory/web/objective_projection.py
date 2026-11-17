@@ -111,9 +111,9 @@ def _runtime_snapshot(workspace: str | Path, run_id: str):
     ).load()
 
 
-def public_questions_for_run(workspace, run_id, snapshot, *, index=None):
+def public_questions_for_run(workspace, run_id, snapshot, *, index=None, include_export=True):
     """Include committed publications before final export, keeping exported rows by ID."""
-    rows = {row["question_id"]: row for row in _public_questions(workspace, run_id)}
+    rows = {row["question_id"]: row for row in _public_questions(workspace, run_id)} if include_export else {}
     if snapshot is None or HypothesisState.PUBLISHED not in snapshot.hypotheses.values():
         return list(rows.values())
     if index is None:
@@ -128,10 +128,12 @@ def public_questions_for_run(workspace, run_id, snapshot, *, index=None):
         resolution = index["resolutions"].get(contract.get("resolution_id"), {})
         if snapshot.hypotheses.get(resolution.get("hypothesis_id")) is not HypothesisState.PUBLISHED:
             continue
+        suggested = index["hypotheses"].get(resolution.get("hypothesis_id"), {}).get("suggested_retrieval")
         rows[qid] = {
             "question_id": qid, "question": draft["question_text"],
             "answer": draft["answer_values"], "explanation": draft.get("concise_explanation"),
             "assessed_difficulty": report.get("assessed_difficulty"),
+            **({"suggested_retrieval": suggested} if suggested else {}),
             "schema_version": "objective-public-question-v1",
         }
     return list(rows.values())
@@ -245,6 +247,7 @@ def _summary_from_snapshot(
     *,
     public_questions: list[dict[str, Any]] | None = None,
     now: datetime | None = None,
+    worker_interrupted: bool = False,
 ) -> dict[str, Any]:
     questions = (
         public_questions
@@ -258,6 +261,8 @@ def _summary_from_snapshot(
         terminal=terminal,
         now=now,
     )
+    interrupted = worker_interrupted and not terminal
+    stalled = stalled or interrupted
     status = (
         "stalled"
         if stalled
@@ -290,14 +295,22 @@ def _summary_from_snapshot(
             f"主 Agent 已超过 {OBJECTIVE_STALL_AFTER_SECONDS // 60} 分钟"
             "没有产生新的 runtime commit，任务可能卡在模型调用或后台异常。"
         )
+    if interrupted:
+        stop_reason = "后台生成进程已中断，可以从保存的断点继续。"
     status_label = (
-        "长时间无进展"
+        "后台运行已中断"
+        if interrupted
+        else "长时间无进展"
         if stalled
         else _STATE_LABELS.get(
             snapshot.run_state.value,
             snapshot.run_state.value,
         )
     )
+    counted = target_question_count(snapshot)
+    target = snapshot.goal.question_count_upper_bound if snapshot.goal else None
+    if status == "completed" and target is not None and counted < target:
+        status_label = f"已结束，达标 {counted}/{target} 题"
     decision_count = len(snapshot.decisions)
     last_decision = _latest_decision(workspace, run_id, snapshot)
     latest_slots = (
@@ -358,7 +371,8 @@ def _summary_from_snapshot(
         "status": status,
         "status_label": "已暂停" if snapshot.stop_reason == "user_paused" else status_label,
         "run_state": snapshot.run_state.value,
-        "is_terminal": terminal,
+        "is_terminal": terminal or interrupted,
+        "worker_interrupted": interrupted,
         "pause_requested": (_run_root(workspace, run_id) / "objective_runtime" / "pause.requested").exists(),
         "can_resume": (
             snapshot.run_state is RunState.RECOVERY_REQUIRED
@@ -392,13 +406,9 @@ def _summary_from_snapshot(
         ),
         "seconds_since_progress": age,
         "stalled": stalled,
-        "target_question_count": (
-            snapshot.goal.question_count_upper_bound
-            if snapshot.goal is not None
-            else None
-        ),
+        "target_question_count": target,
         "published_count": len(questions),
-        "counted_toward_target": target_question_count(snapshot),
+        "counted_toward_target": counted,
         "candidate_count": candidate_count,
         "rejected_count": rejected_count,
         "indeterminate_count": indeterminate_count,
@@ -427,6 +437,7 @@ def build_objective_summary(
     run_id: str,
     *,
     now: datetime | None = None,
+    worker_interrupted: bool = False,
 ) -> dict[str, Any]:
     snapshot = _runtime_snapshot(workspace, run_id)
     return _summary_from_snapshot(
@@ -434,7 +445,26 @@ def build_objective_summary(
         run_id,
         snapshot,
         now=now,
+        worker_interrupted=worker_interrupted,
     )
+
+
+def build_production_progress(workspace, run_id):
+    snapshot = _runtime_snapshot(workspace, run_id)
+    index = _runtime_index(snapshot) if HypothesisState.PUBLISHED in snapshot.hypotheses.values() else None
+    questions = public_questions_for_run(workspace, run_id, snapshot, index=index, include_export=False)
+    for question in questions:
+        draft = index["drafts"][question["question_id"]]
+        contract = index["contracts"].get(draft["contract_id"], {})
+        resolution = index["resolutions"].get(contract.get("resolution_id"), {})
+        question["answer_sources"] = [
+            {key: row[key] for key in ("provider_id", "source_record_id", "document_id", "anchor_id")}
+            for row in _evidence_rows(resolution.get("supporting_anchor_ids", []), role="supporting", index=index)
+        ]
+    return {
+        **_summary_from_snapshot(workspace, run_id, snapshot, public_questions=questions),
+        "questions": questions,
+    }
 
 
 def _runtime_index(snapshot) -> dict[str, dict[str, Any]]:
@@ -532,6 +562,10 @@ def _question_row(
         if draft is not None
         else []
     )
+    suggested_retrieval = (
+        (public_question or {}).get("suggested_retrieval")
+        or index["hypotheses"].get(hypothesis_id, {}).get("suggested_retrieval")
+    )
     return {
         "question_id": question_id,
         "draft_id": question_id if draft is not None else None,
@@ -544,6 +578,7 @@ def _question_row(
             else None
         ),
         "answer": _answer_values(answers),
+        **({"suggested_retrieval": suggested_retrieval} if suggested_retrieval else {}),
         "assessed_difficulty": (report or {}).get("assessed_difficulty"),
         "explanation": (
             public_question.get("explanation")
@@ -714,6 +749,7 @@ def _retrieval_sources(snapshot) -> list[dict[str, Any]]:
                         "search_rationale": usage.get("search_rationale"),
                         "detail_trace": usage.get("detail_trace", []),
                         "error_category": item.get("error_category"),
+                        "error_message": item.get("error_message"),
                     }
                 )
         else:
@@ -740,6 +776,7 @@ def _retrieval_sources(snapshot) -> list[dict[str, Any]]:
                     "search_rationale": usage.get("search_rationale"),
                     "detail_trace": usage.get("detail_trace", []),
                     "error_category": payload.get("error_category"),
+                    "error_message": usage.get("error_message"),
                 }
             )
     return rows
@@ -756,6 +793,7 @@ def build_objective_workbench(
     run_id: str,
     *,
     now: datetime | None = None,
+    worker_interrupted: bool = False,
 ) -> dict[str, Any]:
     snapshot = _runtime_snapshot(workspace, run_id)
     index = _runtime_index(snapshot)
@@ -802,6 +840,7 @@ def build_objective_workbench(
         snapshot,
         public_questions=public_questions,
         now=now,
+        worker_interrupted=worker_interrupted,
     )
     return {
         **summary,
@@ -946,6 +985,7 @@ def build_question_evidence_dossier(
         {},
     )
     report = index["reports"].get(question_id)
+    difficulty_audit = snapshot.artifacts.get(report.get("difficulty_assessment_id")) if report else None
     evidence = [
         *_evidence_rows(
             list(resolution.get("supporting_anchor_ids", [])),
@@ -960,6 +1000,7 @@ def build_question_evidence_dossier(
     ]
     return {
         "question": question,
+        "difficulty_assessment": difficulty_audit.payload if difficulty_audit else None,
         "validation": (
             {
                 "report_id": report.get("report_id"),

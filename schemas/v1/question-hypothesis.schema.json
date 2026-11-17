@@ -8,6 +8,48 @@
       ],
       "title": "AnswerCardinality",
       "type": "string"
+    },
+    "SuggestedRetrieval": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_evidence": {
+          "minLength": 1,
+          "title": "Expected Evidence",
+          "type": "string"
+        },
+        "query": {
+          "minLength": 1,
+          "title": "Query",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": "objective-question-v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sources": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 4,
+          "minItems": 1,
+          "title": "Sources",
+          "type": "array"
+        },
+        "stop_condition": {
+          "minLength": 1,
+          "title": "Stop Condition",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query",
+        "sources",
+        "expected_evidence",
+        "stop_condition"
+      ],
+      "title": "SuggestedRetrieval",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -16,7 +58,6 @@
       "items": {
         "type": "string"
       },
-      "minItems": 1,
       "title": "Candidate Claim Ids",
       "type": "array"
     },
@@ -27,6 +68,15 @@
       "minItems": 1,
       "title": "Discovery Anchor Ids",
       "type": "array"
+    },
+    "evidence_basis": {
+      "default": "claims",
+      "enum": [
+        "claims",
+        "source_passages"
+      ],
+      "title": "Evidence Basis",
+      "type": "string"
     },
     "hypothesis_id": {
       "minLength": 1,
@@ -92,11 +142,21 @@
       "default": "PROPOSED",
       "title": "Status",
       "type": "string"
+    },
+    "suggested_retrieval": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SuggestedRetrieval"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     }
   },
   "required": [
     "hypothesis_id",
-    "candidate_claim_ids",
     "question_intent",
     "proposed_public_scope",
     "proposed_answer_type",

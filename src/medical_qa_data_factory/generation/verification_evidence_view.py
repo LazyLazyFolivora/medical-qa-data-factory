@@ -35,6 +35,30 @@ class EvidenceView:
         self.pages[ref] = (anchor, path, value, offset)
         return {"read_ref": ref, "size": len(value)}
 
+    def scalar_fields(self, record, budget):
+        """Expose bounded exact scalar values through object wrappers, never arrays."""
+        fields, visited = {}, 0
+        def walk(value, path, depth):
+            nonlocal visited
+            if depth > 8 or visited >= 128:
+                return
+            for key, item in value.items():
+                if visited >= 128:
+                    break
+                visited += 1
+                child = path + "/" + str(key).replace("~", "~0").replace("/", "~1")
+                if isinstance(item, dict):
+                    walk(item, child, depth + 1)
+                elif item is None or isinstance(item, (bool, int, float, str)):
+                    # Narrative database summaries are scalar evidence too. The
+                    # shared character budget bounds them; a per-string cutoff
+                    # hid biological content while exposing only short metadata.
+                    candidate = {**fields, child: item}
+                    if len(json.dumps(candidate, ensure_ascii=False)) <= budget:
+                        fields[child] = item
+        walk(record, "", 0)
+        return fields
+
     def page(self, anchor, path, value, offset=0):
         if isinstance(value, str):
             end = min(offset + 1000, len(value))
@@ -58,6 +82,41 @@ class EvidenceView:
             page["next"] = self.reference(anchor, path, value, end)
         return page
 
+    def collection_refs(self, anchor, record, budget):
+        """Index collections, including exact values only for tiny flat tables."""
+        refs, visited = {}, 0
+
+        def scalar(value):
+            return value is None or isinstance(value, (str, bool, int, float))
+
+        def walk(value, path, depth):
+            nonlocal visited
+            if depth > 8:
+                return
+            for key, item in value.items():
+                if visited >= 128 or len(refs) >= 16:
+                    return
+                visited += 1
+                child = path + "/" + str(key).replace("~", "~0").replace("/", "~1")
+                if isinstance(item, dict):
+                    walk(item, child, depth + 1)
+                elif isinstance(item, list) and item:
+                    ref = {"read_ref": f"{anchor}#{child}@0", "size": len(item)}
+                    if len(item) <= 8 and all(
+                        scalar(row) or (isinstance(row, dict) and len(row) <= 20
+                                        and all(scalar(v) for v in row.values()))
+                        for row in item
+                    ) and len(json.dumps(item, ensure_ascii=False)) <= 500:
+                        ref["complete_value"] = item
+                    if len(json.dumps({**refs, child: ref}, ensure_ascii=False)) > budget:
+                        ref.pop("complete_value", None)
+                    if len(json.dumps({**refs, child: ref}, ensure_ascii=False)) <= budget:
+                        self.reference(anchor, child, item)
+                        refs[child] = ref
+
+        walk(record, "", 0)
+        return refs
+
     def shared_exons(self, query):
         ref = self.pages.get(query.transcript_list_ref)
         ids = [query.first_transcript_id, query.second_transcript_id]
@@ -79,15 +138,23 @@ class EvidenceView:
                 "distinct_exon_counts": [len(index) for index in indexes], "shared_count": len(shared),
                 "shared_rows": self.page(anchor, "/shared-" + canonical_digest(ids)[:16], rows)}
 
-    def initial(self, anchors):
+    def initial(self, anchors, *, verbatim_text_budget=0):
         visible = []
         remaining = 10000
+        inline_selected_text = (verbatim_text_budget > 0 and
+                                sum(len(a.get("quoted_text", "")) for a in anchors) <= verbatim_text_budget)
         for anchor in anchors:
             text = anchor.get("quoted_text", "")
             try:
                 record = json.loads(text) if text.lstrip().startswith(("{", "[")) else None
             except ValueError:
                 record = None
+            # Already selected paper passages are a bounded evidence packet,
+            # not a whole database record. Keep writer and verifier views equal.
+            # Structured records still use the field/exon navigation below.
+            if inline_selected_text and record is None:
+                visible.append(anchor)
+                continue
             # A transcript/row collection belongs behind a reference even on small records.
             structured_list = isinstance(record, list) and any(isinstance(row, (dict, list)) for row in record)
             nested_record = isinstance(record, dict) and any(isinstance(v, (dict, list)) and v for v in record.values())
@@ -98,6 +165,16 @@ class EvidenceView:
             aid = anchor["anchor_id"]
             item = {k: anchor[k] for k in ("anchor_id", "document_id", "section_or_field") if k in anchor}
             value = record if isinstance(record, (dict, list)) else text
+            if isinstance(record, dict) and remaining > 1000:
+                fields = self.scalar_fields(record, min(4000, remaining - 1000))
+                if fields:
+                    item["visible_scalar_fields"] = fields
+                    item["scalar_coverage"] = "Selected exact values at JSON Pointer paths, not exhaustive. Use read_refs for omitted fields and arrays."
+                    remaining -= len(json.dumps(fields, ensure_ascii=False))
+                refs = self.collection_refs(aid, record, max(0, min(2000, remaining - 1000)))
+                if refs:
+                    item["collection_refs"] = refs
+                    remaining -= len(json.dumps(refs, ensure_ascii=False))
             if remaining > 2000 and not structured_list:
                 item["excerpt"] = self.page(aid, "", value)
                 remaining -= len(json.dumps(item["excerpt"], ensure_ascii=False))
@@ -107,13 +184,13 @@ class EvidenceView:
         return visible
 
 
-def generate_with_evidence(model, request, schema, field):
+def generate_with_evidence(model, request, schema, field, *, verbatim_text_budget=0):
     """Answer immediately when possible, or open visible evidence on demand."""
     source = request.payload[field]
     nested = isinstance(source, dict)
     anchors = source["anchors"] if nested else source
     view = EvidenceView()
-    visible = view.initial(anchors)
+    visible = view.initial(anchors, verbatim_text_budget=verbatim_text_budget)
     payload = {**request.payload, field: {**source, "anchors": visible} if nested else visible}
     current = request.model_copy(update={"payload": payload})
     if not view.pages:

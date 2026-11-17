@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
+from medical_qa_data_factory.generation.agent_loop import _publish_reviewed_wording
 from medical_qa_data_factory.generation.answer_verification_subagent import (
     AnswerVerificationSubagent,
     BlindSolveResult,
@@ -252,16 +254,44 @@ def test_final_wording_one_review_with_a_failed_secondary_lookup(change, expecte
         if request.payload["stage"] == "final_blind":
             assert "proposed_answer_values" not in request.payload
             return {"query_id": request.payload["blind_answer_query"]["query_id"], "answer_values": ["chr17"]}
-        return {"conflict_found": False, "directly_supporting_anchor_ids": ["anchor-verification"],
-                "support_directly_entails_answer": True, "question_is_self_contained": True,
-                "answer_scope_complete": True, "answer_matches_blind": True, "assessed_difficulty": "easy",
-                "explanation": "The independent record identifies chromosome 17.", **change}
-    model = FakeStructuredModel(responses={"objective_answer_verification": respond})
+        return {
+            "claim_checks": [{
+                "target": target, "statement": statement,
+                "source_sentence": "The independent record identifies chromosome 17.",
+                "anchor_ids": ["anchor-verification"],
+                "source_uncertainty_or_scope": "Human chromosome", "claim_uncertainty_or_scope": "Human chromosome",
+                "preserves_uncertainty_and_scope": True, "relation": "SUPPORTED",
+            } for target, statement in [("proposed_answer", "chromosome 17"), ("blind_answer", "chr17")]],
+            "review": {"conflict_found": False, "directly_supporting_anchor_ids": ["anchor-verification"],
+                       "support_directly_entails_answer": True, "question_is_self_contained": True,
+                       "answer_scope_complete": True, "answer_matches_blind": True, "assessed_difficulty": "easy",
+                       "explanation": "The independent record identifies chromosome 17.", **change},
+        }
+
+    model = FakeStructuredModel(responses={
+        "objective_answer_verification": respond,
+        "objective_claim_entailment": lambda request: {"checks": [
+            {"id": pair["id"], "support": "entailed", "reason": "The anchor supports the location."}
+            for pair in request.payload["pairs"]
+        ]},
+    })
     outcome = AnswerVerificationSubagent(model).run(_task(), hypothesis=_hypothesis(), claims=[_claim()],
         evidence=_bundle(attempts=attempts, coverage=coverage), final_wording=True)
     assert outcome.resolution.status is expected
-    assert outcome.result.usage["model_calls"] == 2
-    assert [r.payload["stage"] for r in model.invocations] == ["final_blind", "final_review"]
+    assert outcome.result.usage["model_calls"] == (2 if change.get("evidence_need") else 3)
+    assert [r.payload["stage"] for r in model.calls_for("objective_answer_verification")] == ["final_blind", "final_review"]
+    if expected is AnswerStatus.VERIFIED:
+        assert outcome.blind_result.answer_values == ["chr17"]
+        assert outcome.resolution.verified_answer_values == _hypothesis().proposed_answer_values
+        assert outcome.frozen_contract.answer_values == _hypothesis().proposed_answer_values
+        audit = SimpleNamespace(artifact_id="final_review.example", digest="a" * 64)
+        difficulty = SimpleNamespace(artifact_id="difficulty.example", digest="b" * 64)
+        draft, report = _publish_reviewed_wording(
+            outcome, audit, SimpleNamespace(assessed_difficulty="easy"), difficulty
+        )
+        assert draft.answer_values == _hypothesis().proposed_answer_values
+        assert draft.concise_explanation == "Evidence: authority-b"
+        assert report.answer_audit_id == audit.artifact_id
 
 
 def test_consistent_independent_answer_is_verified_and_frozen() -> None:

@@ -12,6 +12,8 @@ from .objective_question_contracts import (
 
 
 class SubagentRole(str, Enum):
+    RESEARCH = "objective_research_agent"
+    QUESTION_DISCOVERY = "objective_question_discovery"
     MATERIAL_RETRIEVAL = "material_retrieval"
     FACT_UNDERSTANDING = "fact_understanding"
     QUESTION_DESIGN = "objective_question_design"
@@ -50,6 +52,24 @@ def default_objective_role_registry() -> dict[
     SubagentRole, RoleCapability
 ]:
     return {
+        SubagentRole.RESEARCH: RoleCapability(
+            role=SubagentRole.RESEARCH, role_version="research-v1",
+            model_role="objective_research_agent", prompt_version="research-v1",
+            output_schema="ResearchTurn",
+            allowed_input_fields=frozenset({"information_need", "entity", "materials", "observations", "history", "summary", "remaining_steps", "tools", "provider_query_schemas"}),
+            forbidden_input_fields=_COMMON_FORBIDDEN,
+            allowed_tools=frozenset({"retrieve_materials", "read_source_details", "read_artifacts"}),
+        ),
+        SubagentRole.QUESTION_DISCOVERY: RoleCapability(
+            role=SubagentRole.QUESTION_DISCOVERY,
+            role_version="discovery-v1",
+            model_role="objective_question_discovery",
+            prompt_version="discovery-v1",
+            output_schema="QuestionDiscovery",
+            allowed_input_fields=frozenset({"goal", "focus", "materials", "existing_questions", "research_notebook", "instruction"}),
+            forbidden_input_fields=_COMMON_FORBIDDEN,
+            allowed_tools=frozenset(),
+        ),
         SubagentRole.MATERIAL_RETRIEVAL: RoleCapability(
             role=SubagentRole.MATERIAL_RETRIEVAL,
             role_version="material-retrieval-v1",
@@ -61,6 +81,8 @@ def default_objective_role_registry() -> dict[
                     "target_entity",
                     "evidence_need",
                     "allowed_providers",
+                    "strict_selection",
+                    "fetch_full_text",
                     "material_limit",
                     "max_search_rounds",
                     "max_queries_per_round",
@@ -127,6 +149,15 @@ def default_objective_role_registry() -> dict[
                     "allowed_fact_types",
                     "question_count_upper_bound",
                     "difficulty_targets",
+                    "generation_strategy",
+                    "llm_owned_design",
+                    "direct_sources",
+                    "design_instruction",
+                    "evidence_sufficiency_reason",
+                    "research_assessments",
+                    "research_context",
+                    "revision_of",
+                    "revision_context",
                     "style_targets",
                     "candidate_claims",
                     "claim_groups",
@@ -184,6 +215,8 @@ def default_objective_role_registry() -> dict[
                     "blind_answer_query",
                     "verification_plan",
                     "allowed_providers",
+                    "strict_selection",
+                    "fetch_full_text",
                 }
             ),
             forbidden_input_fields=_COMMON_FORBIDDEN

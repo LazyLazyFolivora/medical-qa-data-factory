@@ -235,14 +235,20 @@ class FactUnderstandingSubagent:
             },
             "instruction": (
                 "Extract concrete, atomic, answerable claims from the supplied "
-                "materials. When observation_association, disease_association, "
+                "materials. Content may consist of selected verbatim excerpts with original anchor offsets, not the complete article; "
+                "missing detail is not evidence of absence. Preserve conditions, comparators and endpoints; no significant effect is not zero effect. "
+                "Do not turn an observed endpoint change into a measured cellular mechanism or contribution proportion. "
+                "When observation_association, disease_association, "
                 "or protein_function is allowed, preserve the studied relation, "
                 "direction, population, model or assay, and uncertainty instead "
                 "of reducing the article to generic metadata. Every claim must "
                 "cite visible anchors and must not introduce an answer that is "
                 "not directly supported by those anchors. Do not split one "
                 "coherent finding into redundant micro-facts unless each part "
-                "is independently verifiable and materially useful."
+                "is independently verifiable and materially useful. Across sources, preserve study identity, "
+                "population, conditions, endpoints and uncertainty. Do not merge different studies or "
+                "mistake repeated summaries for independent evidence. Broad abstracts or graph edges may "
+                "only support limited claims: state missing detail in insufficiency_reason rather than fill gaps."
             ),
         }
         _project_ensembl_fields(payload)

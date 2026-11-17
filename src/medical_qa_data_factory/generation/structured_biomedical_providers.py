@@ -368,6 +368,9 @@ class NcbiGeneMaterialProvider(_StructuredProvider):
             or ""
         ).strip()
         native_id = str(query.get("native_id") or "").strip()
+        # Identity lookup must not return genes that merely mention this gene.
+        # NCBI's Gene Name field includes preferred symbols and aliases.
+        name_field = "Gene Name" if query.get("symbol") else "Gene/Protein Name"
         if not symbol and not native_id:
             return self._failure(
                 request,
@@ -383,7 +386,7 @@ class NcbiGeneMaterialProvider(_StructuredProvider):
                         "term": (
                             f"{native_id}[uid]"
                             if native_id.isdigit()
-                            else f"{symbol}[All Fields] AND human[orgn]"
+                            else f"{symbol}[{name_field}] AND human[orgn]"
                         ),
                         "retmode": "json",
                         "retmax": "5",

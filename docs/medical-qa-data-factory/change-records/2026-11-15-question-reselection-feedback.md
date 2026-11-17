@@ -1,0 +1,23 @@
+# 区分修题与重新选题
+
+## 实际原因
+hfe-20261115-052239最终结束，9步、零发布。question-form-v2多次指出研究数值摘录不符合任务，但react_tools把任何reader非ACCEPT统一转换为REWRITE。主agent继续在同一题上加入研究名/限定样本，最终把某一方向穷尽误当整个HFE无可探索内容。
+
+## 改动
+ReaderJudgment加入RESELECT。模型判断信息需求本身不适合数据集时用它；保留原信息需求即可修正的问题仍用REVISE。缺答案不等于选题不成立。
+
+react_tools将模型RESELECT转为已有候选评审REJECT建议，并返回question_requires_reselection；不自动关闭候选，不用关键词规则替模型做质量判断。REVISE仍为REWRITE。两个reader模板、调用版本同步；question-first-v6与双hash使旧审阅记录失效。
+
+代码复审批准，无接口阻断问题。
+
+## 实际验证
+隔离reselection-feedback-20261115加载真实HFE末态与原始候选，真实执行review_candidate中的模型评审，得到RESELECT，工具产物正确映射REJECT，且无hypothesis状态转换。该诊断以捕获提交回调保存工具产物，未写原任务；不能宣称已通过完整持久化续跑。
+
+后续主agent诊断最初未启用memory_root，128513输入tokens超过125952预算而失败。复用已保存评审、启用生产同款上下文压缩后正常调用，未重复评审。但其下一动作是评审更早的修订版2b16，并在理由中把39d4说成新修订，说明版本关系仍有混淆，不能宣称已自动换方向。
+
+## 新任务与待查项
+全新隔离HFE：hfe-20261115-053045，目标2题，最多20动作，加载v6。需检查早期选题与具体RESELECT反馈的真实影响。
+
+目前agent_loop仅以question_design_notes保存revision_of/new_hypothesis_ids，旧版仍留PROPOSED；主agent列表未明确投影哪个版本被替代，review候选也包含旧版。接下来应检查版本关系如何进入当前待办，避免把同一问题的多个版本当成多个独立候选。保留历史原文和证据，不靠删除旧数据解决。
+
+正式主skill未采用上一轮精简实验稿，默认模型、服务与生产数据库未更改。

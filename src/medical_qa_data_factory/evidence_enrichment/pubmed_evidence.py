@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from typing import Literal
 
 from pydantic import Field, model_validator
 
 from ..domain.common import ContractModel, UtcDateTime, utc_now
+from ..domain.source_spans import sentence_spans
 from .contracts import EvidenceRecord
 from .models import PubMedEvidenceRecord
 
@@ -90,21 +90,7 @@ def build_span_candidates(
     candidates: list[dict[str, object]] = []
     for record in records:
         text = record.abstract
-        boundaries = [0]
-        boundaries.extend(
-            match.end()
-            for match in re.finditer(r"(?<=[.!?])\s+", text)
-        )
-        boundaries.append(len(text))
-        for raw_start, raw_end in zip(boundaries, boundaries[1:]):
-            start = raw_start
-            end = raw_end
-            while start < end and text[start].isspace():
-                start += 1
-            while end > start and text[end - 1].isspace():
-                end -= 1
-            if start == end:
-                continue
+        for start, end in sentence_spans(text):
             candidates.append(
                 {
                     "candidate_id": (

@@ -5,6 +5,8 @@ description: 调度面向 query-planner 的客观生物医学出题流程，根�
 
 # 主 Agent 出题调度
 
+> 旧协议参考。当前 Web/CLI 外层已切换到 [objective-react-agent](../objective-react-agent/SKILL.md)，本文件的固定阶段描述不控制新任务。
+
 本文件是项目 skill 草案，尚未接入 `StructuredMainAgent.decide()`。每次决策从宿主提供的合法动作中选择一个，由程序执行、记录状态和发布。当前运行时的限制及修复缺口见 [references/current-runtime.md](references/current-runtime.md)，接入或执行当前协议前需阅读。
 
 跨阶段输入、隔离与结果含义见 [references/stage-handoffs.md](references/stage-handoffs.md)，配置整条流程时读取。该说明用于对齐职责，不是已经实现的新数据接口。

@@ -54,6 +54,16 @@ describe("RunDetailPage", () => {
     expect(wrapper.emitted("select-tab")?.[0]).toEqual(["execution"]);
   });
 
+  it("uses the latest status when the saved workbench is older", async () => {
+    const wrapper = mount(RunDetailPage, {
+      props: { task, workbench: { ...task }, activeTab: "overview" },
+    });
+    await wrapper.setProps({ task: { ...task, status: "running", status_label: "运行中", can_resume: false } });
+
+    expect(wrapper.text()).toContain("运行中");
+    expect(wrapper.find("[data-resume-run]").exists()).toBe(false);
+  });
+
   it("collapses past interruptions after resume and expands only the current interruption", async () => {
     const previous = { at: "2026-11-04T08:06:13Z", code: "model_bad_request", attempts: 4 };
     const wrapper = mount(RunDetailPage, { props: { activeTab: "diagnostics",
@@ -70,4 +80,24 @@ describe("RunDetailPage", () => {
     expect(current.element.open).toBe(true);
     expect(history.element.open).toBe(false);
   });
+});
+
+it("shows the original retrieval failure alongside its query", () => {
+  const wrapper = mount(RunDetailPage, {
+    props: {
+      task,
+      activeTab: "evidence",
+      workbench: {
+        retrieval_sources: [{
+          provider_id: "pubmed",
+          query_label: "PHYHIP",
+          terminal_status: "FAILED",
+          error_category: "PUBMED_PROVIDER_ERROR",
+          error_message: "Read timed out (read timeout=12)",
+        }],
+      },
+    },
+  });
+  expect(wrapper.text()).toContain("Read timed out (read timeout=12)");
+  expect(wrapper.text()).toContain("PHYHIP");
 });

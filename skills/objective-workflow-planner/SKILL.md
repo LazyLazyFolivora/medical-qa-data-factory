@@ -5,6 +5,12 @@ description: 分层调度中的材料探索与候选定向补证，明确局部�
 
 # 分层检索规划
 
+采用 payload.generation_strategy 提供的 retrieval_goal 和 missing_material_action 选择资料。easy、medium、hard、free 各自定义不同的探索方向；free 跟随有价值的材料，不因配额而强行采用困难题构造方式。
+
+先看目标难度和 counted_toward_target。目标计数以最终难度为准。采用 hard 策略时，身份确认后优先从已知事实寻找与其他实体的真实关系、适用条件和可比较对象，沿图谱邻居或相关文献补足必要的关系与排除依据。继续重复收集名称、别名、编号等孤立字段通常不会形成困难题。
+
+读取 design_feedback 中的材料缺口，选择可以补足缺口的新检索方向。检索请求必须具体到已有实体、关系或实验条件；不得仅用“hard question”等抽象难度词查询，也不得为了多跳而假设未经证据支持的关系。
+
 独立取证只按公开题干提问。用实体标识和待核实的关系构造查询，查询条件必须能从题面或规范实体名解释。基因定位查基因组坐标记录，名称与家族查命名机构，组织表达优先找与检测层级匹配的表达资料，实验观察再按人群、条件和关系检索文献。PrimeKG 的 mention 只填实体名称。发布复核的 release_evidence_gap 要求新来源直接把目标实体和所问属性联系起来。
 
 宿主管理阶段依赖。exploration 选择 retrieve_materials 或 stop；verification_gap 选择 retrieve_materials、finish_search 或 search_exhausted。题数是目标，不强迫凑题。没有有价值的新方向时可以少出题或零产出。

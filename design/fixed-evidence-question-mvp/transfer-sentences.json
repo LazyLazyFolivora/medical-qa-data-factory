@@ -1,0 +1,43 @@
+[
+  {
+    "source_id": "pubmed:32509580",
+    "sentences": [
+      {
+        "sentence_id": "S1",
+        "text": "Electrolyte Disorders Induced by Antineoplastic Drugs."
+      },
+      {
+        "sentence_id": "S2",
+        "text": "The use of antineoplastic drugs has a central role in treatment of patients affected by cancer but is often associated with numerous electrolyte derangements which, in many cases, could represent life-threatening conditions."
+      },
+      {
+        "sentence_id": "S3",
+        "text": "In fact, while several anti-cancer agents can interfere with kidney function leading to acute kidney injury, proteinuria, and hypertension, in many cases alterations of electrolyte tubular handling and water balance occur."
+      },
+      {
+        "sentence_id": "S4",
+        "text": "This review summarizes the mechanisms underlying the disturbances of sodium, potassium, magnesium, calcium, and phosphate metabolism during anti-cancer treatment."
+      },
+      {
+        "sentence_id": "S5",
+        "text": "Platinum compounds are associated with sodium, potassium, and magnesium derangements while alkylating agents and Vinca alkaloids with hyponatremia due to syndrome of inappropriate antidiuretic hormone secretion (SIADH)."
+      },
+      {
+        "sentence_id": "S6",
+        "text": "Novel anti-neoplastic agents, such as targeted therapies (monoclonal antibodies, tyrosine kinase inhibitors, immunomodulators, mammalian target of rapamycin), can induce SIADH-related hyponatremia and, less frequently, urinary sodium loss."
+      },
+      {
+        "sentence_id": "S7",
+        "text": "The blockade of epidermal growth factor receptor (EGFR) by anti-EGFR antibodies can result in clinically significant magnesium and potassium losses."
+      },
+      {
+        "sentence_id": "S8",
+        "text": "Finally, the tumor lysis syndrome is associated with hyperphosphatemia, hypocalcemia and hyperkalemia, all of which represent serious complications of chemotherapy."
+      },
+      {
+        "sentence_id": "S9",
+        "text": "Thus, clinicians should be aware of these side effects of antineoplastic drugs, in order to set out preventive measures and start appropriate treatments."
+      }
+    ]
+  }
+]

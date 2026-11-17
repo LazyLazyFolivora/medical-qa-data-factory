@@ -1,0 +1,55 @@
+[
+  {
+    "source_id": "pubmed:37029114",
+    "sentences": [
+      {
+        "sentence_id": "S1",
+        "text": "Enhancer of zeste homolog 2 promotes renal fibrosis after acute kidney injury by inducing epithelial-mesenchymal transition and activation of M2 macrophage polarization."
+      },
+      {
+        "sentence_id": "S2",
+        "text": "Long-term follow-up data indicates that 1/4 patients with acute kidney injury (AKI) will develop to chronic kidney disease (CKD)."
+      },
+      {
+        "sentence_id": "S3",
+        "text": "Our previous studies have demonstrated that enhancer of zeste homolog 2 (EZH2) played an important role in AKI and CKD."
+      },
+      {
+        "sentence_id": "S4",
+        "text": "However, the role and mechanisms of EZH2 in AKI-to-CKD transition are still unclear."
+      },
+      {
+        "sentence_id": "S5",
+        "text": "Here, we demonstrated EZH2 and H3K27me3 highly upregulated in kidney from patients with ANCA-associated glomerulonephritis, and expressed positively with fibrotic lesion and negatively with renal function."
+      },
+      {
+        "sentence_id": "S6",
+        "text": "Conditional EZH2 deletion or pharmacological inhibition with 3-DZNeP significantly improved renal function and attenuated pathological lesion in ischemia/reperfusion (I/R) or folic acid (FA) mice models (two models of AKI-to-CKD transition)."
+      },
+      {
+        "sentence_id": "S7",
+        "text": "Mechanistically, we used CUT & Tag technology to verify that EZH2 binding to the PTEN promoter and regulating its transcription, thus regulating its downstream signaling pathways."
+      },
+      {
+        "sentence_id": "S8",
+        "text": "Genetic or pharmacological depletion of EZH2 upregulated PTEN expression and suppressed the phosphorylation of EGFR and its downstream signaling ERK1/2 and STAT3, consequently alleviating the partial epithelial-mesenchymal transition (EMT), G2/M arrest, and the aberrant secretion of profibrogenic and proinflammatory factors in vivo and vitro experiments."
+      },
+      {
+        "sentence_id": "S9",
+        "text": "In addition, EZH2 promoted the EMT program induced loss of renal tubular epithelial cell transporters (OAT1, ATPase, and AQP1), and blockade of EZH2 prevented it."
+      },
+      {
+        "sentence_id": "S10",
+        "text": "We further co-cultured macrophages with the medium of human renal tubular epithelial cells treated with H2O2 and found macrophages transferred to M2 phenotype, and EZH2 could regulate M2 macrophage polarization through STAT6 and PI3K/AKT pathways."
+      },
+      {
+        "sentence_id": "S11",
+        "text": "These results were further verified in two mice models."
+      },
+      {
+        "sentence_id": "S12",
+        "text": "Thus, targeted inhibition of EZH2 might be a novel therapy for ameliorating renal fibrosis after acute kidney injury by counteracting partial EMT and blockade of M2 macrophage polarization."
+      }
+    ]
+  }
+]

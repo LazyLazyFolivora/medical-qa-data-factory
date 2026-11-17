@@ -531,6 +531,23 @@ def test_one_schema_repair_is_attempted_and_succeeds() -> None:
     assert model.calls[1].repaired is True
 
 
+def test_oversized_invalid_reply_does_not_crowd_out_repair() -> None:
+    with _Server(
+        [
+            {"status": 200, "body": _envelope("{" + "x" * 120_000)},
+            {"status": 200, "body": _envelope(json.dumps({"value": "fixed"}))},
+        ]
+    ) as server:
+        model = OpenAICompatibleModel(config=_config(server.url))
+        result = model.generate_structured(_request(), Answer)
+
+    assert result.parsed["value"] == "fixed"
+    first, repair = server.requests
+    assert repair["messages"][1] == first["messages"][1]
+    assert [message["role"] for message in repair["messages"]] == ["system", "user"]
+    assert len(repair["messages"][0]["content"]) - len(first["messages"][0]["content"]) < 2000
+
+
 def test_the_repair_prompt_is_added_to_the_second_request() -> None:
     with _Server(
         [
@@ -576,7 +593,7 @@ def test_repair_instructions_remain_in_the_leading_system_message() -> None:
         model.generate_structured(_request(), Answer)
 
     messages = server.requests[1]["messages"]
-    assert [item["role"] for item in messages] == ["system", "user"]
+    assert [item["role"] for item in messages] == ["system", "user", "assistant", "user"]
     assert "did not satisfy the required JSON schema" in messages[0]["content"]
     assert "String should have at least 1 character" in messages[0]["content"]
 

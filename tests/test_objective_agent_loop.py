@@ -328,6 +328,11 @@ def _model() -> FakeStructuredModel:
                 {"hypothesis_id": h["hypothesis_id"], "disposition": "KEEP", "rationale": "Clear, bounded lookup supported by the fixture."}
                 for h in request.payload["hypotheses"]]},
             "objective_answer_verification": respond,
+            "objective_difficulty_assessment": {
+                "assessed_difficulty": "easy",
+                "shortest_solution_steps": ["Read the authoritative chromosome field."],
+                "rationale": "A direct lookup answers this question.",
+            },
             "objective_question_realization": respond,
             "objective_release_review": respond,
         }
@@ -402,6 +407,11 @@ def test_agent_loop_runs_and_exports_a_public_and_audit_package(tmp_path: Path) 
     ]
     assert public_rows[0]["question"] == QUESTION
     assert public_rows[0]["answer"] == ["chromosome 17"]
+    suggestion = public_rows[0]["suggested_retrieval"]
+    hypothesis_id = result.published_questions[0].resolution.hypothesis_id
+    assert suggestion == result.runtime.artifacts[hypothesis_id].payload["suggested_retrieval"]
+    assert suggestion["query"] == QUESTION
+    assert suggestion["stop_condition"]
     assert (release_dir / "audit" / "runtime_artifacts.jsonl").is_file()
     assert (release_dir / "audit" / "validation_reports.jsonl").is_file()
 

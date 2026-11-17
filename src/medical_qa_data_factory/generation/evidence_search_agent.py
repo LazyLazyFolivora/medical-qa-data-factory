@@ -149,6 +149,8 @@ class EvidenceSearchAgent:
                         "terminal_status": result.terminal_status.value,
                         "material_count": len(result.materials),
                         "error_category": result.error_category,
+                        "error_message": result.usage.get("error_message"),
+                        "provider_usage": dict(result.usage),
                     }
                 )
                 for material_payload in result.materials:
@@ -162,6 +164,13 @@ class EvidenceSearchAgent:
                 for anchor_payload in result.anchors:
                     anchor = EvidenceAnchor.model_validate(anchor_payload)
                     anchors[anchor.anchor_id] = anchor
+
+            if task.goal.get("strict_selection"):
+                # ReAct search exposes raw hits, not a relevance or sufficiency verdict.
+                # The controller chooses which IDs to read/extract and whether to search again.
+                selected_ids = list(materials)
+                rationale = "Raw search results; relevance and sufficiency are not assessed"
+                break
 
             if not materials:
                 decision = self._model_decision(
@@ -204,7 +213,7 @@ class EvidenceSearchAgent:
             if decision.sufficient or not pending_queries:
                 break
 
-        if not selected_ids:
+        if not selected_ids and not task.goal.get("strict_selection"):
             selected_ids = self._fallback_selection(
                 task,
                 materials,
@@ -221,19 +230,23 @@ class EvidenceSearchAgent:
             requested_at=utc_now(),
             material_limit=int(task.goal.get("material_limit", 10)),
         )
-        (
-            materials,
-            raw_contents,
-            anchors,
-            detail_trace,
-        ) = self._enrich_selected(
-            provider,
-            request,
-            selected_ids,
-            materials,
-            raw_contents,
-            anchors,
-        )
+        # ReAct reads full text through read_source_details, which gives it a
+        # separate content identity. Inline enrichment replaces abstract IDs
+        # and conflicts with evidence already saved by an earlier search.
+        if not task.goal.get("strict_selection"):
+            (
+                materials,
+                raw_contents,
+                anchors,
+                detail_trace,
+            ) = self._enrich_selected(
+                provider,
+                request,
+                selected_ids,
+                materials,
+                raw_contents,
+                anchors,
+            )
         selected_materials = [
             materials[material_id]
             for material_id in selected_ids
@@ -313,7 +326,9 @@ class EvidenceSearchAgent:
                     {item["round"] for item in search_trace}
                 ),
                 "candidate_count": len(materials),
-                "selected_material_ids": selected_ids,
+                "selected_material_ids": [] if task.goal.get("strict_selection") else selected_ids,
+                "retrieved_material_ids": selected_ids,
+                "selection_status": "unreviewed" if task.goal.get("strict_selection") else "selected",
                 "search_rationale": rationale,
                 "search_trace": search_trace,
                 "detail_trace": detail_trace,
@@ -336,7 +351,7 @@ class EvidenceSearchAgent:
                 )
             ),
             domain_outcome=(
-                DomainOutcome.SUPPORTED
+                (DomainOutcome.NOT_APPLICABLE if task.goal.get("strict_selection") else DomainOutcome.SUPPORTED)
                 if success
                 else DomainOutcome.INSUFFICIENT
             ),
@@ -409,14 +424,17 @@ class EvidenceSearchAgent:
                 SearchRoundDecision,
             )
             return SearchRoundDecision.model_validate(response.parsed)
-        except Exception:
-            return SearchRoundDecision(
-                sufficient=bool(candidates),
-                selected_material_ids=[
-                    str(item["material_id"]) for item in candidates
-                ],
-                rationale="search model failed; deterministic fallback",
-            )
+        except Exception as exc:
+            if not task.goal.get("strict_selection", False):
+                return SearchRoundDecision(sufficient=bool(candidates),
+                    selected_material_ids=[str(item["material_id"]) for item in candidates],
+                    rationale="search model failed; legacy deterministic fallback")
+            # Failure is not evidence sufficiency. Preserve the error for the controller.
+            from .subagent_contracts import RoleContractViolation
+            from ..llm.errors import ModelError
+            if isinstance(exc, ModelError):
+                raise
+            raise RoleContractViolation(f"Search selection failed: {type(exc).__name__}: {exc}") from exc
 
     def _enrich_selected(
         self,
@@ -485,6 +503,7 @@ class EvidenceSearchAgent:
                     "terminal_status": result.terminal_status.value,
                     "material_count": len(result.material_ids),
                     "error_category": result.error_category,
+                    "error_message": result.usage.get("error_message"),
                 }
             ],
         )
@@ -667,11 +686,18 @@ def _query_schema(provider_id: str) -> dict[str, Any]:
             "native_id": "optional Ensembl gene ID",
         },
         "primekg": {
-            "mention": "entity name",
-            "native_id": "optional native graph ID",
-            "direction": "both|incoming|outgoing",
-            "relations": ["optional relation filters"],
-            "target_types": ["optional target type filters"],
+            "operation": "overview|search_nodes|list_neighbors|get_relations",
+            "entity_id": "canonical entity ID from overview/directory; preferred after resolution",
+            "mention": "entity name; search_nodes uses a literal name query",
+            "native_id": "optional native ID, paired with entity_types",
+            "entity_types": ["optional seed type filters"],
+            "relations": ["1-6 actual relations for list_neighbors; optional for get_relations"],
+            "direction": "both (default)|incoming|outgoing; stored orientation, not causal direction",
+            "target_types": ["optional neighbor type filters for list_neighbors"],
+            "page_size": "1-50 objects per relation (default 20); search_nodes result cap",
+            "cursors": {"relation_name": "next_cursor from that relation's previous directory page"},
+            "target_ids": ["1-8 canonical neighbor IDs for get_relations"],
+            "cursor": "next_cursor for get_relations; repeat other query fields unchanged",
         },
         "ctd": {
             "chemical_id": "CTD chemical identifier",

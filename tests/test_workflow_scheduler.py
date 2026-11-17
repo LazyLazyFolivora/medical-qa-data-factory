@@ -57,6 +57,25 @@ def test_ready_stages_advance_without_main_agent_choice(tmp_path):
     assert len(model.calls_for("fact_understanding")) == 1
 
 
+def test_hard_quota_only_counts_audited_hard_questions(tmp_path):
+    from medical_qa_data_factory.generation.workflow_scheduler import target_question_count
+    for difficulty in ("easy", "medium", "hard"):
+        loop, model = make_loop(tmp_path / difficulty, difficulties=["hard"])
+        original = model.responses["objective_release_review"]
+
+        def review(request):
+            response = original(request)
+            if request.payload["stage"] == "answer_evidence_audit":
+                return response.model_copy(update={"assessed_difficulty": difficulty})
+            return response
+
+        model.set_response("objective_release_review", review)
+        result = loop.run()
+        assert len(result.published_questions) == 1
+        assert target_question_count(result.runtime) == int(difficulty == "hard")
+        assert (result.stop_reason == "target_reached") == (difficulty == "hard")
+
+
 def test_exploration_can_stop_without_filling_target(tmp_path):
     loop, model = make_loop(tmp_path)
     model.set_response("objective_workflow_planner", {"action": "stop", "rationale": "No useful supported direction"})
@@ -110,7 +129,8 @@ def test_duplicate_after_standard_routes_redirects_without_spending_search_round
     repeated = history[-1].action_parameters
     def search(request):
         query = {"term": "BRCA1 neighboring genes"} if "redirect_instruction" in request.payload else repeated["query"]
-        return {"action": "retrieve_materials", "provider_id": "pubmed", "query": query,
+        provider = "pubmed" if "redirect_instruction" in request.payload else repeated["provider_id"]
+        return {"action": "retrieve_materials", "provider_id": provider, "query": query,
                 "evidence_need": "Find a genomic neighbor", "rationale": "Explore genomic context"}
     model.set_response("objective_workflow_planner", search)
     decision = planner.decide(snapshot)

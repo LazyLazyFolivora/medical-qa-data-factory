@@ -3,14 +3,16 @@ from __future__ import annotations
 
 import json
 import os
+import asyncio
+import threading
 from datetime import datetime, timedelta, timezone
-from types import SimpleNamespace
 
+import pytest
+import httpx
 from starlette.testclient import TestClient
 
 from medical_qa_data_factory.generation.main_agent import (
     MainAgentDecision,
-    MainAgentDecisionProposal,
 )
 from medical_qa_data_factory.generation.agent_loop import (
     ObjectiveQuestionAgentLoop,
@@ -81,9 +83,16 @@ def test_objective_progress_reports_a_stale_nonterminal_run(
     )[2] is False
 
 
+@pytest.mark.parametrize("include_retrieval", [False, True])
 def test_published_questions_api_lists_only_public_release_rows(
-    tmp_path,
+    tmp_path, include_retrieval,
 ) -> None:
+    suggestion = {
+        "query": "KIF15 approved gene symbol",
+        "sources": ["HGNC"],
+        "expected_evidence": "The official symbol for the gene.",
+        "stop_condition": "The gene record confirms the approved symbol.",
+    }
     public_root = (
         tmp_path
         / "objective_releases"
@@ -98,6 +107,7 @@ def test_published_questions_api_lists_only_public_release_rows(
                 "question": "What is the approved symbol of KIF15?",
                 "answer": ["KIF15"],
                 "explanation": "KIF15 is the approved symbol.",
+                **({"suggested_retrieval": suggestion} if include_retrieval else {}),
                 "schema_version": "objective-public-question-v1",
             }
         )
@@ -118,6 +128,10 @@ def test_published_questions_api_lists_only_public_release_rows(
         "KIF15 is the approved symbol."
     )
     assert payload["questions"][0]["run_id"] == "web-published-1"
+    if include_retrieval:
+        assert payload["questions"][0]["suggested_retrieval"] == suggestion
+    else:
+        assert "suggested_retrieval" not in payload["questions"][0]
 
 
 def test_objective_generation_endpoint_returns_run_summary(
@@ -328,7 +342,7 @@ def test_objective_run_list_contains_only_objective_runs(
     (tmp_path / "tasks" / "legacy-one").mkdir(parents=True)
     monkeypatch.setattr(
         "medical_qa_data_factory.web.app.build_objective_summary",
-        lambda _workspace, run_id: {
+        lambda _workspace, run_id, **_: {
             "task_id": run_id,
             "engine": "objective",
             "status": "completed",
@@ -357,6 +371,22 @@ def test_objective_run_list_contains_only_objective_runs(
         "objective-one"
     ]
     assert all(item["engine"] == "objective" for item in payload["runs"])
+
+
+def test_objective_run_list_survives_an_unreadable_run(tmp_path, monkeypatch, caplog):
+    for run_id in ("readable", "unreadable"):
+        (tmp_path / "objective_runs" / run_id).mkdir(parents=True)
+
+    def read_summary(_workspace, run_id, **_):
+        if run_id == "unreadable":
+            raise PermissionError("checkpoint cannot be read")
+        return {"run_id": run_id}
+
+    monkeypatch.setattr("medical_qa_data_factory.web.app.build_objective_summary", read_summary)
+    response = TestClient(_app(tmp_path)).get("/api/objective/runs")
+    assert response.status_code == 200
+    assert response.json() == {"runs": [{"run_id": "readable"}], "run_count": 1}
+    assert "Cannot read history for unreadable" in caplog.text
 
 
 def _create_recovery_run(
@@ -488,8 +518,48 @@ def test_resume_endpoint_reports_a_missing_run(tmp_path) -> None:
     assert response.json()["code"] == "run_not_found"
 
 
-def _create_stalled_pending_run(tmp_path):
-    run_id = "objective-stalled-pending"
+def test_disconnected_request_keeps_its_worker_and_generation_lock(tmp_path, monkeypatch):
+    entered = threading.Event()
+    finish = threading.Event()
+
+    def generate(**kwargs):
+        if kwargs["run_id"] == "web-first":
+            entered.set()
+            assert finish.wait(5)
+        return {"task_id": kwargs["run_id"]}
+
+    monkeypatch.setattr("medical_qa_data_factory.web.app._run_objective_web_generation", generate)
+
+    async def exercise():
+        app = _app(tmp_path)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            def generate_request(run_id):
+                return client.post("/api/objective/generate", json={
+                    "run_id": run_id, "entity_canonical_id": "primekg:gene/protein:672",
+                    "entity_name": "BRCA1", "providers": ["pubmed"],
+                })
+
+            first = asyncio.create_task(generate_request("web-first"))
+            try:
+                assert await asyncio.to_thread(entered.wait, 5)
+                first.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await first
+                assert (await generate_request("web-second")).status_code == 409
+            finally:
+                finish.set()
+
+            for _ in range(100):
+                response = await generate_request("web-second")
+                if response.status_code == 200:
+                    break
+                await asyncio.sleep(0.01)
+            assert response.json() == {"task_id": "web-second"}
+
+    asyncio.run(exercise())
+
+
+def _create_stalled_pending_run(tmp_path, run_id="objective-stalled-pending", *, age_commit=True):
     repo = _create_recovery_run(tmp_path, run_id)
     repo.resume_from_recovery()
     snapshot = repo.load()
@@ -519,15 +589,21 @@ def _create_stalled_pending_run(tmp_path):
         datetime.now(timezone.utc)
         - timedelta(seconds=OBJECTIVE_STALL_AFTER_SECONDS + 5)
     ).timestamp()
-    os.utime(latest, (old, old))
+    if age_commit:
+        os.utime(latest, (old, old))
     return run_id, repo
 
 
+@pytest.mark.parametrize("interrupted", [False, True])
 def test_stalled_pending_run_is_resumable_at_the_recorded_step(
     tmp_path,
     monkeypatch,
+    interrupted,
 ) -> None:
-    run_id, repo = _create_stalled_pending_run(tmp_path)
+    run_id, repo = _create_stalled_pending_run(
+        tmp_path, "web-interrupted" if interrupted else "objective-stalled-pending",
+        age_commit=not interrupted,
+    )
     captured = {}
 
     def fake_resume(**kwargs):
@@ -551,11 +627,13 @@ def test_stalled_pending_run_is_resumable_at_the_recorded_step(
 
     assert summary["status"] == "stalled"
     assert summary["can_resume"] is True
+    assert summary["worker_interrupted"] is interrupted
     assert summary["last_successful_step"] == 0
     assert summary["next_step"] == 1
     assert summary["pending_decision_id"] == "decision.pending"
     assert resumed.status_code == 200, resumed.json()
     assert captured["run_id"] == run_id
+    assert captured["worker_interrupted"] is interrupted
 
 
 def test_recovery_summary_points_to_the_pending_recorded_step(
@@ -635,16 +713,7 @@ def test_resume_helper_continues_at_the_next_decision(tmp_path) -> None:
         model_config_id = "local:test"
 
         def generate_structured(self, _request, response_model):
-            proposal = response_model(
-                action="stop",
-                target_subagent_role=None,
-                input_artifact_ids=[],
-                requested_budget={},
-                expected_information_gain=0,
-                action_parameters={},
-                stop_reason="resume_test",
-            )
-            return SimpleNamespace(parsed=proposal.model_dump(mode="json"))
+            raise AssertionError("The host can stop a run that has reached its quota")
 
     payload = _resume_objective_web_generation(
         workspace=tmp_path,
@@ -781,238 +850,217 @@ def test_objective_generation_persists_failure_on_agent_error(
     assert "structured model timed out" in summary.json()["stop_reason"]
 
 
-def test_objective_api_runs_the_real_agent_loop(tmp_path) -> None:
+def current_generation_fixture():
+    records = [
+        ("On which chromosome is human BRCA1 located?", "chromosome 17",
+         "Human BRCA1 is located on chromosome 17."),
+        ("What process does BRCA1 help repair in human cells?", "DNA double-strand break repair",
+         "Human BRCA1 participates in DNA double-strand break repair."),
+        ("Which protein forms a heterodimer with human BRCA1?", "BARD1",
+         "Human BRCA1 forms a heterodimer with BARD1."),
+    ]
     model = objective_subagent_model()
+    by_question = {question: answer for question, answer, _ in records}
 
-    def main_agent(request):
-        summaries = request.payload["artifact_summaries"]
-        types = {item["artifact_type"] for item in summaries}
-        verification_ready = any(
-            item["artifact_type"] == "provider_result"
-            and item.get("metadata", {}).get("purpose") == "verification"
-            for item in summaries
-        )
-        if "evidence_material" not in types:
-            return MainAgentDecisionProposal(
-                action="retrieve_materials",
-                target_subagent_role="material_retrieval",
-                input_artifact_ids=[],
-                requested_budget={},
-                expected_information_gain=0.9,
-                action_parameters={
-                    "provider_id": "primekg",
-                    "purpose": "discovery",
-                    "query": {"mention": "BRCA1", "native_id": "672"},
-                },
-            )
-        if not verification_ready:
-            return MainAgentDecisionProposal(
-                action="retrieve_materials",
-                target_subagent_role="material_retrieval",
-                input_artifact_ids=[],
-                requested_budget={},
-                expected_information_gain=0.8,
-                action_parameters={
-                    "provider_id": "pubmed",
-                    "purpose": "verification",
-                    "query": {"term": "BRCA1 chromosome 17"},
-                },
-            )
-        if "candidate_claim" not in types:
-            return MainAgentDecisionProposal(
-                action="understand_facts",
-                target_subagent_role="fact_understanding",
-                input_artifact_ids=[],
-                requested_budget={},
-                expected_information_gain=0.8,
-            )
-        if "question_hypothesis" not in types:
-            return MainAgentDecisionProposal(
-                action="design_questions",
-                target_subagent_role="objective_question_design",
-                input_artifact_ids=[],
-                requested_budget={},
-                expected_information_gain=0.8,
-            )
-        if "answer_resolution" not in types:
-            return MainAgentDecisionProposal(
-                action="verify_answer",
-                target_subagent_role="objective_answer_verification",
-                input_artifact_ids=[],
-                requested_budget={},
-                expected_information_gain=0.8,
-            )
-        if "objective_question_draft" not in types:
-            return MainAgentDecisionProposal(
-                action="realize_question",
-                target_subagent_role="objective_question_realization",
-                input_artifact_ids=[],
-                requested_budget={},
-                expected_information_gain=0.8,
-            )
-        if "objective_validation_report" not in types:
-            return MainAgentDecisionProposal(
-                action="review_release",
-                target_subagent_role="objective_release_review",
-                input_artifact_ids=[],
-                requested_budget={},
-                expected_information_gain=0.8,
-            )
-        return MainAgentDecisionProposal(
-            action="stop",
-            target_subagent_role=None,
-            input_artifact_ids=[],
-            requested_budget={},
-            expected_information_gain=0,
-            stop_reason="objective_questions_complete",
-        )
+    def controller(request):
+        payload = request.payload
+        choices = payload["candidate_tool_targets"]
+        for action in ("publish_question", "review_candidate"):
+            targets = choices.get(action) or []
+            if targets:
+                return {"action": action, "parameters": {"hypothesis_id": targets[0]}, "rationale": action}
+        for candidate, readiness in payload["verification_readiness"].items():
+            if readiness["entry_ready"]:
+                return {"action": "verify_answer", "parameters": {"hypothesis_id": candidate},
+                        "rationale": "Independently verify the candidate using the source."}
+        opportunities = payload["design_inputs"]["unused_discovery_opportunities"]
+        if opportunities:
+            return {"action": "design_questions", "rationale": "Draft an unused question",
+                    "parameters": {"research_id": opportunities[0]["research_id"],
+                                   "evidence_sufficiency_reason": "The saved source states the direct answer."}}
+        reports = payload["discovery_inputs"]["research_handoffs"]
+        if reports:
+            return {"action": "discover_questions", "rationale": "Find separate information needs",
+                    "input_artifact_ids": [reports[0]["report_id"]], "parameters": {}}
+        assert not payload["prior_searches"], payload["prior_searches"]
+        return {"action": "research_evidence", "rationale": "Find material for the requested entity",
+                "parameters": {"information_need": "Find distinct BRCA1 facts", "preferred_provider": "pubmed"}}
 
-    model.set_response("objective_main_agent", main_agent)
-    app = create_app(
-        tmp_path,
-        structured_model=model,
-        objective_providers={
-            "primekg": FakeMaterialProvider(
-                "primekg",
-                "BRCA1 is located on human chromosome 17.",
-            ),
-            "pubmed": FakeMaterialProvider(
-                "pubmed",
-                "Independent report: BRCA1 maps to chromosome 17.",
-            ),
-        },
-    )
+    def researcher(request):
+        payload = request.payload
+        if not payload["history"]:
+            return {"action": "retrieve_materials", "rationale": "Find candidate sources",
+                    "parameters": {"provider_id": "pubmed", "query": {"term": "BRCA1"},
+                                   "evidence_need": "Find BRCA1 facts"}}
+        if payload["history"][-1]["action"] == "retrieve_materials":
+            return {"action": "read_artifacts", "rationale": "Read the saved source",
+                    "input_artifact_ids": [payload["materials"][0]["id"]]}
+        return {"action": "finish_research", "rationale": "Pass original evidence to discovery",
+                "summary": "The source covers chromosome location, repair and protein binding."}
+
+    def plan(request):
+        evidence = request.payload["materials"][0]["excerpts"]
+        spans = {sentence["text"]: sentence["span_id"] for passage in evidence for sentence in passage["sentences"]}
+        return {"opportunities": [
+            {"primary_span_id": spans[quote], "source_ids": [],
+             "supported_observations": [quote], "information_need": question, "value": "Direct domain lookup",
+             "evidence_scope": dict.fromkeys(("population_or_genotype", "setting", "comparator", "time_period")),
+             "readiness": "ready_for_design", "next_information_target": ""}
+            for question, _, quote in records
+        ]}
+
+    def reader(request):
+        return {"judgments": [
+            {"index": item["index"], "premises": [], "verdict": "ACCEPT", "reason": "Standalone"}
+            for item in request.payload["questions"]
+        ]}
+
+    def grounded_answer(request):
+        payload = request.payload
+        question = payload["research_context"]["approved_question"]
+        return {"hypotheses": [{
+            "hypothesis_id": "fixture", "question_intent": question, "proposed_public_scope": "human BRCA1",
+            "proposed_answer_type": "entity", "proposed_answer_values": [by_question[question]],
+            "proposed_cardinality": "EXACTLY_ONE", "evidence_basis": "source_passages",
+            "discovery_anchor_ids": [payload["evidence_excerpts"][0]["anchor_id"]],
+            "suggested_retrieval": {"query": question, "sources": ["PubMed"],
+                                    "expected_evidence": question, "stop_condition": "Find direct support."},
+        }]}
+
+    def verify(request):
+        payload = request.payload
+        query = payload["blind_answer_query"]
+        if payload["stage"] == "final_blind":
+            return {"query_id": query["query_id"], "answer_values": [by_question[query["question"]]], "uncertain": False}
+        anchor = payload["evidence_anchors"][0]
+        return {
+            "claim_checks": [
+                {"target": target, "statement": by_question[query["question"]],
+                 "source_sentence": next(quote for question, _, quote in records if question == query["question"]),
+                 "anchor_ids": [anchor["anchor_id"]], "source_uncertainty_or_scope": "human BRCA1",
+                 "claim_uncertainty_or_scope": "human BRCA1", "preserves_uncertainty_and_scope": True,
+                 "relation": "SUPPORTED"}
+                for target in ("proposed_answer", "blind_answer")
+            ],
+            "review": {"question_is_self_contained": True, "answer_matches_blind": True,
+                       "answer_scope_complete": True, "explanation": "The source supports the answer.",
+                       "conflict_found": False, "directly_supporting_anchor_ids": [anchor["anchor_id"]],
+                       "support_directly_entails_answer": True},
+        }
+
+    responses = {
+        "objective_react_agent": controller,
+        "objective_research_agent": researcher,
+        "objective_reading_summary": {"summary": "Read three facts.", "limitations": ""},
+        "objective_question_opportunity": plan,
+        "objective_question_discovery": lambda request: {"questions": [
+            {"plan_id": p["plan_id"], "question": p["information_need"]} for p in request.payload["plans"]
+        ]},
+        "objective_question_form_reader": lambda request: {"judgments": [
+            {"index": item["index"], "task_in_question": "Find the stated fact", "missing_required_context": [],
+             "task_kind": "domain_knowledge", "verdict": "ACCEPT", "reason": "Standalone"}
+            for item in request.payload["questions"]
+        ]},
+        "objective_question_reader": reader,
+        "objective_answer_source_reading": {"requested_result": "Find the fact", "quantitative_result_needed": False,
+                                             "observations": [], "missing_relationships": [], "unestablished_links": []},
+        "objective_grounded_answer": grounded_answer,
+        "objective_answer_verification": verify,
+        "objective_claim_entailment": lambda request: {"checks": [
+            {"id": pair["id"], "support": "entailed", "reason": "The anchor supports the answer."}
+            for pair in request.payload["pairs"]
+        ]},
+    }
+    for role, response in responses.items():
+        model.set_response(role, response)
+    return model, " ".join(quote for _, _, quote in records), by_question
+
+
+@pytest.mark.parametrize("question_count", [1, 3, 3], ids=["one", "three", "three-again"])
+def test_objective_api_runs_the_real_agent_loop(tmp_path, question_count) -> None:
+    model, source, by_question = current_generation_fixture()
+    app = create_app(tmp_path, structured_model=model, objective_providers={
+        "pubmed": FakeMaterialProvider("pubmed", source),
+    })
     client = TestClient(app)
-    response = client.post(
-        "/api/objective/generate",
-        json={
-            "run_id": "objective-api-e2e",
-            "entity_canonical_id": "primekg:gene:672",
-            "entity_name": "BRCA1",
-            "entity_type": "gene",
-            "question_count": 1,
-            "max_actions": 12,
-            "providers": ["primekg", "pubmed"],
-        },
-    )
-
+    run_id = "web-current-chain"
+    response = client.post("/api/objective/generate", json={
+        "run_id": run_id, "entity_canonical_id": "primekg:gene:672", "entity_name": "BRCA1",
+        "entity_type": "gene", "question_count": question_count, "max_actions": 20, "providers": ["pubmed"],
+    })
     assert response.status_code == 200, response.json()
     payload = response.json()
-    assert payload["run_state"] == "COMPLETED"
-    assert payload["published_count"] == 1
-    assert payload["questions"][0]["answer"] == ["chromosome 17"]
-    assert payload["main_agent_steps"]
-    assert {item["provider_id"] for item in payload["materials"]} == {
-        "primekg",
-        "pubmed",
-    }
-    assert any(
-        "chromosome 17" in item["preview"] for item in payload["materials"]
-    )
-    assert {
-        item["provider_id"] for item in payload["retrieval_sources"]
-    } == {"primekg", "pubmed"}
+    assert payload["run_state"] == "COMPLETED", [step["parameters"] for step in payload["main_agent_steps"]]
+    assert payload["published_count"] == question_count
+    assert payload["stop_reason"] == "target_reached"
+    summary = client.get(f"/api/objective/{run_id}/summary").json()
+    assert summary["counted_toward_target"] == question_count
+    assert summary["current_action"]["action"] == "stop"
+    workbench = client.get(f"/api/objective/{run_id}/workbench").json()
+    questions = workbench["published_questions"]
+    assert len({q["question_id"] for q in questions}) == question_count
+    assert all(q["answer"] == [by_question[q["text"]]] for q in questions)
+    published = client.get("/api/published-questions").json()
+    assert len(published["questions"]) == question_count
+    for question in questions:
+        assert question["suggested_retrieval"]["query"] == question["text"]
+        dossier = client.get(f"/api/questions/{question['question_id']}/evidence").json()
+        assert dossier["validation"]["release_allowed"] is True
+        assert any(question["answer"][0] in row["quoted_text"] for row in dossier["evidence"])
+    assert len(model.calls_for("objective_answer_verification")) == 2 * question_count
+    assert (tmp_path / "objective_releases" / run_id / "public" / "questions.jsonl").is_file()
 
-    progress = client.get("/api/objective/objective-api-e2e")
-    assert progress.status_code == 200
-    question_id = progress.json()["questions"][0]["question_id"]
-    assert question_id.startswith("draft.contract.")
 
-    summary = client.get("/api/objective/objective-api-e2e/summary")
-    assert summary.status_code == 200, summary.json()
-    summary_payload = summary.json()
-    assert summary_payload["published_count"] == 1
-    assert summary_payload["candidate_count"] == 0
-    assert summary_payload["current_action"]["action"] == "stop"
-    assert summary_payload["current_action"]["action_label"] == "结束运行"
-    assert "materials" not in summary_payload
+def test_web_and_cli_share_default_generation_inputs_and_release(tmp_path, monkeypatch):
+    from medical_qa_data_factory.cli import main
+    from medical_qa_data_factory.generation import objective_cli
 
-    workbench = client.get("/api/objective/objective-api-e2e/workbench")
-    assert workbench.status_code == 200, workbench.json()
-    workbench_payload = workbench.json()
-    assert workbench_payload["published_questions"][0][
-        "question_id"
-    ] == question_id
-    assert workbench_payload["published_questions"][0][
-        "status"
-    ] == "published"
-    assert workbench_payload["candidate_questions"] == []
-    assert workbench_payload["rejected_questions"] == []
-    assert workbench_payload["retrieval_sources"]
-    assert any(
-        item["query_label"]
-        for item in workbench_payload["retrieval_sources"]
-    )
-    assert any(
-        item["candidate_count"] is not None
-        for item in workbench_payload["retrieval_sources"]
-    )
+    web_model, source, _ = current_generation_fixture()
+    cli_model, _, _ = current_generation_fixture()
+    provider_ids = ["ensembl", "hgnc", "ncbi_gene", "primekg", "pubmed"]
+    providers = {name: FakeMaterialProvider(name, source) for name in provider_ids}
+    web_root = tmp_path / "web"
+    client = TestClient(create_app(web_root, structured_model=web_model, objective_providers=providers))
+    run_id = "web-parity"
+    response = client.post("/api/objective/generate", json={
+        "run_id": run_id, "entity_canonical_id": "primekg:gene/protein:672",
+        "entity_name": "BRCA1", "entity_type": "gene/protein", "question_count": 3,
+    })
+    assert response.status_code == 200, response.json()
+    assert response.json()["published_count"] == 3
 
-    details = client.get("/api/objective/objective-api-e2e")
-    assert details.status_code == 200
-    steps = details.json()["main_agent_steps"]
-    assert steps
-    assert any(
-        item["outputs"]["providers"]
-        for item in steps
-        if item.get("outputs")
-    )
-    assert any(
-        item["outputs"]["claims"]
-        for item in steps
-        if item.get("outputs")
-    )
-    assert any(
-        item["outputs"]["validations"]
-        for item in steps
-        if item.get("outputs")
-    )
+    def fake_provider_map(requested, **kwargs):
+        assert sorted(requested) == provider_ids
+        return providers, None
 
-    dossier = client.get(f"/api/questions/{question_id}/evidence")
-    assert dossier.status_code == 200, dossier.json()
-    dossier_payload = dossier.json()
-    assert dossier_payload["question"]["question_id"] == question_id
-    assert dossier_payload["validation"]["release_allowed"] is True
-    assert dossier_payload["evidence"]
-    assert all(
-        item["quoted_text"] for item in dossier_payload["evidence"]
-    )
-    assert {
-        item["provider_id"] for item in dossier_payload["evidence"]
-    } >= {"pubmed"}
+    monkeypatch.setattr(objective_cli, "build_model_port", lambda **kwargs: cli_model)
+    monkeypatch.setattr(objective_cli, "objective_provider_map", fake_provider_map)
+    cli_output = tmp_path / "cli-release"
+    assert main([
+        "objective", "generate", "--workspace", str(tmp_path / "cli"),
+        "--output", str(cli_output), "--run-id", run_id,
+        "--entity-name", "BRCA1", "--entity-id", "672", "--entity-type", "gene",
+        "--question-count", "3",
+    ]) == 0
 
-    # Replay committed snapshots without an export, as seen while the loop is running.
-    from pathlib import Path
-    from shutil import copy2
+    web_request = web_model.calls_for("objective_react_agent")[0].payload
+    cli_request = cli_model.calls_for("objective_react_agent")[0].payload
+    for key in ("goal", "generation_strategy", "available_providers", "budget"):
+        assert web_request[key] == cli_request[key]
+    assert web_request["available_providers"] == provider_ids
+    assert web_request["goal"]["target_entity_type"] == "gene"
+    assert web_request["goal"]["difficulty_targets"] == ["easy"]
+    assert web_request["goal"]["style_targets"] == ["concise"]
+    assert web_request["generation_strategy"]["name"] == "free"
+    assert web_request["goal"]["run_budget"] == {"max_actions": 50, "max_cost": 10, "max_model_calls": 130}
 
-    run_id = "objective-api-e2e"
-    commits = Path("objective_runs") / run_id / "objective_runtime" / "commits"
-    live = tmp_path / "in-progress"
-    (live / commits).mkdir(parents=True)
-    live_client = TestClient(_app(live))
-    saw_candidate = False
-    for commit in sorted((tmp_path / commits).glob("*.json")):
-        copy2(commit, live / commits / commit.name)
-        state = json.loads(commit.read_bytes())["snapshot"]
-        if "PUBLISHED" in state["hypotheses"].values():
-            break
-        assert question_id not in state["artifacts"]  # Draft, report and publication are committed together.
-        if not saw_candidate and state["hypotheses"]:
-            assert live_client.get(f"/api/objective/{run_id}/workbench").json()["published_questions"] == []
-            saw_candidate = True
-    assert saw_candidate and state["run_state"] != "COMPLETED"
-    calls = model.calls_for("objective_answer_verification")
-    assert [call.payload["stage"] for call in calls] == ["final_blind", "final_review"]
-    public_query = calls[0].payload["blind_answer_query"]
-    assert set(public_query) == {"query_id", "question"}
-    assert public_query["question"] == workbench_payload["published_questions"][0]["text"]
-    for role in ("objective_question_realization", "objective_candidate_review", "objective_release_review"):
-        assert not model.calls_for(role)
-    assert live_client.get(f"/api/objective/{run_id}/summary").json()["published_count"] == 1
-    assert live_client.get(f"/api/objective/{run_id}").json()["questions"][0]["question_id"] == question_id
-    assert live_client.get(f"/api/objective/{run_id}/workbench").json()["published_questions"] == workbench_payload["published_questions"]
-    assert live_client.get("/api/published-questions").json()["question_count"] == 1
-    assert client.get("/api/published-questions").json()["question_count"] == 1
+    def released_qa(root):
+        rows = (root / "public" / "questions.jsonl").read_text(encoding="utf-8").splitlines()
+        return {row["question"]: row["answer"] for row in map(json.loads, rows)}
+
+    web_release = web_root / "objective_releases" / run_id
+    assert len(released_qa(cli_output)) == 3
+    assert released_qa(web_release) == released_qa(cli_output)
 
 
 def test_pause_api_requests_boundary_stop_and_summary_reports_it(tmp_path):

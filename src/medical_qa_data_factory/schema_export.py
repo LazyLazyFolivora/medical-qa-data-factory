@@ -124,7 +124,10 @@ from .generation.training import (
 )
 
 
+from .generation.difficulty_assessment import DifficultyAssessment
+
 SCHEMA_MODELS = {
+    "difficulty-assessment.schema.json": DifficultyAssessment,
     "generation-task.schema.json": GenerationTask,
     "evidence-bundle.schema.json": EvidenceBundle,
     "source-neutral-evidence-record.schema.json": EvidenceRecord,

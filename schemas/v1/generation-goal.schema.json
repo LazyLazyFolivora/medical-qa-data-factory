@@ -15,6 +15,18 @@
       "title": "Difficulty Targets",
       "type": "array"
     },
+    "generation_strategy": {
+      "default": "auto",
+      "enum": [
+        "auto",
+        "easy",
+        "medium",
+        "hard",
+        "free"
+      ],
+      "title": "Generation Strategy",
+      "type": "string"
+    },
     "language": {
       "anyOf": [
         {

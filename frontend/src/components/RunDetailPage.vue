@@ -29,8 +29,8 @@ const tabs = [
 ];
 
 const data = computed(() => ({
-  ...(props.task || {}),
   ...(props.workbench || {}),
+  ...(props.task || {}),
 }));
 const steps = computed(() => data.value.main_agent_steps || []);
 const interruptions = computed(() => {
@@ -116,8 +116,8 @@ const statusText = (item) =>
       <div>
         <span>已发布</span>
         <strong>{{ data.published_count ?? questions.length }}</strong>
-        <small v-if="data.goal?.difficulty_targets?.length === 1 && data.goal.difficulty_targets[0] === 'medium'">
-          计入中等题目标 {{ data.counted_toward_target ?? '—' }} 道
+        <small v-if="data.goal?.difficulty_targets?.length === 1 && ['medium', 'hard'].includes(data.goal.difficulty_targets[0])">
+          计入目标难度 {{ data.counted_toward_target ?? '—' }} 道
         </small>
       </div>
       <div>
@@ -246,10 +246,16 @@ const statusText = (item) =>
             <small>
               {{ source.terminal_status }} · 材料 {{ source.material_count }}
             </small>
+            <p v-if="source.error_category || source.error_message" role="status">
+              {{ source.error_category }}
+              {{ source.error_message || "该记录未保存具体错误详情。" }}
+            </p>
           </div>
         </article>
       </div>
       <p v-else class="page-state">暂无检索来源。</p>
+
+
     </section>
 
     <section v-else-if="activeTab === 'questions'" class="detail-section">
@@ -262,7 +268,7 @@ const statusText = (item) =>
         >
           <div>
             <span class="badge">{{ question.status_label || "已发布" }}</span>
-            <span v-if="question.assessed_difficulty === 'easy' && data.goal?.difficulty_targets?.join() === 'medium'" class="badge">附加简单题 · 不计入目标</span>
+            <span v-if="data.goal?.difficulty_targets?.length === 1 && ['medium', 'hard'].includes(data.goal.difficulty_targets[0]) && question.assessed_difficulty && !data.goal.difficulty_targets.includes(question.assessed_difficulty)" class="badge">附加题 · 不计入目标难度</span>
             <h3>{{ question.text }}</h3>
             <p><strong>答案：</strong>{{ formatAnswer(question.answer) }}</p>
             <p v-if="question.explanation">{{ question.explanation }}</p>

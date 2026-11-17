@@ -12,6 +12,7 @@ const emit = defineEmits(["back-run"]);
 const question = computed(() => props.dossier?.question || null);
 const validation = computed(() => props.dossier?.validation || {});
 const evidence = computed(() => props.dossier?.evidence || []);
+const suggestedRetrieval = computed(() => question.value?.suggested_retrieval);
 const answer = computed(() => {
   const value = question.value?.answer;
   return Array.isArray(value) ? value.join("；") : value || "—";
@@ -54,6 +55,13 @@ const answer = computed(() => {
         <p v-if="question.explanation">{{ question.explanation }}</p>
       </section>
 
+      <section v-if="dossier.difficulty_assessment" class="question-evidence-block">
+        <h2>独立难度评估</h2>
+        <p>生成策略 · {{ dossier.difficulty_assessment.generation_strategy }} / 实际难度 · {{ dossier.difficulty_assessment.assessment.assessed_difficulty }}</p>
+        <p>{{ dossier.difficulty_assessment.assessment.rationale }}</p>
+        <ol><li v-for="step in dossier.difficulty_assessment.assessment.shortest_solution_steps" :key="step">{{ step }}</li></ol>
+      </section>
+
       <section class="detail-section">
         <h2>来源与运行上下文</h2>
         <dl class="run-config">
@@ -73,6 +81,16 @@ const answer = computed(() => {
             <dt>发布允许</dt>
             <dd>{{ validation.release_allowed ? "是" : "否" }}</dd>
           </div>
+        </dl>
+      </section>
+
+      <section v-if="suggestedRetrieval" class="detail-section">
+        <h2>随题生成的检索建议</h2>
+        <dl class="run-config">
+          <div><dt>查询</dt><dd>{{ suggestedRetrieval.query }}</dd></div>
+          <div><dt>来源</dt><dd>{{ suggestedRetrieval.sources.join("、") }}</dd></div>
+          <div><dt>需要核对的证据</dt><dd>{{ suggestedRetrieval.expected_evidence }}</dd></div>
+          <div><dt>停止条件</dt><dd>{{ suggestedRetrieval.stop_condition }}</dd></div>
         </dl>
       </section>
 

@@ -1,0 +1,11 @@
+# 最新阅读结果被截断、未提取事实被误当成未读
+
+实际第7–11步输入约1.8–2.2万tokens，输入预算125952，压缩轮数均为0。但ObservationView.recent另设16000字符上限，将包含正文和元数据的JSON字符串直接切开。第8、10步最新阅读输出均因此不完整；字符串内的长ID也绕过短编号映射。
+
+改动：最新一步所有观察保持结构化完整内容，不受旧观察字符预算限制。此前两步的观察按整条保留或整条省略，省略标记明确不是未读；不再截出半个JSON或提示泛化重读。总请求仍使用已有ContextManager预算检查，不承诺无限材料都能塞入上下文。
+
+主prompt将unprocessed_material_ids改为materials_without_extracted_claims，说明是未完整提取事实而非阅读待办；新增unread_material_ids、partially_read_material_ids、fully_read_material_ids及visible_source_text_ids，区分保存的阅读覆盖和本次可见文本。更新工具说明、skill字段名和短编号转换。
+
+验证：55个观察、别名、ReAct、阅读、工作笔记及历史测试通过。真实第8、10、11步before快照离线重建，最新8份材料均完整结构化且引用统一M编号；第8步11302字符原文、第10步10355字符原文、第11步5728字符原文均保留。第11步明确5份未读、15份读过、20份未完整提取事实。
+
+重建记录：data/runs/first-action-1596af89fe18/context-fix-audit/。没有调用真实模型、执行工具或推进原任务，也未改写历史prompt。该改动修复输入失真，不保证模型不再重复阅读。
