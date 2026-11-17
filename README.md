@@ -1,677 +1,311 @@
 # Medical QA Data Factory
 
-用于自动、手动或混合构造多源医学问答数据集的独立服务。
+医学问答数据生产工作台。从生物医药实体出发，调用模型与证据来源完成研究、出题、评审和验证，保存执行轨迹，导出问答数据集。
 
-## 目录导航
+当前开发分支为 `dev`。本文面向当前代码的安装、部署、升级和恢复；历史设计与实验结论见 [文档索引](docs/medical-qa-data-factory/README.md)。
 
-- `src/`、`frontend/`：服务端与前端实现。
-- `tests/`、`schemas/`、`eval/`：测试、数据契约与评估清单。
-- `config/`、`skills/`：配置模板与运行时提示词资源。
-- [项目文档](docs/medical-qa-data-factory/README.md)：运行与设计说明；历史变更集中在 [archive](docs/medical-qa-data-factory/archive/README.md)。
-- [实验资料](experiments/README.md)：独立出题方法实验，与生产实现分开。
-- `design/`：当前界面规范和实现截图；已废弃的静态原型从工作树移除，Git 历史仍可查阅。
-- `scripts/`：调试、重放与分析工具；`plans/`：实施计划。
-- `data/`：本地运行、缓存与实验输出，不提交 Git。运行记录及冻结基线不是可随意清理的缓存。
+## 功能与组成
 
-## 边界
+- 自动出题：按目标题数与并发实体数启动批次，查看进度、暂停与继续。
+- 题目管理：按批次或全局筛选已发布题目，导出 JSONL。
+- 单实体工作台：查看实体任务、证据与运行轨迹。
+- PostgreSQL：保存持续生产的批次、实体历史及题目索引。
+- 文件工作区：保存证据、检查点、运行轨迹与发布文件。
+- Vue 前端与 Python API 分开运行；后端不托管前端页面。
 
-- 本项目拥有数据生成任务、证据包、问题规格、调用配置、客观用量和离线参考动作等数据契约。
-- 本项目可以调用 KG 和文献检索工具，但不依赖任何具体查询规划器实现。
-- 下游选择器或查询规划器只能通过导出的版本化数据契约消费结果。
-- `PolicyCost` 是数据构造和离线策略比较使用的实验量；原始 token、耗时和金额单独记录，不直接等同于策略成本。
+## 环境要求
 
-## 当前状态
+| 组件 | 要求 |
+| --- | --- |
+| Python | 项目声明 Python ≥ 3.10，建议使用独立的 Python 3.12 环境 |
+| Node.js | 当前 Vite 要求 `^20.19.0` 或 `>=22.12.0` |
+| PostgreSQL | 可连接的实例；持续自动出题必须配置数据库 |
+| 模型服务 | 可访问的 OpenAI-compatible 服务，按实际服务填写配置 |
+| 数据来源 | 准备 PrimeKG 数据库，并按所用来源配置网络与凭据 |
 
-当前已实现：
+依赖范围在 `requirements.txt`，固定版本在 `constraints.txt`；前端使用 `frontend/package-lock.json`。
 
-**数据契约与不可变存储**
+## 1. 获取代码与安装依赖
 
-- GenerationTask、EvidenceBundle、QuestionSpec 的 Pydantic 契约与 JSON Schema；
-- 不可覆盖的本地版本化 JSON 产物仓库，写入顺序显式记录（"最新版本"不再依赖 mtime）；
-- 变更记录（ChangeRecord）保留每一次修改的父版本与新版本。
+首次获取：
 
-**运行身份与预算账本**
-
-- `RequiredEvidenceMode` 为服务端权威的证据模式，绑定在 run / bundle / question / coverage 上；
-- `GenerationPreparationRun` 与 `GenerationRunManifest`：正式 run 必须在成功的 provider
-  preflight 之后才可冻结；
-- `AttemptRecord` 是预算的唯一事实来源，状态机为 reserved → running → completed / failed /
-  unknown；未知结果按预留上限计费，不按零计费；
-- `reconcile` 结算孤儿 reservation 与结果未知的 running attempt。
-
-**知识图谱**
-
-- 以只读方式接入本地 PrimeKG：实体解析、邻居查询，统一转换为 `KGEvidence`；
-  provider 的 `path_query` capability 仍声明为 `false`（`paths()` 忽略关系/类型过滤，
-  无法返回完整有序路径），生成流程不会调用它；
-- `knowledge_graph/frontier.py` 的有界 frontier 扩展自行组装 N 跳有序路径，每步带 edge id、
-  遍历方向与 query trace，可按步重放；拒绝环、重复边、回到起点与跨 snapshot 缝合；
-- 路径持久化遵循 evidence-first / path-second / reload-validation：证据先落盘，路径引用
-  证据 id，随后从磁盘重载并重新校验，只有通过才发布。
-
-**文献检索**
-
-- `literature/` 提供 `preflight` / `search` / `read_chunk` 三能力与 provider registry；
-- WeKnora adapter 的请求与响应形状取自其源码（`POST /knowledge-search`、
-  `GET /chunks/by-id/:id`），见 [接入契约](docs/medical-qa-data-factory/weknora-rag-integration.md)；
-- 检索结果必须经同一 snapshot 上的独立回读、文本 hash 与字符偏移一致，才成为文本证据；
-- 逐 hop 构造 `LiteratureEvidenceNeed`，支持性判断独立保存且不覆盖证据原文；
-  评估集合必须包含全部适用结果，支持/反对/不确定/仅背景/无关都进入。
-
-**生成流程**
-
-- `rule-based` 使用单跳固定 DAG；`fake` / `structured` 在身份校验后先运行有界 ReAct
-  探索；带显式 `GenerationSpec` 的请求使用结构化 Writer 和上下文隔离的 Verifier，
-  历史请求继续使用确定性规则组件；
-- 有界 ReAct 循环 `observe → decide → gate → act → persist → assess`：模型只能提交 proposal，
-  Policy Gate 校验后生成 SealedAction，Executor 只执行 SealedAction，非法提案零工具调用；
-- 正式 RAG 动作绑定服务端 evidence need，执行 search → 独立 read-back →
-  hash/偏移/snapshot 校验，通过后才落盘 `LiteratureEvidence`；
-- 每个 episode 同时保存版本化 `QAItem`、`PlannerTrajectory`、逐轮
-  `PlannerStep` 和可确定性派生的 `PlannerTrainingSample`；
-- 难度按冻结证据计算；多来源 medium、两跳 KG、约束或答案歧义不会由探索轮数决定；
-- `AnswerabilityProbe` 在完整固定 snapshot 上确定性求值，Sufficiency Judge 由模型提议、
-  代码定夺；模型无法绕过断链、缺文本支持、未解决冲突、歧义与预算硬门禁；
-- 强类型 `LogicalQuery`、RelationCompositionPolicy、leave-one-hop-out 与更短路径 shortcut
-  检查、answer-blind 验证器、按 lineage 计的一次改写预算。
-
-**审核与导出**
-
-- 实体—关系分组：group key 由种子实体与完整有序关系链生成，可复算；
-  `duplicate_detection` 为 advisory（提示而非裁定），`review_group_integrity` 为阻塞型；
-- 组内可解释排序（`ranking.v1`），分数只改展示顺序，不改校验等级与处置状态；
-- 六个处置命令（keep_independent / set_variant_of / keep_both / revise / return / reject），
-  `set_variant_of` 为复合写入，经 ReviewOperation journal 落库，中断后可 reconciliation；
-- 分组审核页面 `/groups` 并列展示问题、答案、KG 边、逐 hop 文本证据与排序因素；
-- 三套显式导出等级：development / machine_validated / human_confirmed，各自独立门禁。
-
-**模型**
-
-- OpenAI-compatible LLM adapter：可配置多个云端或自部署 provider，支持 Bearer/无鉴权，
-  以及 `json_schema`、`json_object`、`prompt_only` 三种结构化输出兼容级别；包含一次
-  schema repair、稳定错误分类和逐 physical attempt 计费。配置不接受内联密钥。
-
-**尚未实现或未验证**
-
-- fake-model + pinned fake-RAG 的 KG → RAG → Writer → Verifier → QA/Trajectory
-  闭环已由测试验证；真实 WeKnora 实机和真实 structured model smoke 仍未执行；
-- Planner 正负样本的正式 JSONL 导出、split 防泄漏、采样平衡和人工质量报告仍未完成；
-- 来源消融的执行器已实现并有单元测试，但未在真实文献 provider 上跑通，因此
-  `verified_route` 在验收报告中仍为 unknown；
-- `structured` 模式会从 registry 装配真实模型 provider；本仓库尚未记录一次获授权的真实模型
-  smoke，缺配置时按设计 fail fast；
-- 人工处置的保留率与改排率尚无数据（验收运行产出 11 个待处置候选，无人工决策）。
-
-详见 [验收报告 baseline-v1](docs/medical-qa-data-factory/acceptance-report-v1.md) 的"未覆盖项"。
-
-v0 价格仅用于打通数据流，正式比较实验前必须校准并发布新版本，不能原地修改旧版本。开发假工具的产物始终保持 `draft`，不得作为机器校验或人工确认后的 gold 数据。
-
-
-- [运行手册](docs/medical-qa-data-factory/running-guide.md)
-- [当前产品需求：医学 QA 与 Query Planner 训练数据生成](docs/medical-qa-data-factory/entity-question-generation-implementation-requirements.md)
-- [验收报告 baseline-v1](docs/medical-qa-data-factory/acceptance-report-v1.md)
-- [当前实现问题与差距](docs/medical-qa-data-factory/current-implementation-gaps.md)
-- [WeKnora RAG 接入契约](docs/medical-qa-data-factory/weknora-rag-integration.md)
-- [PrimeKG 与可扩展知识图谱接入设计](docs/medical-qa-data-factory/primekg-integration-design.md)
-- [问题风格 Skill 规范](docs/medical-qa-data-factory/question-style-skills.md)
-- [证据增强自然问答扩充方案](docs/medical-qa-data-factory/evidence-enrichment-natural-qa-plan.md)
-- [历史：面向实体的自动探索与问题生成技术路线](docs/medical-qa-data-factory/entity-question-generation-agent-roadmap.md)
-- [历史：真实生成 Agent 开发实施文档](plans/real-generation-agent-implementation-plan.md)
-
-## 开发环境与启动
-
-项目直接依赖统一维护在
-`requirements.txt` 中，传递依赖的完整固定版本在 `constraints.txt`；开发时不需要安装项目本身，
-通过 `PYTHONPATH` 和 `python -m` 直接从 `src` 运行。
-
-### Windows（Conda）
-
-首次创建环境并安装依赖：
-
-```bat
-conda create --name qa_env python=3.12 pip -y
-conda env config vars set -n qa_env PYTHONNOUSERSITE=1
-conda activate qa_env
-cd /d E:\Cursor\assumption\projects\medical-qa-data-factory
-set PYTHONPATH=%CD%\src
-python -m pip install -r requirements.txt -c constraints.txt
+```bash
+git clone --branch dev git@github.com:LazyLazyFolivora/medical-qa-data-factory.git
+cd medical-qa-data-factory
 ```
 
-`PYTHONNOUSERSITE=1` 用于避免用户目录中的全局 Python 包污染 Conda 环境。
-如果设置该变量时环境已处于激活状态，请先执行一次
-`conda deactivate`，再重新执行 `conda activate qa_env`。
-
-以后每次打开新终端，只需执行：
-
-```bat
-conda activate qa_env
-cd /d E:\Cursor\assumption\projects\medical-qa-data-factory
-set PYTHONPATH=%CD%\src
-```
-
-### Linux（venv + bash）
-
-项目要求 Python 3.10 以上，推荐 Python 3.12。在项目根目录执行：
+Linux：
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt -c constraints.txt
+export PYTHONNOUSERSITE=1
 export PYTHONPATH="$PWD/src"
+python -m pip install -r requirements.txt -c constraints.txt
 ```
 
-以后每次进入新 shell：
+Windows PowerShell（Conda）：
+
+```powershell
+conda create --name qa_env python=3.12 pip -y
+conda activate qa_env
+$env:PYTHONNOUSERSITE = '1'
+$env:PYTHONPATH = "$PWD/src"
+python -m pip install -r requirements.txt -c constraints.txt
+```
+
+每次进入新终端，都要重新激活环境并设置 `PYTHONPATH`。禁用用户级 Python 包可以避免全局安装的依赖干扰项目。
+
+安装前端依赖：
 
 ```bash
-cd /path/to/medical-qa-data-factory
-source .venv/bin/activate
-export PYTHONPATH="$PWD/src"
-```
-
-如果使用 Conda for Linux，也可以继续使用 `qa_env`；激活环境后设置
-`export PYTHONPATH="$PWD/src"` 即可。
-
-生成开发演示数据：
-
-```bat
-python -m medical_qa_data_factory demo run --output data/runs/local-demo --task-id aspirin-local-demo --seed aspirin
-```
-
-启动后端 API：
-
-```bat
-python -m medical_qa_data_factory web serve --workspace data/runs/local-demo --host 127.0.0.1 --port 8765
-```
-
-后端只提供 JSON API，`http://127.0.0.1:8765/` 返回服务状态，不托管前端页面。
-
-另开终端启动 Vue：
-
-```bat
 cd frontend
-npm install
-npm run dev
+npm ci
+cd ..
 ```
 
-浏览器打开 `http://127.0.0.1:5173`。Vite 会把 `/api` 代理到
-`http://127.0.0.1:8765`。两个终端需要保持运行，分别按 `Ctrl+C` 停止。
+## 2. 配置数据库、模型和数据源
 
-数据仓库采用不可变版本；如果需要重新运行演示，请更换 `--output` 和
-`--task-id`，例如使用 `local-demo-2` 和 `aspirin-local-demo-2`。
+以下文件是本机配置，不提交 Git。复制模板只在首次配置时执行，不要覆盖服务器现有文件。
 
-`pyproject.toml` 同时声明直接依赖（`dependencies`）与打包元数据、测试配置和命令行入口，
-便于 editable install；第三方依赖的具体版本仍以 `requirements.txt` 与 `constraints.txt` 为准。
+Linux：
 
-Web 的持续出题功能把批次、实体处理历史和已发布题目写入 PostgreSQL。
-先准备可连接 PostgreSQL 的账户，将项目根目录的 `.env.example` 复制为 `.env`，
-然后填写连接地址。连接口令可通过 PostgreSQL 的 passfile 提供。
-系统环境变量优先于 `.env`。`.env` 已被 Git 忽略。
+```bash
+cp .env.example .env
+cp config/models.example.json config/models.json
+```
+
+PowerShell：
+
+```powershell
+Copy-Item .env.example .env
+Copy-Item config/models.example.json config/models.json
+```
+
+### PostgreSQL
+
+在项目根目录的 `.env` 中填写：
 
 ```dotenv
 MEDICAL_QA_PRODUCTION_DATABASE_URL=postgresql://qa_app@127.0.0.1:5432/medical_qa
 ```
 
-Windows 和 Linux 都从项目根目录运行以下命令。使用 systemd 时也将 `WorkingDirectory` 指向项目根目录。
+该示例未包含密码；可使用 PostgreSQL passfile，或者按部署环境配置连接凭据。若密码写入连接 URI，应正确进行 URL 编码。
+
+- 环境变量优先于 `.env`；数据库配置从启动时的当前目录读取 `.env`。
+- 可让管理员预先创建数据库并授予应用账户所需权限。
+- 数据库不存在时，迁移命令会尝试连接同服务器的 `postgres` 管理库创建数据库，此时账户需要 `CREATEDB` 权限。
+- 迁移账户需要在目标数据库创建 schema 和表的权限。
+
+### 模型与 PrimeKG
+
+编辑 `config/models.json`，设置 `default_provider`，并填写对应 provider 的 `base_url`、`model_id`、认证方式与结构化输出模式。示例中的 `base_url` 是完整的 chat completions 地址。
+
+需要认证时，`api_key_env` 填环境变量名；将密钥注入后端进程环境。无需认证的自部署服务使用 `auth_mode: "none"`。
+
+Linux 示例：
 
 ```bash
-python -m medical_qa_data_factory web migrate-production --workspace data/runs/objective-web-postgres
-python -m medical_qa_data_factory web serve --workspace data/runs/objective-web-postgres
+export MEDICAL_QA_PRIMEKG_PATH=/srv/datasets/PrimeKG/primekg.sqlite
+export MEDICAL_QA_MODEL_CONFIG="$PWD/config/models.json"
+# 若所选 provider 的 api_key_env 为 MEDICAL_QA_MODEL_API_KEY：
+# 将 MEDICAL_QA_MODEL_API_KEY 配置到后端进程环境。
 ```
 
-迁移和启动需使用相同的工作区路径。每个工作区使用独立的 PostgreSQL schema，
-执行记录保存在 `schema_migrations`，新版本通过追加 SQL 文件升级。
-若连接串指定的数据库不存在，迁移命令会通过同一服务器的 `postgres` 管理库创建它。
-用于创建数据库的账户需要 `CREATEDB` 权限，迁移账户还需要能在目标库创建 schema。
-证据和运行轨迹仍由工作区目录管理。持续出题 API 在未配置连接时返回 HTTP 503。
-如需运行生产库集成测试，把 `MEDICAL_QA_TEST_POSTGRES_URL` 指向专用测试数据库，
-再运行 `python -m pytest tests/test_continuous_production.py`。
+PowerShell 示例：
 
-Web 首页只走 Objective 主 Agent 生成链路。可以在 `config/models.json` 中配置多个
-OpenAI-compatible 模型；页面会列出所有就绪 provider，并把本次选择固定到运行请求中。
-从 `config/models.example.json` 复制配置后填写 endpoint 和模型名。自部署且无需鉴权的服务用
-`"auth_mode": "none"`；需要密钥时只填写 `api_key_env`，不要把密钥写进 JSON。
-
-Agent 模式还提供三种可版本化的问题风格 Skill：
-
-- `layperson-search-v1`：普通用户搜索式；
-- `patient-caregiver-v1`：患者或家属自然提问；
-- `medical-learner-v1`：医学学习者提问。
-
-Skill 定义位于 `skills/question-styles/`，包含实际发送给模型的 `SKILL.md`、版本清单、正例和
-hard negatives。Web 每个逻辑题生成 3 个风格候选，分别经过 Writer 契约校验、独立风格审查、
-答案盲测和确定性泄漏检查；不合格变体保存拒绝原因，不阻断其他候选。题目会记录 Skill ID、
-版本、风格 profile 和风格分数。
-
-Structured Web 生成会先经过 evidence enrichment：优先补 CTD 原始记录，再读取 PubMed
-摘要，只有证据支持的意图和唯一实体答案才会进入问题规划。配置位于
-`config/evidence_enrichment.json`。证据冲突、映射歧义或无法在现有实体答案契约下唯一
-回答时，该候选会被拒绝。
-
-## 测试
-
-```bat
-python -m pytest tests -q
+```powershell
+$env:MEDICAL_QA_PRIMEKG_PATH = 'D:/datasets/PrimeKG/primekg.sqlite'
+$env:MEDICAL_QA_MODEL_CONFIG = "$PWD/config/models.json"
 ```
 
-真实 PrimeKG 的只读集成测试默认不执行，需要显式指定 marker：
+本项目的 PostgreSQL 配置读取 `.env`，不代表所有模型和来源环境变量都会自动从该文件加载。服务部署时应显式注入所需变量。
 
-```bat
-python -m pytest tests -m primekg_integration -q -o addopts=""
-```
+诊断配置：
 
-当前基线：默认 806 项通过（13 项真实 PrimeKG deselected），真实 PrimeKG 只读 13 项通过。
-
-本地 PrimeKG 路径为 `E:\Cursor\assumption\datasets\PrimeKG\primekg.sqlite`，可用
-`MEDICAL_QA_PRIMEKG_PATH` 覆盖。
-
-推荐且默认的 Conda 环境是 `qa_env`。执行 `generate` 前会做一次环境预检：缺失或版本过旧的
-直接依赖（`pydantic`、`langgraph`、`langgraph-checkpoint-sqlite`）会以 `environment_error`
-（退出码 3）失败，并且不会写入任何产物；非 `qa_env` 的 Conda 环境只会作为提示报告，
-不会阻断运行。
-
-候选问题在 verifier 判为 `needs_revision` 时最多改写一次；第二次仍需要改写的候选会被
-hard reject，不会自动进入机器校验或人工队列。Step 0 之前已放行的样本不会被自动重判，
-处置方式见 `UNFINISHED_CHECKLIST.md` 的「受影响产物的迁移说明」。
-
-## 知识图谱诊断
-
-证据增强诊断：
-
-```bat
-python -m medical_qa_data_factory evidence ctd build --source data/external/ctd/CTD_chemicals_diseases.csv.gz --source-release "CTD YYYY-MM" --output data/cache/ctd-evidence.sqlite
-python -m medical_qa_data_factory evidence ctd lookup --index data/cache/ctd-evidence.sqlite --chemical-id D001241 --disease "prostate cancer"
-python -m medical_qa_data_factory evidence ctd enumerate --index data/cache/ctd-evidence.sqlite --chemical-id D001241
-python -m medical_qa_data_factory evidence ctd audit --index data/cache/ctd-evidence.sqlite --primekg-database ../../datasets/PrimeKG/primekg.sqlite
-python -m medical_qa_data_factory evidence pubmed search --query "\"aspirin\" AND \"prostate cancer\"" --limit 5
-python -m medical_qa_data_factory evidence pubmed fetch --pmid 34626297 --limit 1
-```
-
-`ctd enumerate` 不设置结果上限，并按 CTD disease identity 合并别名；同名但
-disease ID 不同的记录不会被合并。`ctd audit` 为每条 PrimeKG CTD
-`exposure_disease` 边输出 `mapped_exact`、`mapped_crosswalk`、`ambiguous` 或
-`unmapped`。如有经审核的 ID crosswalk，可通过 `--crosswalk` 传入
-`ctd-disease-crosswalk-v1` JSON；名称匹配与 crosswalk 冲突时审计会关闭式失败为
-`ambiguous`。
-
-```json
-{
-  "schema_version": "ctd-disease-crosswalk-v1",
-  "entries": [
-    {
-      "primekg_disease_id": "5070",
-      "ctd_disease_ids": ["MESH:D009369"]
-    }
-  ]
-}
-```
-
-```bat
-python -m medical_qa_data_factory kg providers
-python -m medical_qa_data_factory kg health --provider primekg
-python -m medical_qa_data_factory kg resolve --provider primekg --entity aspirin
-python -m medical_qa_data_factory kg neighbors --provider primekg --entity aspirin --direction both --limit 20
-python -m medical_qa_data_factory kg paths --provider primekg --start aspirin --end headache --max-hops 2
-```
-
-## 模型诊断
-
-Objective 主链的 provider 从 `config/models.json` 装配，可用
-`MEDICAL_QA_MODEL_CONFIG` 覆盖路径。可以同时配置多个 provider，Web 页面按运行选择其中一个。
-以下是一个无需鉴权、只支持 JSON object mode 的自部署服务：
-
-```json
-{
-  "default_provider": "local",
-  "providers": {
-    "local": {
-      "driver": "openai_compatible",
-      "base_url": "http://127.0.0.1:8000/v1/chat/completions",
-      "model_id": "my-model",
-      "auth_mode": "none",
-      "structured_output_mode": "json_object",
-      "supports_strict_json_schema": false
-    }
-  }
-}
-```
-
-```bat
+```bash
 python -m medical_qa_data_factory model providers
+python -m medical_qa_data_factory kg health --provider primekg
 ```
 
-`structured_output_mode` 可取 `json_schema`（严格 schema）、`json_object`（JSON mode）或
-`prompt_only`（服务不接受 `response_format`）。需要 Bearer token 时设置
-`"auth_mode": "bearer"` 和 `"api_key_env": "MY_MODEL_API_KEY"`。诊断命令只输出环境变量名
-和是否存在，不输出密钥本身。
+可选全文下载能力见 [配置说明](config/fulltext-setup.md)。模板中的本地可执行文件路径需要按服务器实际位置修改。
 
-## 文献检索诊断
+## 3. 初始化数据库并启动
 
-真实文献检索通过 WeKnora 接入，接口契约见
-[WeKnora RAG 接入契约](docs/medical-qa-data-factory/weknora-rag-integration.md)。provider 从
-`config/literature.json` 装配，可用 `MEDICAL_QA_LITERATURE_CONFIG` 覆盖路径。
-配置只保存 API key 所在的环境变量名：
-
-```json
-{
-  "default_provider": "weknora",
-  "providers": {
-    "weknora": {
-      "driver": "weknora",
-      "base_url": "http://localhost:8080",
-      "api_key_env": "WEKNORA_API_KEY",
-      "knowledge_base_ids": ["kb-00000001"],
-      "snapshot_id": null
-    }
-  }
-}
-```
-
-```bat
-python -m medical_qa_data_factory literature providers
-python -m medical_qa_data_factory literature preflight
-```
-
-`preflight` 报告 provider 能否固定语料快照、能否独立回读分块。这两项决定该
-provider 能否产出正式 gold 文本证据。
-
-`kg paths` 对 PrimeKG 返回稳定错误码 `kg_capability_error`：该遍历忽略关系/类型过滤，
-也无法返回完整有序路径，因此 provider 的 `path_query` capability 声明为 `false`，
-生成流程不会调用它。
-
-数据库快照 manifest 保存在数据库同目录的 `<database-name>.manifest.json`。普通查询只读取
-manifest，绝不隐式扫描 1.63 GiB 的数据库文件；size/mtime 变化会标记 `snapshot_stale` 并
-要求显式刷新：
-
-```bat
-python -m medical_qa_data_factory kg snapshot init --database "%MEDICAL_QA_PRIMEKG_PATH%"
-python -m medical_qa_data_factory kg snapshot refresh --database "%MEDICAL_QA_PRIMEKG_PATH%"
-```
-
-## 实体驱动问题生成
-
-上游必须显式给出实体身份（provider / native id / entity type / name）。项目只做严格身份
-验证，不做名称模糊匹配或实体消歧；身份不匹配时 episode 直接 `failed`，stop reason 为
-`invalid_upstream_identity`。
-
-```bat
-python -m medical_qa_data_factory generate entity ^
-  --workspace data/runs/aspirin-v1 ^
-  --task-id aspirin-v1 ^
-  --provider primekg ^
-  --entity-name "Aspirin" ^
-  --entity-id D001241 ^
-  --entity-type exposure ^
-  --question-count 5 ^
-  --model-mode rule-based
-```
-
-真实 PrimeKG 只读 smoke：
-
-```bat
-python -m medical_qa_data_factory generate entity ^
-  --workspace data/runs/aspirin-primekg-smoke ^
-  --task-id aspirin-primekg-smoke ^
-  --provider primekg ^
-  --entity-name "Aspirin" ^
-  --entity-id D001241 ^
-  --entity-type exposure ^
-  --question-count 3 ^
-  --model-mode rule-based
-```
-
-恢复一个已有 episode（checkpoint 固定在 `<workspace>/checkpoints/generation.sqlite`，
-`thread_id` 恒等于 `episode_id`）：
-
-```bat
-python -m medical_qa_data_factory generate resume ^
-  --workspace data/runs/aspirin-v1 ^
-  --episode-id <episode-id> ^
-  --task-id aspirin-v1 ^
-  --provider primekg ^
-  --entity-name "Aspirin" ^
-  --entity-id D001241 ^
-  --entity-type exposure
-```
-
-命令输出 JSON summary（task / episode / trajectory / bundle / QAItem / question IDs）。
-失败时 stderr 输出
-`{"error":{"code":"...","message":"...","retryable":false,"episode_id":null}}`。
-退出码：`2` 参数或身份错误，`3` capability/config 错误，`4` provider 暂态错误，`1` 内部错误。
-
-生成的候选答案在人工确认前不得称为 gold，也不得进入正式导出。工作台把该字段显示为
-「候选答案（Gold short answer）」，底层 `QuestionSpec.gold_answer` 保持向后兼容。
-
-`--model-mode` 支持三种模式，且它们的装配彼此分离，不再互相冒充：
-
-- `rule-based`：确定性单跳回归基线，**不调用任何模型，也不是 ReAct Agent**；
-- `fake`：测试用脚本化模型替身，必须由调用方注入，CLI 不会自动装配；
-- `structured`：真实模型模式，从 provider registry 装配 adapter；缺少配置时 fail fast，
-  不会静默退回 `rule-based` 后仍声称运行了结构化模型。
-
-正式 `generate entity` 有两条明确路径：`rule-based` 保留固定 DAG；`fake` / `structured`
-在 `verify_seed` 后进入 `observe → decide → gate → act → persist → assess` ReAct 子图，
-随后才执行 `curate_evidence → build_claims → ... → finalize`。第二轮 Planner 会收到第一轮
-`ToolObservation`，工具证据先以正式 `KGEvidence` ID 落盘，再被 observation 和证据包引用。
-带显式 `GenerationSpec` 时，LLM 同时负责探索决策和结构化 Writer；Verifier 使用独立的
-role 与 payload，不读取 Writer 的候选答案或理由。RAG 已按 evidence need 接入正式执行链，
-但真实 WeKnora 与真实 structured provider 的实机 smoke 仍需外部服务与授权配置。
-
-```bat
-python -m medical_qa_data_factory generate entity ^
-  --workspace data/runs/aspirin-v2 ^
-  --task-id aspirin-v2 ^
-  --provider primekg ^
-  --entity-name "Aspirin" ^
-  --entity-id D001241 ^
-  --entity-type exposure ^
-  --question-count 2 ^
-  --model-mode structured ^
-  --generation-spec config/generation-spec.example.json ^
-  --safety-budget config/safety-budget.example.json
-```
-
-Provider 配置在 `config/knowledge_graphs.json`，路径相对项目根目录解析。
-可用 `MEDICAL_QA_PRIMEKG_PATH` 覆盖本地数据库路径，用 `MEDICAL_QA_KG_CONFIG`
-覆盖配置文件路径。数据库始终以 `mode=ro` 加 `PRAGMA query_only = ON` 打开，
-查询不会修改原始文件。
-
-## 验收
-
-Planner/QA 训练数据导出：
-
-```bat
-python -m medical_qa_data_factory training export ^
-  --workspace data/runs/aspirin-v2 ^
-  --output data/exports/aspirin-v2-training
-```
-
-输出 `qa_items.jsonl`、`planner_training_samples.jsonl` 和 `manifest.json`。
-`split-group-hash-v1` 以 `dataset_split_group_id` 为原子做确定性 80/10/10
-划分，并在同一结构指纹跨 split 时阻断导出。
-
-当前公开契约快照位于 `schemas/v1/`，可直接用于下游 schema 校验。
-
-验收清单固定了种子、图快照、模型与文献 provider 的快照版本：
-
-```bat
-python -m medical_qa_data_factory eval run ^
-  --manifest eval/manifests/baseline-v1.json ^
-  --workspace data/runs/eval-baseline-v1 ^
-  --report data/runs/eval-baseline-v1/report.json
-
-python -m medical_qa_data_factory eval react ^
-  --manifest eval/manifests/baseline-v1.json ^
-  --report data/runs/eval-baseline-v1/react-report.json
-```
-
-`eval run` 跑清单里的种子并产出验收报告；`eval react` 在同一份真实图上通过完整 ReAct
-状态机测量观察依赖的多跳可达性（planner 是脚本化的，不是模型，也不生成正式问题）。
-报告结论只有 `passed`、`failed`、`not_reproducible`
-三种，环境与清单不匹配时不会伪装成通过。
-
-结果见 [验收报告 baseline-v1](docs/medical-qa-data-factory/acceptance-report-v1.md)。
-
-## 导出 JSON Schema
-
-```bat
-python -m medical_qa_data_factory schema export --output schemas/v0
-```
-
-## 运行开发演示
-
-```bat
-python -m medical_qa_data_factory demo run --output data/runs/demo --task-id aspirin-demo --seed aspirin
-```
-
-产物按不可变版本保存：
-
-```text
-data/runs/demo/
-├── tasks/<task_id>/<record_version>.json
-├── bundles/<bundle_id>/<bundle_version>.json
-└── questions/<question_id>/<question_version>.json
-```
-
-同一个版本不会被覆盖；重复写入会直接报错。真实文献 RAG 和真实生成模型将在后续通过 `ports.py` 中的接口接入。
-
-## 启动可视化工作台
-
-### 快速启动
-
-在项目根目录启动。以下命令适用于 Windows CMD 或 Anaconda Prompt：
-
-```bat
-conda activate qa_env
-cd /d E:\Cursor\assumption\projects\medical-qa-data-factory
-set PYTHONPATH=%CD%\src
-python -m medical_qa_data_factory web serve --workspace data/runs/eval-baseline-v1 --host 127.0.0.1 --port 8765
-```
-
-PowerShell 使用：
-
-```powershell
-conda activate qa_env
-Set-Location E:\Cursor\assumption\projects\medical-qa-data-factory
-$env:PYTHONPATH = (Resolve-Path .\src).Path
-python -m medical_qa_data_factory web serve --workspace data/runs/eval-baseline-v1 --host 127.0.0.1 --port 8765
-```
-
-Linux（bash）使用：
+在项目根目录执行。以下使用 `data/runs/production` 作为固定工作区；已有部署应继续使用原来的工作区，不要为了套用示例而更换。
 
 ```bash
-cd /path/to/medical-qa-data-factory
-source .venv/bin/activate
-export PYTHONPATH="$PWD/src"
-python -m medical_qa_data_factory web serve \
-  --workspace data/runs/eval-baseline-v1 \
-  --host 127.0.0.1 \
-  --port 8765
+python -m medical_qa_data_factory web migrate-production --workspace data/runs/production
+python -m medical_qa_data_factory web serve --workspace data/runs/production --host 127.0.0.1 --port 8765
 ```
 
-后端启动后只监听 API。另开终端启动 Vue：
+迁移与启动必须使用同一个工作区。迁移命令会记录执行版本和校验和，可重复执行；已经执行的 SQL 文件不可修改，后续升级通过新增迁移完成。
 
-```powershell
+**工作区绝对路径决定 PostgreSQL schema。** 更换项目目录、工作区路径或操作系统后，可能选中不同 schema。因此数据库中有数据，不代表新路径会自动看到原来的批次。
+
+另开终端启动开发前端：
+
+```bash
 cd frontend
-npm install
 npm run dev
 ```
 
-浏览器打开 `http://127.0.0.1:5173`。前端和后端是两个独立进程；`npm run build`
-会把纯静态前端输出到 `frontend/dist`，由单独的静态文件服务器或 CDN 托管。
+打开 <http://127.0.0.1:5173/production>。Vite 将 `/api` 请求代理到 `127.0.0.1:8765`。
 
-默认绑定 `127.0.0.1`，只允许本机访问。如果部署到受控的 Linux 服务器并需要通过反向代理
-访问，可改为 `--host 0.0.0.0`；不要直接把开发服务暴露到公网，生产环境应由反向代理、
-访问控制和进程管理器负责 TLS、认证与服务守护。
+后端 <http://127.0.0.1:8765/> 返回服务状态 JSON，不是工作台页面。
 
-### 使用新生成的开发数据
+## 4. Linux 服务器部署
 
-如果不使用仓库已有的 `eval-baseline-v1`，可以先生成一份开发数据，再把同一目录作为
-`--workspace` 启动：
-
-```bat
-python -m medical_qa_data_factory demo run --output data/runs/local-demo --task-id aspirin-local-demo --seed aspirin
-python -m medical_qa_data_factory web serve --workspace data/runs/local-demo --host 127.0.0.1 --port 8765
-```
-
-数据仓库不可原地覆盖；重复运行 demo 时请更换 `--output` 和 `--task-id`。
-
-Linux 上的 PrimeKG 路径通过环境变量配置，不需要修改源码：
+先完成上面的依赖安装、配置与数据库迁移，再构建前端：
 
 ```bash
-export MEDICAL_QA_PRIMEKG_PATH=/srv/medical-qa/data/primekg.sqlite
+cd frontend
+npm ci
+npm run build
+cd ..
 ```
 
-运行服务的用户需要对 workspace 有写权限；PrimeKG SQLite 文件只需要读权限。建议把
-workspace 与只读知识库放在不同目录，并使用绝对路径配置外部数据库。
+部署时保持以下关系：
 
-### 页面入口
+1. 使用 systemd 或现有进程管理器运行后端，工作目录设置为项目根目录。
+2. 后端命令使用该项目虚拟环境中的 Python，并配置 `PYTHONPATH`、模型密钥和数据源路径。
+3. Web 服务器托管 `frontend/dist/`；前端页面路由需要回退到 `index.html`。
+4. `/api/` 反向代理到 `http://127.0.0.1:8765`，保留请求路径。
+5. 同一工作区仅运行一个持续生产后端进程；数据库锁会拒绝第二个管理进程。
 
-当前界面提供：
+页面与 API 同域部署时，无需设置 `VITE_API_BASE_URL`。分域时，该变量需要在前端构建时设置，并相应配置后端 CORS。
 
-- `/`：问题生成主工作台，选择种子实体并查看生成的问题、答案、证据摘要和运行进度；
-- `/runs`：生成记录、任务状态与错误；
-- `/entities`：按种子实体浏览问题和证据产物；
-- `/dataset`：数据集导出与门禁；
-- `/groups`：分组审核与候选处置；
-- 任务流水线、错误和不可变产物版本；
-- EvidenceBundle / QuestionSpec 跳转；
-- KG → Claim ← Literature 三栏审核联动；
-- 人工审核写入：确认、退回、拒绝，以及 claim 判定；
-- mock 环境和 draft 禁止作为 gold 的持续提示。
+`npm run dev` 用于开发调试，不作为这里的正式静态文件部署方案。面向外部网络时，应由部署入口提供访问控制。
 
-目前首页的“开始生成”用于展示 Web 参数入口，尚未提交真实生成任务。正式生成仍通过
-`medical-qa-data-factory generate entity` 或相应的 `python -m medical_qa_data_factory generate entity`
-命令执行；产物写入当前 workspace 后，刷新页面即可看到。
+## 5. 更新服务器
 
-审核动作不会原地覆盖记录，而是写入新的不可变版本，并在 `changes` 中记录审核人、动作、说明和父版本。
+先在页面暂停批次并等其保存断点，再备份数据库与工作区，然后停止后端。检查服务器未提交改动后更新：
 
-审核写入接口：
+```bash
+git status --short
+git switch dev
+git pull --ff-only origin dev
+```
+
+服务器首次切换到远端 `dev` 时：
+
+```bash
+git fetch origin
+git switch --track origin/dev
+```
+
+激活环境后执行：
+
+```bash
+python -m pip install -r requirements.txt -c constraints.txt
+python -m medical_qa_data_factory web migrate-production --workspace data/runs/production
+cd frontend
+npm ci
+npm run build
+cd ..
+```
+
+然后按现有服务管理方式启动后端并检查页面。若服务器使用其他工作区，迁移命令也必须替换为该路径。
+
+不要使用 `git reset --hard` 或 `git clean -fdx` 作为日常更新步骤；后者可能删除被忽略的本地配置与运行资料。
+
+## 6. 备份与恢复
+
+恢复完整服务需要保存下面几部分，Git 只能恢复第一项。
+
+| 内容 | 备份方式与用途 |
+| --- | --- |
+| 代码版本 | 记录 `git rev-parse HEAD`，确认对应提交已推送 |
+| PostgreSQL | 数据库逻辑备份，例如 `pg_dump -Fc`；包含批次、实体和题目索引 |
+| 文件工作区 | 在暂停任务并停止后端后备份整个实际 `--workspace` 目录 |
+| 配置与凭据 | 单独保存 `.env`、本地模型配置、来源配置及服务环境变量 |
+| 外部数据 | 保留 PrimeKG 等数据库及其版本、路径信息 |
+
+数据库备份示例（凭据通过 passfile 或受控环境提供）：
+
+```bash
+pg_dump -h 127.0.0.1 -U qa_app -d medical_qa -Fc -f /backup/medical_qa.dump
+```
+
+恢复到管理员准备的空数据库示例：
+
+```bash
+pg_restore -h 127.0.0.1 -U qa_app -d medical_qa_restored --no-owner /backup/medical_qa.dump
+```
+
+恢复流程：检出备份对应代码 → 安装依赖 → 恢复配置、数据库与文件工作区 → 核对 schema 对应的工作区绝对路径 → 执行兼容的迁移 → 构建前端 → 启动检查。
+
+新机器应尽量保留原工作区绝对路径。如果路径必须变化，需要显式规划原 schema 与新路径的对应关系；目前没有自动重映射命令。不要通过删除旧 schema 来解决“看不到历史”的问题。
+
+`migrate-production` 负责 PostgreSQL 建表和版本升级，**不会自动把旧 `production.sqlite` 的完整批次历史搬入 PostgreSQL**。从 SQLite 版本升级时先保留旧库和文件工作区，另行安排历史数据迁移。
+
+回退代码也不会自动回退数据库结构；应使用兼容版本，或在停机后恢复与代码匹配的数据库及文件工作区备份。
+
+## 7. 测试与排查
+
+```bash
+python -m pytest tests -q
+cd frontend
+npm test
+npm run build
+```
+
+运行普通后端测试时，建议在隔离环境中禁用本机生产数据库配置，避免测试中的临时工作区意外连接本地生产库。Linux 示例：
+
+```bash
+MEDICAL_QA_PRODUCTION_DATABASE_URL='' python -m pytest tests -q
+```
+
+PostgreSQL 集成测试必须指定独立测试数据库：
+
+```bash
+MEDICAL_QA_TEST_POSTGRES_URL='postgresql://qa_test@127.0.0.1:5432/medical_qa_test' \
+  python -m pytest tests/test_continuous_production.py -q
+```
+
+测试会创建并清理临时 schema，不要将测试连接指向生产数据库。真实 PrimeKG 测试默认排除，可显式执行：
+
+```bash
+python -m pytest tests -m primekg_integration -q -o addopts=""
+```
+
+本次 PostgreSQL 改造验证了 11 项数据库集成测试，以及 33 项配置与 Web 测试。仓库仍有旧 Agent 测试使用已停用工具调用方式，已在改造前版本复现失败；这些局部验证不代表全套测试通过。
+
+| 现象 | 检查项 |
+| --- | --- |
+| `/api/production` 返回 503 | 数据库连接配置是否可读；是否从项目根目录启动 |
+| 报 `triggers` 表不存在 | 是否对相同 `--workspace` 执行了迁移；路径是否变化 |
+| 数据库已有记录，页面为空 | 数据库名、工作区绝对路径及对应 schema 是否与原部署一致 |
+| 报另一个后端正在管理生产 | 是否重复启动了同一工作区的后端 |
+| 页面刷新后 404 | 静态服务是否配置回退到 `index.html` |
+| API 返回 HTML / 非 JSON | `/api/` 是否被错误地送到前端页面回退规则 |
+| 无模型或模型请求失败 | provider、端点、认证环境变量和网络是否正确 |
+| Python 依赖行为异常 | 确认虚拟环境，并设置 `PYTHONNOUSERSITE=1` |
+
+## 目录导航
 
 ```text
-POST /api/review/questions/{question_id}
-  {"action": "confirm|return|reject", "summary": "...",
-   "canonical_question": "...", "changed_fields": ["canonical_question"],
-   "gold_short_answer": "...", "taxonomy": {"hop_complexity": 2},
-   "verified_route": "hybrid", "dataset_split": "train"}
-
-POST /api/review/bundles/{claim_id}
-  {"status": "supported|conflicted|insufficient|rejected", "summary": "..."}
+frontend/       Vue 页面与前端测试
+src/            Python 服务、生成流程、存储及来源适配
+  medical_qa_data_factory/web/migrations/  PostgreSQL 版本迁移
+tests/          后端测试
+config/         配置模板与说明
+skills/         运行时提示词及规则
+schemas/        数据契约
+eval/           评估清单
+scripts/        调试、重放、分析工具
+design/         当前视觉规范与实现截图
+experiments/    独立方法实验
+plans/          实施计划
+docs/           架构与专题文档，历史开发记录位于 archive/
+data/           本地运行、缓存及实验产物，不提交 Git
 ```
 
-`summary` 必填，会进入版本变更记录。已拒绝的问题不能直接确认，只能退回。`changed_fields` 必须如实反映真正改动过的字段：值没变的字段不会被记为修改，也不会白白让依赖它的校验失效。
+- [项目文档](docs/medical-qa-data-factory/README.md)
+- [前端说明](docs/medical-qa-data-factory/generation-frontend-vue.md)
+- [当前 Apple 风格工作台](design/apple-workbench/README.md)
+- [实验资料](experiments/README.md)
+- [历史开发记录](docs/medical-qa-data-factory/archive/README.md)
+- [尚未完成事项](UNFINISHED_CHECKLIST.md)
 
-## 自动校验与状态流
-
-校验分两层。`validation.py` 定义字段与校验类型的依赖关系：编辑某个字段会让读取它的校验重置为 `not_run`，避免界面上出现"人工确认通过"但旧校验仍挂着失败的矛盾状态。`validators.py` 里的 11 个校验器真正执行这些检查，并把校验器版本、结果和失败原因写进 `ValidationCheck`。
-
-阻塞型校验（`BLOCKING_FOR_MACHINE_VALIDATION`）共 9 项，覆盖引用完整性、claim 证据支持、答案一致性、证据充分性、答案泄漏、重复检测、taxonomy、路由合理性和来源可引用性。自然度与变体语义等价为提示型，由人决定。
-
-状态流是单向的：`draft` 通过全部阻塞校验后变为 `machine_validated`，人工确认后才变为 `human_confirmed`。自动流程永远不会写入 `human_confirmed`。任何一项必需校验没有记录，视为 `not_run` 而非通过。
-
-```bat
-# 运行全部校验并写入新的不可变版本
-python -m medical_qa_data_factory validate run --workspace data/runs/demo
-
-# 只查看每条问题的校验状态，不写任何文件
-python -m medical_qa_data_factory validate status --workspace data/runs/demo
-```
-
-## 导出门禁
-
-`question_leakage` 和 `duplicate_detection` 属于阻塞型自动校验，只能由校验器运行结果决定，人工点击无法将其标记为通过；未运行或未通过时确认会被拒绝。
-
-导出必须先过门禁：
-
-```bat
-# 正式导出，有阻塞项时返回非零退出码
-python -m medical_qa_data_factory export --workspace data/runs/demo --output exports
-
-# 开发快照，允许包含 mock 或未确认数据，manifest 带水印
-python -m medical_qa_data_factory export --workspace data/runs/demo --output exports --development
-```
-
-正式导出只写合格子集，失败样本不会阻塞其他样本：每条不合格记录的原因都会记进 manifest 的 `excluded` 字段，同时 `per_question_checks` 保留每条问题各项校验的状态与校验器版本。
-
-工作区的阻塞条件：存在未确认或已拒绝的问题、阻塞校验缺失或失败、缺少可引用来源、任何 mock 工具产物。工作台的"数据集"页展示同一份阻塞清单，正式导出按钮在有阻塞项时不可用。
-
+文件工作区、数据库记录与冻结实验基线都不是可任意删除的缓存。旧界面原型已从工作树移除，可通过 Git 历史查阅。
