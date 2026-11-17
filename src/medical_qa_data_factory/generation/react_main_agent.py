@@ -759,8 +759,9 @@ def candidate_choice_model(snapshot, model, aliases=None, *, design_ids=(), fres
 
 
 class ReactMainAgent:
-    def __init__(self, model, *, provider_ids, memory_root=None):
+    def __init__(self, model, *, provider_ids, memory_root=None, production=False):
         self.model, self.provider_ids, self.memory_root = model, list(provider_ids), memory_root
+        self.production = production
 
     def decide(self, snapshot):
         if target_question_count(snapshot) >= snapshot.goal.question_count_upper_bound:
@@ -779,6 +780,18 @@ class ReactMainAgent:
                 },
                 stop_reason="target_reached",
             )
+        if self.production:
+            ready = next((hid for hid, state in snapshot.hypotheses.items()
+                          if state == HypothesisState.RELEASE_REVIEWED
+                          and publication_readiness(snapshot, hid)["publishable"]), None)
+            if ready is not None:
+                digest = canonical_digest(snapshot.model_dump(mode="json"))
+                return MainAgentDecision(
+                    decision_id=f"decision.{digest[:20]}", state_digest=digest,
+                    action="publish_question", input_artifact_ids=[ready], requested_budget={},
+                    expected_information_gain=0,
+                    action_parameters={"workflow_version": REACT_WORKFLOW, "phase": "react", "hypothesis_id": ready},
+                )
         successors = candidate_successors(snapshot)
         artifacts = list(snapshot.artifacts.values())
         steps = sorted((a.payload for a in artifacts if a.artifact_type == "react_step"), key=lambda p: p["sequence"])
@@ -807,7 +820,7 @@ class ReactMainAgent:
                                             "evidence_anchor", "react_observation"}]
         research_history = [view.card(a) for a in artifacts if a.artifact_type not in {
             "provider_result", "react_step", "candidate_claim", "evidence_material", "evidence_anchor", "react_observation"}]
-        observations = view.recent(steps)
+        observations = view.recent(steps, max_chars=20_000 if self.production else None)
         ledger = view.reading_ledger()
         visible_ids = sorted({source["material_id"] for obs in observations
                               for source in obs.get("payload", {}).get("source_views", [])
@@ -915,7 +928,7 @@ class ReactMainAgent:
                                      "understand_facts creates these from materials_without_extracted_claims; reading does not. "
                                      "artifact_index contains other artifacts, not design-ready facts."},
                    "latest_observations": observations, "latest_step": view.latest_step(steps),
-                   "observation_history_contract": "latest_observations contains retained tool outputs across the run, newest first, "
+                   "observation_history_contract": "latest_observations contains retained tool outputs and references, newest first, "
                        "linked to prior_searches by step_sequence. Use returned content to continue the same task. "
                        "Older outputs may be summarized under token-budget pressure; summary is not original evidence. "
                        "Read indexed sources again when a specific needed passage is no longer visible.",

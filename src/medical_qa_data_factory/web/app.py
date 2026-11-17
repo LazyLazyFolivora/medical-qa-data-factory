@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -892,6 +893,7 @@ def _run_objective_web_generation(
     model_provider_id: str | None = None,
     objective_providers: dict[str, object] | None = None,
     generation_strategy: str = DEFAULT_GENERATION_STRATEGY,
+    publication_slot=None,
 ) -> dict[str, object]:
     run_root = _objective_run_root(workspace, run_id)
     release_root = _objective_release_root(workspace, run_id)
@@ -919,7 +921,7 @@ def _run_objective_web_generation(
             max_actions=max_actions,
         )
         try:
-            result = run_objective_loop(runtime, runtime.load().goal, model, selected)
+            result = run_objective_loop(runtime, runtime.load().goal, model, selected, publication_slot=publication_slot)
         except Exception as exc:
             try:
                 latest = runtime.load()
@@ -978,6 +980,7 @@ def _resume_objective_web_generation(
     model_provider_id: str | None = None,
     objective_providers: dict[str, object] | None = None,
     worker_interrupted: bool = False,
+    publication_slot=None,
 ) -> dict[str, object]:
     run_root = _objective_run_root(workspace, run_id)
     release_root = _objective_release_root(workspace, run_id)
@@ -1035,7 +1038,7 @@ def _resume_objective_web_generation(
             reason=reason,
         )
     try:
-        result = run_objective_loop(runtime, goal, selected_model, selected)
+        result = run_objective_loop(runtime, goal, selected_model, selected, publication_slot=publication_slot)
     except Exception as exc:
         try:
             latest = runtime.load()
@@ -1540,6 +1543,7 @@ def create_app(
     structured_model: object | None = None,
     evidence_enricher: object | None = None,
     objective_providers: dict[str, object] | None = None,
+    production_database_url: str | None = None,
 ) -> Starlette:
     repository = LocalArtifactRepository(workspace)
     generation_lock = asyncio.Lock()
@@ -1554,7 +1558,7 @@ def create_app(
         return (
             run_id.startswith(("web-", "objective-web-"))
             and active_objective_run_id != run_id
-            and not production.owns_run(run_id)
+            and not production_owns_run(run_id)
         )
 
     async def run_objective_job(run_id, operation, **kwargs):
@@ -1656,12 +1660,13 @@ def create_app(
             raise ValueError("无法在 PrimeKG 中唯一确认所选实体")
         return _seed_ref(matches[0])
 
-    from .production import ProductionConfig, ProductionService
+    from .production import MAX_PRODUCTION_WORKERS, ProductionConfig, ProductionService
     from ..llm.registry import build_model_port
+    from ..llm.run_trace import trace_event
 
     production_source = None
     import threading
-    production_model_gate = threading.BoundedSemaphore(4)
+    production_model_gate = threading.BoundedSemaphore(MAX_PRODUCTION_WORKERS)
 
     class ProductionModel:
         def __init__(self, model):
@@ -1670,9 +1675,15 @@ def create_app(
         def __getattr__(self, name):
             return getattr(self.model, name)
 
-        def generate_structured(self, *args, **kwargs):
+        def generate_structured(self, request, *args, **kwargs):
+            queued = time.monotonic()
             with production_model_gate:
-                return self.model.generate_structured(*args, **kwargs)
+                started = time.monotonic()
+                try:
+                    return self.model.generate_structured(request, *args, **kwargs)
+                finally:
+                    trace_event("production_model_timing", role=request.role, invocation_id=request.invocation_id,
+                                queue_ms=round((started-queued)*1000), execution_ms=round((time.monotonic()-started)*1000))
 
 
     def production_page(entity_type, after):
@@ -1716,8 +1727,15 @@ def create_app(
             gate = self.detail_gate if name == "retrieve_details" else self.gate
 
             def limited(*args, **kwargs):
+                queued = time.monotonic()
                 with gate:
-                    return value(*args, **kwargs)
+                    started = time.monotonic()
+                    try:
+                        return value(*args, **kwargs)
+                    finally:
+                        trace_event("production_provider_timing", provider_id=self.provider.capability.provider_id,
+                                    method=name, queue_ms=round((started-queued)*1000),
+                                    execution_ms=round((time.monotonic()-started)*1000))
             return limited
 
     def production_entity_for_run(run_id):
@@ -1737,6 +1755,9 @@ def create_app(
         return identity, goal.target_entity, entity_type
 
     def production_execute(entity, config):
+        def publication_slot():
+            return production.publication_slot(entity, config)
+
         run_id = entity["run_id"]
         runtime = ObjectiveRuntimeRepository(_objective_run_root(repository.root, run_id), run_id=run_id)
         try:
@@ -1772,7 +1793,7 @@ def create_app(
                     runtime.set_run_state(expected_state_revision=snapshot.state_revision,
                         target=RuntimeRunState.RECOVERY_REQUIRED, stop_reason="production_resume")
                 _resume_objective_web_generation(workspace=repository.root, run_id=run_id,
-                    model=model, objective_providers=managed_providers)
+                    model=model, objective_providers=managed_providers, publication_slot=publication_slot)
             else:
                 _run_objective_web_generation(workspace=repository.root, run_id=run_id,
                     entity_canonical_id=entity["identity"], entity_name=entity["name"],
@@ -1781,22 +1802,43 @@ def create_app(
                     allowed_fact_types=default_objective_fact_types(entity["entity_type"], available_providers=providers),
                     difficulty_targets=config.difficulty_targets, style_targets=list(DEFAULT_STYLE_TARGETS),
                     generation_strategy=config.generation_strategy,
-                    model=model, model_provider_id=model_provider_id, objective_providers=managed_providers)
+                    model=model, model_provider_id=model_provider_id, objective_providers=managed_providers,
+                    publication_slot=publication_slot)
             return build_objective_summary(repository.root, run_id)
         finally:
             if graph_provider is not None:
                 graph_provider.close()
 
-    production = ProductionService(repository.root, source=production_page, execute=production_execute,
-        progress=production_progress, pause=production_pause, entity_for_run=production_entity_for_run)
+    from .production_db import DATABASE_URL_ENV, production_database_url as configured_production_database_url
+
+    database_url = production_database_url or configured_production_database_url()
+    production = ProductionService(
+        repository.root, source=production_page, execute=production_execute,
+        progress=production_progress, pause=production_pause, entity_for_run=production_entity_for_run,
+        race_last_question=True, database_url=database_url,
+    ) if database_url else None
+
+    def production_busy():
+        return production is not None and production.thread is not None and production.thread.is_alive()
+
+    def production_owns_run(run_id):
+        return production is not None and production.owns_run(run_id)
+
+    def production_unavailable():
+        return JSONResponse(
+            {"error": f"请在项目根目录的 .env 中设置 {DATABASE_URL_ENV} 并执行生产数据库迁移"},
+            status_code=503,
+        )
 
     async def production_api(request):
+        if production is None:
+            return production_unavailable()
         try:
             if request.method == "GET":
                 return JSONResponse({"triggers": await run_in_threadpool(production.list_triggers)})
             payload = await request.json()
             config = ProductionConfig.model_validate(payload)
-            if generation_busy() or (production.thread is not None and production.thread.is_alive()):
+            if generation_busy() or production_busy():
                 return JSONResponse({"error": "已有生成任务运行中"}, status_code=409)
             async with generation_lock:
                 if structured_model is None:
@@ -1807,6 +1849,8 @@ def create_app(
             return JSONResponse({"error": str(exc)}, status_code=400)
 
     async def production_control(request):
+        if production is None:
+            return production_unavailable()
         try:
             trigger_id = request.path_params["trigger_id"]
             action = request.path_params["action"]
@@ -1822,6 +1866,8 @@ def create_app(
             return JSONResponse({"error": str(exc)}, status_code=409)
 
     async def production_questions(request):
+        if production is None:
+            return production_unavailable()
         try:
             page = max(1, int(request.query_params.get("page", "1")))
             result = await run_in_threadpool(production.questions,
@@ -1832,6 +1878,8 @@ def create_app(
             return JSONResponse({"error": str(exc)}, status_code=400)
 
     async def production_entities(request):
+        if production is None:
+            return production_unavailable()
         try:
             page = max(1, int(request.query_params.get("page", "1")))
             return JSONResponse(await run_in_threadpool(
@@ -1841,6 +1889,8 @@ def create_app(
             return JSONResponse({"error": str(exc)}, status_code=400)
 
     async def production_dataset(request):
+        if production is None:
+            return production_unavailable()
         await run_in_threadpool(production.import_releases)
         return StreamingResponse(
             production.dataset_rows(request.query_params.get("trigger_id")),
@@ -1855,7 +1905,8 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_: Starlette):
         try:
-            await run_in_threadpool(production.recover)
+            if production is not None:
+                await run_in_threadpool(production.recover)
         except ValueError as exc:
             logging.getLogger(__name__).warning("Cannot acquire production coordinator: %s", exc)
         try:
@@ -1863,7 +1914,8 @@ def create_app(
         finally:
             if objective_job is not None and not objective_job.done():
                 await asyncio.gather(objective_job, return_exceptions=True)
-            await run_in_threadpool(production.close)
+            if production is not None:
+                await run_in_threadpool(production.close)
             if production_source is not None and production_source is not provider_instance:
                 production_source.close()
             close_entity_provider()
@@ -2455,7 +2507,7 @@ def create_app(
         except (TypeError, ValueError) as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
 
-        if generation_busy() or (production.thread is not None and production.thread.is_alive()):
+        if generation_busy() or production_busy():
             return JSONResponse(
                 {"error": "已有生成任务正在运行，请等待它完成"},
                 status_code=409,
@@ -2730,7 +2782,7 @@ def create_app(
                 },
                 status_code=400,
             )
-        if generation_busy() or (production.thread is not None and production.thread.is_alive()):
+        if generation_busy() or production_busy():
             return JSONResponse(
                 {"error": "已有生成任务正在运行，请等待它完成"},
                 status_code=409,
@@ -2790,7 +2842,7 @@ def create_app(
         request: Request,
     ) -> JSONResponse:
         run_id = request.path_params["run_id"]
-        if production.owns_run(run_id):
+        if production_owns_run(run_id):
             return JSONResponse({"error": "请在自动出题页面恢复所属触发任务，避免重复执行实体"}, status_code=409)
         if not WEB_TASK_ID_PATTERN.fullmatch(run_id):
             return JSONResponse(
@@ -2846,7 +2898,7 @@ def create_app(
                 },
                 status_code=409,
             )
-        if generation_busy() or (production.thread is not None and production.thread.is_alive()):
+        if generation_busy() or production_busy():
             return JSONResponse(
                 {"error": "已有生成任务正在运行，请等待它完成"},
                 status_code=409,

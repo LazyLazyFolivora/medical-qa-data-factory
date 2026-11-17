@@ -18,6 +18,8 @@ dependencies = [
     "langgraph>=1.2.16,<2",
     "langgraph-checkpoint-sqlite>=3.1.2,<4",
     "requests>=2.31,<3",
+    "psycopg2-binary>=2.9.11,<3",
+    "python-dotenv>=1.2.2,<2",
     "tenacity>=8.5,<9",
 ]
 
@@ -26,6 +28,9 @@ dev = ["pytest>=8,<9"]
 
 [project.scripts]
 medical-qa-data-factory = "medical_qa_data_factory.cli:main"
+
+[tool.setuptools.package-data]
+"medical_qa_data_factory.web" = ["migrations/*.sql"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

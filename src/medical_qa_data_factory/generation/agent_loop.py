@@ -126,12 +126,14 @@ class ObjectiveQuestionAgentLoop:
         max_actions: int = 100,
         max_consecutive_empty_retrievals: int = 3,
         max_consecutive_provider_failures: int = 3,
+        publication_slot=None,
     ) -> None:
         self.runtime = runtime
         self.persistence = persistence
         self.goal = goal
         self.main_agent = main_agent
         self.model = model
+        self.publication_slot = publication_slot
         self.providers = dict(providers)
         self.max_actions = max_actions
         self.max_consecutive_empty_retrievals = (
@@ -182,7 +184,13 @@ class ObjectiveQuestionAgentLoop:
                 self._finish(stop_reason, completed=is_hierarchical(decision))
                 break
             try:
-                if action in {MainAgentAction.READ_ARTIFACTS, MainAgentAction.REVIEW_CANDIDATE,
+                if action is MainAgentAction.PUBLISH_QUESTION and self.publication_slot is not None:
+                    with self.publication_slot() as allowed:
+                        if not allowed:
+                            self._finish("production_target_reached", completed=True)
+                            break
+                        execute_react_tool(self, snapshot, decision)
+                elif action in {MainAgentAction.READ_ARTIFACTS, MainAgentAction.REVIEW_CANDIDATE,
                               MainAgentAction.PUBLISH_QUESTION, MainAgentAction.TOOL_FEEDBACK,
                               MainAgentAction.READ_SOURCE_DETAILS, MainAgentAction.SYNTHESIZE_EVIDENCE,
                               MainAgentAction.DISCOVER_QUESTIONS, MainAgentAction.RESEARCH_EVIDENCE}:

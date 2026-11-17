@@ -203,6 +203,30 @@ npm run dev
 `pyproject.toml` 同时声明直接依赖（`dependencies`）与打包元数据、测试配置和命令行入口，
 便于 editable install；第三方依赖的具体版本仍以 `requirements.txt` 与 `constraints.txt` 为准。
 
+Web 的持续出题功能把批次、实体处理历史和已发布题目写入 PostgreSQL。
+先准备可连接 PostgreSQL 的账户，将项目根目录的 `.env.example` 复制为 `.env`，
+然后填写连接地址。连接口令可通过 PostgreSQL 的 passfile 提供。
+系统环境变量优先于 `.env`。`.env` 已被 Git 忽略。
+
+```dotenv
+MEDICAL_QA_PRODUCTION_DATABASE_URL=postgresql://qa_app@127.0.0.1:5432/medical_qa
+```
+
+Windows 和 Linux 都从项目根目录运行以下命令。使用 systemd 时也将 `WorkingDirectory` 指向项目根目录。
+
+```bash
+python -m medical_qa_data_factory web migrate-production --workspace data/runs/objective-web-postgres
+python -m medical_qa_data_factory web serve --workspace data/runs/objective-web-postgres
+```
+
+迁移和启动需使用相同的工作区路径。每个工作区使用独立的 PostgreSQL schema，
+执行记录保存在 `schema_migrations`，新版本通过追加 SQL 文件升级。
+若连接串指定的数据库不存在，迁移命令会通过同一服务器的 `postgres` 管理库创建它。
+用于创建数据库的账户需要 `CREATEDB` 权限，迁移账户还需要能在目标库创建 schema。
+证据和运行轨迹仍由工作区目录管理。持续出题 API 在未配置连接时返回 HTTP 503。
+如需运行生产库集成测试，把 `MEDICAL_QA_TEST_POSTGRES_URL` 指向专用测试数据库，
+再运行 `python -m pytest tests/test_continuous_production.py`。
+
 Web 首页只走 Objective 主 Agent 生成链路。可以在 `config/models.json` 中配置多个
 OpenAI-compatible 模型；页面会列出所有就绪 provider，并把本次选择固定到运行请求中。
 从 `config/models.example.json` 复制配置后填写 endpoint 和模型名。自部署且无需鉴权的服务用

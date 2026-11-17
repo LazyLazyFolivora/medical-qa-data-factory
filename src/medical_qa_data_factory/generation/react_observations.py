@@ -142,11 +142,7 @@ class ObservationView:
                 "Unlisted paragraphs have no recorded passage return; legacy coverage may be incomplete."}
 
     def recent(self, steps, *, max_chars=None):
-        """Restore all tool outputs; the request budget manager owns compaction.
-
-        An explicit character cap is retained for diagnostic projections only.
-        Production callers must not discard history independently of token budget.
-        """
+        """Keep recent payloads within a character budget and retain older references."""
         observations, remaining = [], max_chars
         seen = set()
         for step in reversed(steps):
@@ -160,21 +156,21 @@ class ObservationView:
                 artifact = self.artifacts[aid]
                 if has_search and artifact.artifact_type in {"evidence_material", "evidence_anchor"}:
                     continue  # Already represented by the search result's readable sample.
-                payload = self.content(artifact)
-                raw = json.dumps(payload, ensure_ascii=False)
-                newest = step is steps[-1]
-                include = remaining is None or newest or len(raw) <= remaining
+                direct = step_artifact is None or artifact.parent_decision_id == step_artifact.parent_decision_id
+                newest_direct = step is steps[-1] and direct
+                payload = self.content(artifact) if remaining != 0 or newest_direct else None
+                size = len(json.dumps(payload, ensure_ascii=False)) if remaining is not None and payload is not None else 0
+                include = payload is not None and (remaining is None or newest_direct or size <= remaining)
                 observations.append({"id": aid, "type": artifact.artifact_type, "step_sequence": step["sequence"],
                     "action": step.get("action"), "step_id": step.get("artifact_id"),
-                    "direct_action_result": (step_artifact is None or
-                        artifact.parent_decision_id == step_artifact.parent_decision_id),
+                    "direct_action_result": direct,
                     **self.source_identity(artifact),
                     **({"payload": payload} if include else
                        {"content_omitted": True, "omission_reason": "older_observation_budget",
                         "instruction": "Older output omitted from current context, not unread. "
                             "Consult reading_ledger; reread only for a specific evidence gap."})})
                 if include and remaining is not None:
-                    remaining = max(0, remaining - len(raw))
+                    remaining = max(0, remaining - size)
         return observations
 
     def latest_step(self, steps):

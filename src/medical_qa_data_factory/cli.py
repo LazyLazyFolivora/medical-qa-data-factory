@@ -43,6 +43,8 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--workspace", required=True, help="Artifact repository")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
+    migrate_production = web_commands.add_parser("migrate-production", help="Apply PostgreSQL production migrations")
+    migrate_production.add_argument("--workspace", required=True, help="Artifact repository")
 
     objective = commands.add_parser(
         "objective",
@@ -534,6 +536,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 indent=2,
             )
         )
+        return 0
+    if args.command == "web" and args.web_command == "migrate-production":
+        from .web.production_db import ProductionDatabase
+
+        database = ProductionDatabase(args.workspace)
+        try:
+            applied = database.migrate()
+        finally:
+            database.close()
+        print(json.dumps({"schema": database.schema, "applied": applied}, ensure_ascii=False))
         return 0
     if args.command == "web" and args.web_command == "serve":
         import uvicorn

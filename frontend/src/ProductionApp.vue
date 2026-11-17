@@ -21,7 +21,7 @@ function batchDate(value) {
   return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(date);
 }
 const active = computed(() => triggers.value.find(t => t.id === selected.value) || triggers.value.find(t => ['running', 'pausing', 'paused', 'failed'].includes(t.state)) || triggers.value[0]);
-const states = { running: '运行中', pausing: '正在保存断点', paused: '已暂停', completed: '已结束', failed: '需要处理', pending: '待处理' };
+const states = { running: '运行中', pausing: '正在保存断点', paused: '已暂停', completed: '已结束', stopped: '批次已达标', failed: '需要处理', pending: '待处理' };
 const difficulties = { any: '不限', easy: '简单', medium: '中等', hard: '困难', mixed: '混合难度' };
 const reasons = { target_reached: '已达到目标题数', entity_budget_exhausted: '已达到本次实体处理上限', source_exhausted: '当前范围的实体已遍历完毕', paused: '已暂停', interrupted: '正在从服务中断前的断点恢复' };
 let timer;
@@ -146,7 +146,7 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); });
           <form @submit.prevent="start">
             <div class="production-setting-group">
             <label>目标题数 <input v-model.number="config.target_count" type="number" min="1" max="10000" required /></label>
-            <label>并发实体数 <input v-model.number="config.workers" type="number" min="1" max="4" required /></label>
+            <label>并发实体数 <input v-model.number="config.workers" type="number" min="1" max="16" required /></label>
             </div>
             <details class="production-advanced">
               <summary>高级设置</summary>

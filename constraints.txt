@@ -25,6 +25,8 @@ pluggy==1.7.0
 pydantic==2.14.1
 pydantic-core==2.50.1
 pytest==8.4.2
+psycopg2-binary==2.9.11
+python-dotenv==1.2.2
 requests==2.31.0
 starlette==1.0.0
 tenacity==8.5.0

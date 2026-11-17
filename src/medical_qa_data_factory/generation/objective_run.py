@@ -150,7 +150,7 @@ def create_objective_run(
     )
 
 
-def run_objective_loop(runtime, goal, model, providers, *, max_actions=None, main_agent=None):
+def run_objective_loop(runtime, goal, model, providers, *, max_actions=None, main_agent=None, publication_slot=None):
     if max_actions is None:
         # Older checkpoints may omit the action limit.
         max_actions = int(goal.run_budget.get("max_actions", 100))
@@ -160,8 +160,10 @@ def run_objective_loop(runtime, goal, model, providers, *, max_actions=None, mai
         goal=goal,
         main_agent=main_agent or ReactMainAgent(
             model, provider_ids=sorted(providers), memory_root=runtime.root,
+            production=publication_slot is not None,
         ),
         model=model,
         providers=providers,
         max_actions=max_actions,
+        publication_slot=publication_slot,
     ).run()
