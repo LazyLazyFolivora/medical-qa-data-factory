@@ -2,6 +2,17 @@
 
 用于自动、手动或混合构造多源医学问答数据集的独立服务。
 
+## 目录导航
+
+- `src/`、`frontend/`：服务端与前端实现。
+- `tests/`、`schemas/`、`eval/`：测试、数据契约与评估清单。
+- `config/`、`skills/`：配置模板与运行时提示词资源。
+- [项目文档](docs/medical-qa-data-factory/README.md)：运行与设计说明；历史变更集中在 [archive](docs/medical-qa-data-factory/archive/README.md)。
+- [实验资料](experiments/README.md)：独立出题方法实验，与生产实现分开。
+- `design/`：当前界面规范和实现截图；已废弃的静态原型从工作树移除，Git 历史仍可查阅。
+- `scripts/`：调试、重放与分析工具；`plans/`：实施计划。
+- `data/`：本地运行、缓存与实验输出，不提交 Git。运行记录及冻结基线不是可随意清理的缓存。
+
 ## 边界
 
 - 本项目拥有数据生成任务、证据包、问题规格、调用配置、客观用量和离线参考动作等数据契约。
@@ -42,7 +53,7 @@
 
 - `literature/` 提供 `preflight` / `search` / `read_chunk` 三能力与 provider registry；
 - WeKnora adapter 的请求与响应形状取自其源码（`POST /knowledge-search`、
-  `GET /chunks/by-id/:id`），见 [接入契约](docs/weknora-rag-integration.md)；
+  `GET /chunks/by-id/:id`），见 [接入契约](docs/medical-qa-data-factory/weknora-rag-integration.md)；
 - 检索结果必须经同一 snapshot 上的独立回读、文本 hash 与字符偏移一致，才成为文本证据；
 - 逐 hop 构造 `LiteratureEvidenceNeed`，支持性判断独立保存且不覆盖证据原文；
   评估集合必须包含全部适用结果，支持/反对/不确定/仅背景/无关都进入。
@@ -91,20 +102,20 @@
   smoke，缺配置时按设计 fail fast；
 - 人工处置的保留率与改排率尚无数据（验收运行产出 11 个待处置候选，无人工决策）。
 
-详见 [验收报告 baseline-v1](docs/acceptance-report-v1.md) 的"未覆盖项"。
+详见 [验收报告 baseline-v1](docs/medical-qa-data-factory/acceptance-report-v1.md) 的"未覆盖项"。
 
 v0 价格仅用于打通数据流，正式比较实验前必须校准并发布新版本，不能原地修改旧版本。开发假工具的产物始终保持 `draft`，不得作为机器校验或人工确认后的 gold 数据。
 
 
-- [运行手册](docs/running-guide.md)
-- [当前产品需求：医学 QA 与 Query Planner 训练数据生成](docs/entity-question-generation-implementation-requirements.md)
-- [验收报告 baseline-v1](docs/acceptance-report-v1.md)
-- [当前实现问题与差距](docs/current-implementation-gaps.md)
-- [WeKnora RAG 接入契约](docs/weknora-rag-integration.md)
-- [PrimeKG 与可扩展知识图谱接入设计](docs/primekg-integration-design.md)
-- [问题风格 Skill 规范](docs/question-style-skills.md)
-- [证据增强自然问答扩充方案](docs/evidence-enrichment-natural-qa-plan.md)
-- [历史：面向实体的自动探索与问题生成技术路线](docs/entity-question-generation-agent-roadmap.md)
+- [运行手册](docs/medical-qa-data-factory/running-guide.md)
+- [当前产品需求：医学 QA 与 Query Planner 训练数据生成](docs/medical-qa-data-factory/entity-question-generation-implementation-requirements.md)
+- [验收报告 baseline-v1](docs/medical-qa-data-factory/acceptance-report-v1.md)
+- [当前实现问题与差距](docs/medical-qa-data-factory/current-implementation-gaps.md)
+- [WeKnora RAG 接入契约](docs/medical-qa-data-factory/weknora-rag-integration.md)
+- [PrimeKG 与可扩展知识图谱接入设计](docs/medical-qa-data-factory/primekg-integration-design.md)
+- [问题风格 Skill 规范](docs/medical-qa-data-factory/question-style-skills.md)
+- [证据增强自然问答扩充方案](docs/medical-qa-data-factory/evidence-enrichment-natural-qa-plan.md)
+- [历史：面向实体的自动探索与问题生成技术路线](docs/medical-qa-data-factory/entity-question-generation-agent-roadmap.md)
 - [历史：真实生成 Agent 开发实施文档](plans/real-generation-agent-implementation-plan.md)
 
 ## 开发环境与启动
@@ -313,7 +324,7 @@ python -m medical_qa_data_factory model providers
 ## 文献检索诊断
 
 真实文献检索通过 WeKnora 接入，接口契约见
-[WeKnora RAG 接入契约](docs/weknora-rag-integration.md)。provider 从
+[WeKnora RAG 接入契约](docs/medical-qa-data-factory/weknora-rag-integration.md)。provider 从
 `config/literature.json` 装配，可用 `MEDICAL_QA_LITERATURE_CONFIG` 覆盖路径。
 配置只保存 API key 所在的环境变量名：
 
@@ -475,7 +486,7 @@ python -m medical_qa_data_factory eval react ^
 报告结论只有 `passed`、`failed`、`not_reproducible`
 三种，环境与清单不匹配时不会伪装成通过。
 
-结果见 [验收报告 baseline-v1](docs/acceptance-report-v1.md)。
+结果见 [验收报告 baseline-v1](docs/medical-qa-data-factory/acceptance-report-v1.md)。
 
 ## 导出 JSON Schema
 

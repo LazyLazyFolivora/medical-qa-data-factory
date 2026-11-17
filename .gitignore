@@ -23,4 +23,6 @@ data/runs/
 data/releases/
 data/cache/
 data/external/
+data/backups/
+data/logs/
 runs/

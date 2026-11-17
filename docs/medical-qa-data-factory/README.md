@@ -56,6 +56,6 @@
 
 历史材料用于追溯决策，不作为当前功能已经验收的证明。
 
-- [ReAct 编排改造与兼容说明](change-records/2026-11-05-react-orchestration.md)
+- [ReAct 编排改造与兼容说明](archive/change-records/2026-11-05-react-orchestration.md)
 
-- [ReAct 最新结果可读性改造与真实回放](change-records/2026-11-05-react-readable-observations.md)
+- [ReAct 最新结果可读性改造与真实回放](archive/change-records/2026-11-05-react-readable-observations.md)

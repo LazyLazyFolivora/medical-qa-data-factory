@@ -2,9 +2,9 @@
 
 状态：代码审查后的待实施方案。本轮仅新增此计划，未修改运行代码、skill、数据库或任务状态。
 
-实施进展（后续开发）：P1/P2首版已接入并完成兼容测试和固定语料真实主循环实验。P3/P4未实施。结果与已发现的质量问题见 `docs/medical-qa-data-factory/change-records/2026-11-09-direct-source-design-and-verification.md`；模型验证通过不等于内容合格。
+实施进展（后续开发）：P1/P2首版已接入并完成兼容测试和固定语料真实主循环实验。P3/P4未实施。结果与已发现的质量问题见 `docs/medical-qa-data-factory/archive/change-records/2026-11-09-direct-source-design-and-verification.md`；模型验证通过不等于内容合格。
 
-后续进展：P3 的诊断、修订上下文、版本关联与重新验证接口已接入；旧候选仍显式关闭。真实实验尚未证明内容修订有效，P4 未实施。见 `docs/medical-qa-data-factory/change-records/2026-11-09-question-repair-loop.md`。
+后续进展：P3 的诊断、修订上下文、版本关联与重新验证接口已接入；旧候选仍显式关闭。真实实验尚未证明内容修订有效，P4 未实施。见 `docs/medical-qa-data-factory/archive/change-records/2026-11-09-question-repair-loop.md`。
 
 ## 目标与边界
 

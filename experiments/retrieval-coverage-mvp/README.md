@@ -19,7 +19,7 @@
 运行命令（项目根目录，目录固定且不覆盖已有调用）：
 
 ```
-python design/retrieval-coverage-mvp/run_probe.py --revision v2
+python experiments/retrieval-coverage-mvp/run_probe.py --revision v2
 ```
 
 现有实验已完成，再执行会因调用目录存在而停止。新实验应更换输出目录。依赖旧实验 harness 及其保存请求，不是独立发布工具。当前 design.md 是第二版提示词；第一版以首次调用的 request.json 为准，不能用当前文件重现第一版。

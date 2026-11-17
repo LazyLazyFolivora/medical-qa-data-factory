@@ -4,7 +4,7 @@
 
 输入每次约411—1664 tokens，故仅确认使用1M容量配置，没有测试百万token输入能力。context_window_tokens是本地预算配置，原始API调用不发送虚构的context_window参数。实验替换模型，没有切换全局默认Qwen。
 
-运行：项目根目录 python design/retrieval-coverage-mvp/locked_need_probe.py --deepseek 。输出目录 data/experiments/tp53-locked-need-deepseek-20261112，保留请求、响应、解析结果与窗口元数据；不保存认证头。密钥读取现有.env.deepseek，兼容变量赋值及纯密钥格式，不改写密钥文件。
+运行：项目根目录 python experiments/retrieval-coverage-mvp/locked_need_probe.py --deepseek 。输出目录 data/experiments/tp53-locked-need-deepseek-20261112，保留请求、响应、解析结果与窗口元数据；不保存认证头。密钥读取现有.env.deepseek，兼容变量赋值及纯密钥格式，不改写密钥文件。
 
 三组都选p53结构域组成：第一题限定四聚体单体，第二题仅问单体结构域，第三题同时问作用形式和五个结构域。第二题最聚焦：
 

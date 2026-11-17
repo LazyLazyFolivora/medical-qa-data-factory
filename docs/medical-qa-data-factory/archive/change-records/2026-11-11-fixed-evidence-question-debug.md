@@ -20,6 +20,6 @@
 
 ## 交付与改动范围
 
-实验方法、最终提示、来源句子索引及六份样本见 [固定证据出题 MVP](../../../design/fixed-evidence-question-mvp/README.md)。完整调用记录在 `data/experiments/fixed-evidence-design-20261111/`。
+实验方法、最终提示、来源句子索引及六份样本见 [固定证据出题 MVP](../../../../experiments/fixed-evidence-question-mvp/README.md)。完整调用记录在 `data/experiments/fixed-evidence-design-20261111/`。
 
 本轮仅新增实验脚本、实验提示和文档，未修改生产出题 skill、候选评审 skill、模型默认配置、主循环或原任务状态；未导入或发布实验样本。

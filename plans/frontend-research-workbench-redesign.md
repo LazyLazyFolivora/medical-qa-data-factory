@@ -2,7 +2,7 @@
 
 ## 目标
 
-让研究人员快速完成「选择实体 → 运行生成 → 阅读题目 → 追溯证据 → 判断发布状态」。页面应清晰、可信、便于反复使用。视觉样稿见 [research-workbench.html](../design/ui-directions/research-workbench.html)，可直接用浏览器打开；其中的数据和生成过程仅用于演示交互。
+让研究人员快速完成「选择实体 → 运行生成 → 阅读题目 → 追溯证据 → 判断发布状态」。页面应清晰、可信、便于反复使用。旧交互样稿已在界面落地后移除；实现截图见 [研究工作台](../design/ui-directions/implemented-research-workbench-evidence.png)，截图使用测试数据。
 
 ## 设计原则
 
