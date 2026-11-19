@@ -52,18 +52,13 @@ def _app(tmp_path):
 
 
 def test_objective_progress_reports_a_stale_nonterminal_run(
-    tmp_path,
+    tmp_path, monkeypatch,
 ) -> None:
     run_root = tmp_path / "objective_runs" / "stale-run"
-    commit_dir = run_root / "objective_runtime" / "commits"
-    commit_dir.mkdir(parents=True)
-    latest = commit_dir / "00000001.json"
-    latest.write_text("{}", encoding="utf-8")
     now = datetime(2026, 10, 29, 12, 0, tzinfo=timezone.utc)
-    old_timestamp = (
-        now - timedelta(seconds=OBJECTIVE_STALL_AFTER_SECONDS + 1)
-    ).timestamp()
-    os.utime(latest, (old_timestamp, old_timestamp))
+    old = now - timedelta(seconds=OBJECTIVE_STALL_AFTER_SECONDS + 1)
+    monkeypatch.setattr("medical_qa_data_factory.generation.runtime_storage.runtime_updated_at",
+                        lambda root, run_id: old)
 
     last_commit, age, stalled = _objective_progress_timing(
         run_root,
@@ -581,16 +576,10 @@ def _create_stalled_pending_run(tmp_path, run_id="objective-stalled-pending", *,
         expected_state_revision=snapshot.state_revision,
         decision=pending,
     )
-    latest = max(
-        repo.commit_dir.glob("*.json"),
-        key=lambda item: int(item.stem),
-    )
-    old = (
-        datetime.now(timezone.utc)
-        - timedelta(seconds=OBJECTIVE_STALL_AFTER_SECONDS + 5)
-    ).timestamp()
     if age_commit:
-        os.utime(latest, (old, old))
+        with repo._store.database.transaction() as cursor:
+            cursor.execute("UPDATE runtime_heads SET updated_at=%s WHERE run_id=%s",
+                (datetime.now(timezone.utc) - timedelta(seconds=OBJECTIVE_STALL_AFTER_SECONDS + 5), run_id))
     return run_id, repo
 
 

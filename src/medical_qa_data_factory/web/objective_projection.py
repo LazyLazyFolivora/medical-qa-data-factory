@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -146,17 +145,8 @@ def _progress_timing(
     terminal: bool,
     now: datetime | None = None,
 ) -> tuple[datetime | None, int, bool]:
-    commit_dir = _run_root(workspace, run_id) / "objective_runtime" / "commits"
-    files = (
-        sorted(commit_dir.glob("*.json"), key=lambda item: int(item.stem))
-        if commit_dir.is_dir()
-        else []
-    )
-    last_commit_at = (
-        datetime.fromtimestamp(files[-1].stat().st_mtime, tz=timezone.utc)
-        if files
-        else None
-    )
+    from ..generation.runtime_storage import runtime_updated_at
+    last_commit_at = runtime_updated_at(_run_root(workspace, run_id), run_id)
     if last_commit_at is None:
         return None, 0, False
     current = now or datetime.now(timezone.utc)
@@ -168,76 +158,20 @@ def _progress_timing(
     )
 
 
-@lru_cache(maxsize=4096)
-def _commit_decision_ids(
-    path: str, mtime_ns: int, ctime_ns: int, size: int
-) -> tuple[str, ...]:
-    """Cache only IDs; file metadata invalidates edits without retaining snapshots.
-
-    Failed reads are not cached, so a transient failure can recover next poll.
-    """
-    payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    snapshot = payload.get("snapshot", {}) if isinstance(payload, dict) else {}
-    decisions = snapshot.get("decisions", {}) if isinstance(snapshot, dict) else {}
-    return tuple(str(key) for key in decisions) if isinstance(decisions, dict) else ()
+def objective_decision_order(workspace, run_id, snapshot):
+    from ..generation.runtime_storage import PostgresRuntimeStore
+    store = PostgresRuntimeStore.open(_run_root(workspace, run_id), run_id)
+    if store is None:
+        raise FileNotFoundError("objective runtime has no storage marker")
+    return [snapshot.decisions[key] for key in store.decision_ids()
+            if key in snapshot.decisions]
 
 
-def objective_decision_order(
-    workspace: str | Path,
-    run_id: str,
-    snapshot,
-) -> list[Any]:
-    commit_dir = _run_root(workspace, run_id) / "objective_runtime" / "commits"
-    files = (
-        sorted(commit_dir.glob("*.json"), key=lambda item: int(item.stem))
-        if commit_dir.is_dir()
-        else []
-    )
-    seen: set[str] = set()
-    ordered_ids: list[str] = []
-    for path in files:
-        try:
-            stat = path.stat()
-            decision_ids = _commit_decision_ids(
-                str(path.resolve()), stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size
-            )
-        except (OSError, ValueError):
-            continue
-        for decision_id in decision_ids:
-            if decision_id not in seen:
-                seen.add(decision_id)
-                ordered_ids.append(decision_id)
-    if len(ordered_ids) < len(snapshot.decisions):
-        ordered_ids.extend(
-            decision_id
-            for decision_id in snapshot.decisions
-            if decision_id not in seen
-        )
-    return [
-        snapshot.decisions[decision_id]
-        for decision_id in ordered_ids
-        if decision_id in snapshot.decisions
-    ]
-
-
-def _latest_decision(workspace: str | Path, run_id: str, snapshot):
-    """Summaries need only the newest decision, not the entire history."""
+def _latest_decision(workspace, run_id, snapshot):
     if not snapshot.decisions:
         return None
-    commit_dir = _run_root(workspace, run_id) / "objective_runtime" / "commits"
-    candidates = list(snapshot.decisions)
-    for path in sorted(commit_dir.glob("*.json"), key=lambda item: int(item.stem), reverse=True):
-        try:
-            stat = path.stat()
-            ids = _commit_decision_ids(str(path.resolve()), stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size)
-        except (OSError, ValueError):
-            continue
-        previous = set(ids)
-        added = [key for key in candidates if key not in previous]
-        if added:
-            return snapshot.decisions[added[-1]]
-        candidates = [key for key in ids if key in snapshot.decisions]
-    return snapshot.decisions[candidates[-1]] if candidates else None
+    decisions = objective_decision_order(workspace, run_id, snapshot)
+    return decisions[-1] if decisions else None
 
 
 def _summary_from_snapshot(

@@ -1,7 +1,6 @@
 """Single-writer runtime state with atomic commits and child result slots."""
 from __future__ import annotations
 
-import json
 import threading
 from datetime import timezone
 from pathlib import Path
@@ -22,6 +21,7 @@ from .objective_question_contracts import (
     canonical_digest,
     transition_hypothesis,
 )
+from .runtime_storage import PostgresRuntimeStore, StorageConflict, StorageIntegrityError
 
 
 class StaleStateRevision(RuntimeError):
@@ -112,14 +112,6 @@ class ObjectiveRuntimeSnapshot(ContractModel):
     resume_events: list[dict[str, Any]] = Field(default_factory=list)
 
 
-class RuntimeCommitEnvelope(ContractModel):
-    schema_version: str = "objective-runtime-commit-v1"
-    commit_sequence: int = Field(ge=1)
-    previous_snapshot_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
-    snapshot_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
-    snapshot: ObjectiveRuntimeSnapshot
-
-
 _LOCK_REGISTRY: dict[Path, threading.RLock] = {}
 _LOCK_REGISTRY_GUARD = threading.Lock()
 
@@ -131,13 +123,13 @@ def _lock_for(root: Path) -> threading.RLock:
 
 
 class ObjectiveRuntimeRepository:
-    """A single atomic runtime commit file per state revision."""
+    """PostgreSQL state and incremental events with immutable content files."""
 
     def __init__(self, root: str | Path, *, run_id: str) -> None:
         self.root = Path(root)
         self.run_id = run_id
-        self.commit_dir = self.root / "objective_runtime" / "commits"
         self._lock = _lock_for(self.root)
+        self._store = PostgresRuntimeStore.open(self.root, run_id)
 
     @classmethod
     def create(
@@ -147,10 +139,20 @@ class ObjectiveRuntimeRepository:
         manifest: RunManifest,
         budget: RuntimeBudget,
         goal: GenerationGoal | None = None,
+        storage_database=None,
+        content_root=None,
     ) -> "ObjectiveRuntimeRepository":
         repo = cls(root, run_id=manifest.run_id)
-        if repo.commit_dir.exists() and any(repo.commit_dir.glob("*.json")):
+        if repo._store is not None:
             raise FileExistsError("objective runtime already initialized")
+        if storage_database is None:
+            from .runtime_storage import database_for_workspace
+            workspace = Path(root).parent.parent if Path(root).parent.name == "objective_runs" else Path(root)
+            storage_database = database_for_workspace(workspace)
+        repo._store = PostgresRuntimeStore.prepare(
+            root, manifest.run_id, storage_database,
+            content_root or Path(root).parent / "runtime_content",
+        )
         snapshot = ObjectiveRuntimeSnapshot(
             run_id=manifest.run_id,
             manifest=manifest,
@@ -160,20 +162,8 @@ class ObjectiveRuntimeRepository:
             commit_sequence=1,
             budget=budget,
         )
-        repo._write_commit(
-            snapshot=snapshot,
-            previous_digest="0" * 64,
-        )
+        repo._store.append(snapshot.model_dump(mode="json"), 0)
         return repo
-
-    @property
-    def _commit_files(self) -> list[Path]:
-        if not self.commit_dir.exists():
-            return []
-        return sorted(
-            self.commit_dir.glob("*.json"),
-            key=lambda item: int(item.stem),
-        )
 
     def load(self) -> ObjectiveRuntimeSnapshot:
         with self._lock:
@@ -222,25 +212,8 @@ class ObjectiveRuntimeRepository:
 
     def ordered_decisions(self) -> list[MainAgentDecision]:
         snapshot = self.load()
-        seen: set[str] = set()
-        ordered: list[MainAgentDecision] = []
-        for path in self._commit_files:
-            payload = self._read_commit(path).model_dump(mode="json")
-            decisions = payload.get("snapshot", {}).get("decisions", {})
-            if not isinstance(decisions, dict):
-                continue
-            for decision_id in decisions:
-                if decision_id in seen:
-                    continue
-                decision = snapshot.decisions.get(decision_id)
-                if decision is None:
-                    continue
-                seen.add(decision_id)
-                ordered.append(decision)
-        for decision_id, decision in snapshot.decisions.items():
-            if decision_id not in seen:
-                ordered.append(decision)
-        return ordered
+        return [snapshot.decisions[key] for key in self._store.decision_ids()
+                if key in snapshot.decisions]
 
     def pending_decision(self) -> MainAgentDecision | None:
         snapshot = self.load()
@@ -366,21 +339,7 @@ class ObjectiveRuntimeRepository:
                 raise ValueError("run is not waiting for recovery")
             resumed_state = snapshot.recovery_state
             if resumed_state is None:
-                files = self._commit_files
-                if len(files) >= 2:
-                    previous = self._read_commit(files[-2]).snapshot
-                    if previous.run_state not in {
-                        RunState.COMPLETED,
-                        RunState.COMPLETED_WITH_ZERO_QUESTIONS,
-                        RunState.PROVIDER_FAILED,
-                        RunState.RECOVERY_REQUIRED,
-                        RunState.VERSION_INCOMPATIBLE,
-                        RunState.CANCELLED,
-                    }:
-                        resumed_state = previous.run_state
-            resumed_state = (
-                resumed_state or RunState.CANDIDATES_PROCESSING
-            )
+                raise CheckpointIntegrityError("paused runtime has no recovery state")
             updated = snapshot.model_copy(
                 update={
                     "run_state": resumed_state,
@@ -630,74 +589,20 @@ class ObjectiveRuntimeRepository:
             return saved
 
     def verify_integrity(self) -> bool:
-        with self._lock:
-            files = self._commit_files
-            if not files:
-                raise CheckpointIntegrityError("runtime has no commits")
-            previous_digest = "0" * 64
-            previous_sequence = 0
-            for path in files:
-                try:
-                    envelope = self._read_commit(path)
-                except Exception as exc:
-                    if isinstance(exc, CheckpointIntegrityError):
-                        raise
-                    raise CheckpointIntegrityError(
-                        f"invalid runtime commit {path.name}: {exc}"
-                    ) from exc
-                if envelope.commit_sequence != previous_sequence + 1:
-                    raise CheckpointIntegrityError("commit sequence is not contiguous")
-                if envelope.commit_sequence != envelope.snapshot.commit_sequence:
-                    raise CheckpointIntegrityError("snapshot commit sequence differs")
-                if envelope.previous_snapshot_digest != previous_digest:
-                    raise CheckpointIntegrityError("previous commit digest differs")
-                previous_digest = envelope.snapshot_digest
-                previous_sequence = envelope.commit_sequence
-            return True
+        if self._store is None:
+            raise FileNotFoundError("objective runtime has no storage marker")
+        try:
+            return self._store.verify()
+        except StorageIntegrityError as exc:
+            raise CheckpointIntegrityError(str(exc)) from exc
 
     def _load_latest(self) -> ObjectiveRuntimeSnapshot:
-        files = self._commit_files
-        if not files:
-            raise FileNotFoundError("objective runtime has no commits")
-        path = files[-1]
-        envelope = self._read_commit(path)
-        if envelope.snapshot.run_id != self.run_id:
-            raise CheckpointIntegrityError("runtime belongs to another run")
-        return envelope.snapshot
-
-    @staticmethod
-    def _read_commit(path: Path) -> RuntimeCommitEnvelope:
-        """Validate the stored raw snapshot before applying current defaults."""
+        if self._store is None:
+            raise FileNotFoundError("objective runtime has no storage marker")
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise CheckpointIntegrityError(
-                f"invalid runtime commit {path.name}: {exc}"
-            ) from exc
-        if not isinstance(payload, dict):
-            raise CheckpointIntegrityError(
-                f"invalid runtime commit {path.name}: root is not an object"
-            )
-        raw_snapshot = payload.get("snapshot")
-        stored_digest = payload.get("snapshot_digest")
-        if not isinstance(raw_snapshot, dict) or not isinstance(
-            stored_digest,
-            str,
-        ):
-            raise CheckpointIntegrityError(
-                f"invalid runtime commit {path.name}: digest envelope is missing"
-            )
-        actual = canonical_digest(raw_snapshot)
-        if actual != stored_digest:
-            raise CheckpointIntegrityError(
-                f"runtime snapshot digest differs in {path.name}"
-            )
-        try:
-            return RuntimeCommitEnvelope.model_validate(payload)
-        except Exception as exc:
-            raise CheckpointIntegrityError(
-                f"invalid runtime commit {path.name}: {exc}"
-            ) from exc
+            return ObjectiveRuntimeSnapshot.model_validate(self._store.load())
+        except StorageIntegrityError as exc:
+            raise CheckpointIntegrityError(str(exc)) from exc
 
     def _commit_next(
         self,
@@ -711,40 +616,11 @@ class ObjectiveRuntimeRepository:
                 "commit_sequence": next_sequence,
             }
         )
-        self._load_latest()
-        previous_digest = self._read_commit(
-            self._commit_files[-1]
-        ).snapshot_digest
-        self._write_commit(snapshot=updated, previous_digest=previous_digest)
+        try:
+            self._store.append(updated.model_dump(mode="json"), current.commit_sequence)
+        except StorageConflict as exc:
+            raise StaleStateRevision(str(exc)) from exc
         return updated
-
-    def _write_commit(
-        self,
-        *,
-        snapshot: ObjectiveRuntimeSnapshot,
-        previous_digest: str,
-    ) -> None:
-        self.commit_dir.mkdir(parents=True, exist_ok=True)
-        digest = canonical_digest(snapshot.model_dump(mode="json"))
-        envelope = RuntimeCommitEnvelope(
-            commit_sequence=snapshot.commit_sequence,
-            previous_snapshot_digest=previous_digest,
-            snapshot_digest=digest,
-            snapshot=snapshot,
-        )
-        path = self.commit_dir / f"{snapshot.commit_sequence:08d}.json"
-        temporary = path.with_suffix(".json.tmp")
-        temporary.write_text(
-            json.dumps(
-                envelope.model_dump(mode="json"),
-                ensure_ascii=False,
-                sort_keys=True,
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-        temporary.replace(path)
 
     @staticmethod
     def _require_revision(

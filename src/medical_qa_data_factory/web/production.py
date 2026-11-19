@@ -43,6 +43,8 @@ class ProductionService:
                  race_last_question=False, database_url=None):
         self.root = Path(root)
         self.database = ProductionDatabase(self.root, database_url)
+        from ..generation.runtime_storage import register_database
+        register_database(self.database)
         self.source, self.execute = source, execute
         self.progress, self.pause_run = progress, pause
         self.entity_for_run = entity_for_run

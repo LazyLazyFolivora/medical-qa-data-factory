@@ -78,7 +78,6 @@ from .generation.objective_question_runtime import (
     ChildResultSlot,
     ObjectiveRuntimeSnapshot,
     RuntimeBudget,
-    RuntimeCommitEnvelope,
 )
 from .generation.run_identity import (
     AttemptRecord,
@@ -225,7 +224,6 @@ SCHEMA_MODELS = {
     "artifact-envelope.schema.json": ArtifactEnvelope,
     "child-result-slot.schema.json": ChildResultSlot,
     "objective-runtime-snapshot.schema.json": ObjectiveRuntimeSnapshot,
-    "runtime-commit-envelope.schema.json": RuntimeCommitEnvelope,
     "operation-record.schema.json": OperationRecord,
     "metric-spec.schema.json": MetricSpec,
     "objective-acceptance-suite.schema.json": ObjectiveAcceptanceSuite,

@@ -88,6 +88,8 @@ def create_objective_run(
     max_actions=DEFAULT_MAX_ACTIONS,
     max_cost=DEFAULT_MAX_COST,
     max_model_calls=DEFAULT_MAX_MODEL_CALLS,
+    storage_database=None,
+    content_root=None,
 ):
     model_versions = {"structured": getattr(model, "model_config_id", "structured-model")}
     if model_provider_id:
@@ -147,6 +149,7 @@ def create_objective_run(
     return ObjectiveRuntimeRepository.create(
         root, manifest=manifest, goal=goal,
         budget=RuntimeBudget(max_cost=max_cost, max_model_calls=max_model_calls),
+        storage_database=storage_database, content_root=content_root,
     )
 
 

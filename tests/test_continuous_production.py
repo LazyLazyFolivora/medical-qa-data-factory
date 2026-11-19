@@ -29,8 +29,8 @@ def production_database(tmp_path, monkeypatch):
                 cursor.execute(sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(sql.Identifier(database.schema)))
 
 
-def wait_until(predicate):
-    deadline = time.monotonic() + 8
+def wait_until(predicate, *, timeout=8):
+    deadline = time.monotonic() + timeout
     while not predicate():
         assert time.monotonic() < deadline, "production did not reach expected state"
         time.sleep(.02)
@@ -287,7 +287,7 @@ def test_production_api_runs_real_single_entity_pipeline(tmp_path):
         response = client.post("/api/production", json={"target_count": 1, "per_entity_count": 1, "workers": 16})
         assert response.status_code == 202
         trigger_id = response.json()["trigger_id"]
-        wait_until(lambda: client.get("/api/production").json()["triggers"][0]["state"] in {"completed", "failed", "paused"})
+        wait_until(lambda: client.get("/api/production").json()["triggers"][0]["state"] in {"completed", "failed", "paused"}, timeout=30)
         trigger = client.get("/api/production").json()["triggers"][0]
         assert trigger["state"] == "completed", trigger
         questions = client.get("/api/production/questions", params={"trigger_id": trigger_id}).json()
@@ -297,6 +297,9 @@ def test_production_api_runs_real_single_entity_pipeline(tmp_path):
         assert all(not request.payload["candidate_tool_targets"]["publish_question"]
                    for request in model.calls_for("objective_react_agent"))
         run_id = questions["questions"][0]["run_id"]
+        runtime_root = tmp_path / "objective_runs" / run_id / "objective_runtime"
+        assert (runtime_root / "storage.json").is_file()
+        assert not (runtime_root / "commits").exists()
         from medical_qa_data_factory.generation.objective_question_runtime import ObjectiveRuntimeRepository
         snapshot = ObjectiveRuntimeRepository(tmp_path / "objective_runs" / run_id, run_id=run_id).load()
         assessment = next(a for a in snapshot.artifacts.values() if a.artifact_type == "difficulty_assessment")

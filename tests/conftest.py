@@ -7,6 +7,41 @@ from pathlib import Path
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def runtime_database_for_tests(tmp_path, monkeypatch):
+    """Runtime tests use the same PostgreSQL backend as production, lazily."""
+    import os
+    from medical_qa_data_factory.generation.objective_question_runtime import ObjectiveRuntimeRepository
+    original = ObjectiveRuntimeRepository.create.__func__
+    databases = {}
+
+    def create(cls, *args, **kwargs):
+        if kwargs.get("storage_database") is None:
+            dsn = os.environ.get("MEDICAL_QA_TEST_POSTGRES_URL")
+            if not dsn:
+                pytest.skip("runtime tests require MEDICAL_QA_TEST_POSTGRES_URL")
+            root = Path(args[0] if args else kwargs["root"])
+            workspace = root.parent.parent if root.parent.name == "objective_runs" else root
+            if workspace not in databases:
+                from medical_qa_data_factory.web.production_db import ProductionDatabase
+                database = ProductionDatabase(workspace, dsn)
+                database.migrate()
+                databases[workspace] = database
+            kwargs["storage_database"] = databases[workspace]
+        return original(cls, *args, **kwargs)
+
+    monkeypatch.setattr(ObjectiveRuntimeRepository, "create", classmethod(create))
+    yield
+    for database in databases.values():
+        from contextlib import closing
+        import psycopg2
+        from psycopg2 import sql
+        database.close()
+        with closing(psycopg2.connect(database.dsn)) as connection:
+            with connection, connection.cursor() as cursor:
+                cursor.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(database.schema)))
+
+
 TINY_SCHEMA = """
 CREATE TABLE edges (
     head TEXT,

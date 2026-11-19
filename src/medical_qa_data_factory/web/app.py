@@ -210,21 +210,10 @@ def _objective_progress_timing(
     terminal: bool,
     now: datetime | None = None,
 ) -> tuple[datetime | None, int, bool]:
-    commit_dir = Path(run_root) / "objective_runtime" / "commits"
-    commits = (
-        sorted(
-            commit_dir.glob("*.json"),
-            key=lambda item: int(item.stem),
-        )
-        if commit_dir.is_dir()
-        else []
-    )
-    if not commits:
+    from ..generation.runtime_storage import runtime_updated_at
+    last_commit_at = runtime_updated_at(run_root, Path(run_root).name)
+    if last_commit_at is None:
         return None, 0, False
-    last_commit_at = datetime.fromtimestamp(
-        commits[-1].stat().st_mtime,
-        tz=timezone.utc,
-    )
     current_time = now or datetime.now(timezone.utc)
     seconds_since_progress = max(
         0,
@@ -797,24 +786,10 @@ def _objective_published_question_rows(
             tz=timezone.utc,
         )
         if snapshot is not None:
-            commit_dir = (
-                _objective_run_root(workspace, run_id)
-                / "objective_runtime"
-                / "commits"
-            )
-            commits = (
-                sorted(
-                    commit_dir.glob("*.json"),
-                    key=lambda item: int(item.stem),
-                )
-                if commit_dir.is_dir()
-                else []
-            )
-            if commits:
-                published_at = datetime.fromtimestamp(
-                    commits[-1].stat().st_mtime,
-                    tz=timezone.utc,
-                )
+            from ..generation.runtime_storage import runtime_updated_at
+            updated_at = runtime_updated_at(_objective_run_root(workspace, run_id), run_id)
+            if updated_at is not None:
+                published_at = updated_at
         for payload in questions:
             question_id = str(payload.get("question_id") or "")
             report = report_by_question_id.get(question_id, {})
@@ -894,6 +869,7 @@ def _run_objective_web_generation(
     objective_providers: dict[str, object] | None = None,
     generation_strategy: str = DEFAULT_GENERATION_STRATEGY,
     publication_slot=None,
+    storage_database=None,
 ) -> dict[str, object]:
     run_root = _objective_run_root(workspace, run_id)
     release_root = _objective_release_root(workspace, run_id)
@@ -919,6 +895,8 @@ def _run_objective_web_generation(
             model=model,
             model_provider_id=model_provider_id,
             max_actions=max_actions,
+            storage_database=storage_database,
+            content_root=os.environ.get("MEDICAL_QA_RUNTIME_CONTENT_ROOT") or Path(workspace) / "runtime_content",
         )
         try:
             result = run_objective_loop(runtime, runtime.load().goal, model, selected, publication_slot=publication_slot)
@@ -1803,7 +1781,7 @@ def create_app(
                     difficulty_targets=config.difficulty_targets, style_targets=list(DEFAULT_STYLE_TARGETS),
                     generation_strategy=config.generation_strategy,
                     model=model, model_provider_id=model_provider_id, objective_providers=managed_providers,
-                    publication_slot=publication_slot)
+                    publication_slot=publication_slot, storage_database=production.database)
             return build_objective_summary(repository.root, run_id)
         finally:
             if graph_provider is not None:
